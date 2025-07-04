@@ -8,7 +8,7 @@ cd ${BASEDIR}
 
 migrate() {
     # Install diesel command line tool
-    which diesel || cargo binstall diesel_cli
+    which diesel > /dev/null || cargo binstall diesel_cli
 
     # Make sure we have a database url
     if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL not set"; exit 0; fi
