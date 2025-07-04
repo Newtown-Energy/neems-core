@@ -7,8 +7,6 @@ BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
 
 migrate() {
-    cd back/neems-core
-
     # Install diesel command line tool
     which diesel || cargo binstall diesel_cli
 
@@ -20,10 +18,8 @@ migrate() {
 }
 
 watch() {
-    cd back/neems-core
     echo "Running Neems Core for development purposes..."
     cargo --list | grep -Eq '^    watch$' || cargo install cargo-watch
-    cd back/neems-core
     cargo watch -x run
 }
 
