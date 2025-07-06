@@ -1,28 +1,46 @@
-// We have a set of clients.
+// @generated automatically by Diesel CLI.
+
 diesel::table! {
     clients (id) {
-        id -> Int4,
-        name -> VarChar,
+        id -> Integer,
+        name -> Text,
     }
 }
 
-// Each client can have multiple sites.  Each site belongs to one client.
-iesel::table! {
+diesel::table! {
+    institutions (id) {
+        id -> Integer,
+        name -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     sites (id) {
-        id -> Int4,
-        name -> VarChar,
-        address -> VarChar,
-        latitude -> Float8,
-        longitude -> Float8,
-        client_id -> Int4, // Foreign key for the client
+        id -> Integer,
+        name -> Text,
+        address -> Text,
+        latitude -> Float,
+        longitude -> Float,
     }
 }
 
-diesel::joinable!(sites -> clients (client_id));
+diesel::table! {
+    users (id) {
+        id -> Integer,
+        username -> Text,
+        email -> Text,
+        password_hash -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        institution_id -> Integer,
+    }
+}
 
 diesel::allow_tables_to_appear_in_same_query!(
     clients,
+    institutions,
     sites,
+    users,
 );
-
-
