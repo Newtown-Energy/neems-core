@@ -1,9 +1,11 @@
-[package]
-name = "neems-core"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "neems-core",      # Your main package (renamed from src/)
+    "crates/fixphrase"  # Your new fixphrase crate
+]
+resolver = "2"  # Recommended for Rust 2021+ editions
 
-[dependencies]
+[workspace.dependencies]
 diesel = { version = "2.1.0", features = ["sqlite"] }
 diesel_migrations = "2.1.0"
 dotenvy = "0.15"  # For loading .env files

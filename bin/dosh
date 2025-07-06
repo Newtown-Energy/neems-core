@@ -17,6 +17,10 @@ migrate() {
     [ ! -f "$DATABASE_URL" ] && diesel setup
 }
 
+test() {
+    cargo test --color=always "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' | wl-copy)
+}
+
 watch() {
     echo "Running Neems Core for development purposes..."
     cargo --list | grep -Eq '^    watch$' || cargo install cargo-watch
