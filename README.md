@@ -17,15 +17,15 @@ necessary, we want to be able to replace with postgres in production.
 
 ## Running
     
- 1. For dev, you can run the rust backend, NEEMS Core, from its
-    directory.  That backend will server static files from its
-    `static` directory, which should be symlinked to neems-react.  You
-    can run it with `dosh watch`.
+ * For dev, you can run the rust backend, NEEMS Core, from its
+   directory.  That backend will server static files from its
+   `static` directory, which should be symlinked to neems-react.  You
+   can run it with `dosh watch`.
 
- 2. In production, maybe you can put this behind a web server that
-    serves the static files, but proxies /api calls to a running NEEMS
-    Core on that or another machine.  Caddy would be a good choice if
-    you want tls.  Maybe Nginx if you don't.
+ * In production, maybe you can put this behind a web server that
+   serves the static files, but proxies /api calls to a running NEEMS
+   Core on that or another machine.  Caddy would be a good choice if
+   you want tls.  Maybe Nginx if you don't.
 
 ## Database
 
