@@ -15,6 +15,16 @@ on those readings.
 Database access goes through diesel to an sqlite database.  If
 necessary, we want to be able to replace with postgres in production.
 
+## Config
+
+You should definitely edit `rocket.toml` and change the `secret_key`.
+The key that is there is not secure.  I copied it from the
+documentation.  This should get you a usable key:
+
+```bash
+openssl rand -base64 32`.
+```
+
 ## Running
     
  * For dev, you can run the rust backend, NEEMS Core, from its
