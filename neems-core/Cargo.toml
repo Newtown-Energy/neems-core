@@ -9,6 +9,7 @@ fixphrase = { path = "../crates/fixphrase" }
 diesel.workspace = true
 diesel_migrations.workspace = true
 dotenvy.workspace = true
+figment_file_provider_adapter = { workspace = true }
 rocket.workspace = true
 serde.workspace = true
 serde_json.workspace = true
