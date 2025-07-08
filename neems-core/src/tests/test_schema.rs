@@ -1,4 +1,10 @@
-// src/tests/test_schema.rs
+/*
+
+This file is for testing the schema and relationships in the database.
+Do not use it to test the actual application logic.
+
+*/
+
 #[cfg(test)]
 
 mod tests {
@@ -26,6 +32,25 @@ mod tests {
 	    .first(conn)?;
 
 	Ok(institution)
+    }
+
+    fn create_test_role(
+	conn: &mut SqliteConnection,
+	name: &str,
+	description: Option<&str>,
+    ) -> Result<Role, diesel::result::Error> {
+	let new_role = NewRole {
+	    name: name.to_string(),
+	    description: description.map(|s| s.to_string()),
+	};
+
+	diesel::insert_into(roles::table)
+	    .values(&new_role)
+	    .execute(conn)?;
+
+	roles::table
+	    .order(roles::id.desc())
+	    .first(conn)
     }
 
     fn create_test_site(
@@ -242,5 +267,74 @@ mod tests {
 	assert!(matches!(result, Err(Error::DatabaseError(_, _))));
     }
 
+    #[test]
+    fn test_user_roles_many_to_many() {
+	use diesel::prelude::*;
+
+	let mut conn = establish_test_connection();
+	let inst = create_test_institution(&mut conn, "Roles Institution")
+	    .expect("Roles institution insert should succeed");
+	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser1", "roleuser1@test.com")
+	    .expect("user1 should be created");
+	let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser2", "roleuser2@test.com")
+	    .expect("user2 should be created");
+
+	// Create roles
+	let role1 = create_test_role(&mut conn, "Admin", Some("Administrator"))
+	    .expect("Failed to create role1");
+	let role2 = create_test_role(&mut conn, "Editor", Some("Content Editor"))
+	    .expect("Failed to create role2");
+
+	// Create associations
+	diesel::insert_into(user_roles::table)
+	    .values(&NewUserRole {
+		user_id: user1.id.expect("Must have user1 id"),
+		role_id: role1.id.expect("Must have role1 id"),
+	    })
+	    .execute(&mut conn)
+	    .expect("Failed to create user role");
+
+	diesel::insert_into(user_roles::table)
+	    .values(&NewUserRole {
+		user_id: user1.id.expect("Must have user1 id"),
+		role_id: role2.id.expect("Must have role2 id"),
+	    })
+	    .execute(&mut conn)
+	    .expect("Failed to create user role");
+
+	diesel::insert_into(user_roles::table)
+	    .values(&NewUserRole {
+		user_id: user2.id.expect("Must have user2 id"),
+		role_id: role1.id.expect("Must have role1 id"),
+	    })
+	    .execute(&mut conn)
+	    .expect("Failed to create user role");
+
+	// --- Verify many-to-many relationships ---
+
+	// 1. All roles for user1
+	let user1_user_roles = user_roles::table
+	    .filter(user_roles::user_id.eq(user1.id.expect("Must have user1 id")))
+	    .load::<UserRole>(&mut conn)
+	    .expect("Failed to load user_roles for user1");
+	let user1_role_ids: Vec<i32> = user1_user_roles.iter().map(|ur| ur.role_id).collect();
+	let user1_roles = roles::table
+	    .filter(roles::id.eq_any(user1_role_ids))
+	    .load::<Role>(&mut conn)
+	    .expect("Failed to load roles");
+	assert_eq!(user1_roles.len(), 2);
+
+	// 2. All users for role1
+	let role1_user_roles = user_roles::table
+	    .filter(user_roles::role_id.eq(role1.id.expect("Must have role1 id")))
+	    .load::<UserRole>(&mut conn)
+	    .expect("Failed to load user_roles for role1");
+	let role1_user_ids: Vec<i32> = role1_user_roles.iter().map(|ur| ur.user_id).collect();
+	let role1_users = users::table
+	    .filter(users::id.eq_any(role1_user_ids))
+	    .load::<User>(&mut conn)
+	    .expect("Failed to load users");
+	assert_eq!(role1_users.len(), 2);
+    }
 
 }
