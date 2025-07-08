@@ -1,10 +1,6 @@
 #[macro_use]
 extern crate rocket;
 
-pub mod api;
-pub mod models; 
-pub mod schema;  
-
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use rocket::Build;
 use rocket::Config;
@@ -15,6 +11,13 @@ use rocket::Rocket;
 use std::path::PathBuf;
 use rocket::figment::{Figment, providers::{Env, Format, Toml}};
 use figment_file_provider_adapter::FileAdapter;
+
+pub mod api;
+pub mod auth;
+pub mod db;
+pub use db::DbConn;
+pub mod models; 
+pub mod schema;  
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 
@@ -46,13 +49,17 @@ pub fn rocket() -> Rocket<Build> {
     let static_dir = workspace_root().join("static");
 
     rocket::custom(figment)
+	.attach(DbConn::fairing())
         .register("/", catchers![not_found])
 	// Mount /api routes first (takes precedence over static files)
         .mount("/api", routes![
             api::health_status,
             api::get_clients,
             api::create_client,
-            api::encode_fixphrase
+            api::encode_fixphrase,
+	    auth::login::login,
+	    auth::login::secure_hello,
+	    auth::logout::logout,
         ])
         // Mount static file server at root (serves everything else)
         .mount("/", FileServer::from(static_dir).rank(10))
