@@ -199,4 +199,48 @@ mod tests {
         assert_eq!(sites.len(), 1);
     }
 
+    #[test]
+    fn test_site_name_uniqueness_per_institution() {
+	let mut conn = establish_test_connection();
+	let inst1 = create_test_institution(&mut conn, "Inst 1")
+	    .expect("First institution insert should succeed");
+	let inst2 = create_test_institution(&mut conn, "Inst 2")
+	    .expect("Second institution insert should succeed");
+
+	// Create site for first institution
+	create_test_site(
+	    &mut conn,
+	    inst1.id.expect("Must have inst1 id"),
+	    "Main Site",
+	    "123 Main St",
+	    40.7128,
+	    -74.0060,
+	)
+	.expect("Failed to create site");
+
+	// Same name in different institution should work
+	create_test_site(
+	    &mut conn,
+	    inst2.id.expect("Must have inst2 id"),
+	    "Main Site",
+	    "456 Other St",
+	    34.0522,
+	    -118.2437,
+	)
+	.expect("Failed to create site with same name in different institution");
+
+	// Same name in same institution should fail
+	let result = create_test_site(
+	    &mut conn,
+	    inst1.id.expect("Must have inst1 id"),
+	    "Main Site",
+	    "789 Third St",
+	    41.8781,
+	    -87.6298,
+	);
+
+	assert!(matches!(result, Err(Error::DatabaseError(_, _))));
+    }
+
+
 }
