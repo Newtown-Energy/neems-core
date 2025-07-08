@@ -18,6 +18,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    sessions (id) {
+        id -> Text,
+        user_id -> Integer,
+        created_at -> Timestamp,
+        expires_at -> Nullable<Timestamp>,
+        revoked -> Bool,
+    }
+}
+
+diesel::table! {
     sites (id) {
         id -> Nullable<Integer>,
         name -> Text,
@@ -50,6 +60,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> institutions (institution_id));
 diesel::joinable!(user_roles -> roles (role_id));
 diesel::joinable!(user_roles -> users (user_id));
@@ -58,6 +69,7 @@ diesel::joinable!(users -> institutions (institution_id));
 diesel::allow_tables_to_appear_in_same_query!(
     institutions,
     roles,
+    sessions,
     sites,
     user_roles,
     users,
