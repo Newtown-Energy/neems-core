@@ -4,5 +4,5 @@ address = "0.0.0.0"
 limits = { form = "64 kB", json = "10 MiB" }
 ip_header = "X-Real-IP"
 port = 8000
-secret_key = "hPrYyЭRiMyµ5sBB1π+CMæ1køFsåqKvBiQJxBVHQk="
+secret_key_file = "secret_key.txt"
 
