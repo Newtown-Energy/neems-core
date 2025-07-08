@@ -10,7 +10,7 @@ mod tests {
     use diesel::result::{Error, DatabaseErrorKind};
 
     // Helper to create test institution
-    fn create_test_institution(conn: &mut SqliteConnection, name: &str) -> Institution {
+    fn create_test_institution(conn: &mut SqliteConnection, name: &str) -> Result<Institution, diesel::result::Error> {
 	let new_institution = NewInstitution {
 	    name: name.to_string(),
 	    created_at: Utc::now().naive_utc(),
@@ -19,13 +19,13 @@ mod tests {
 
 	diesel::insert_into(institutions::table)
 	    .values(&new_institution)
-	    .execute(conn)
-	    .expect("Failed to insert institution");
+	    .execute(conn)?;
 
-	institutions::table
+	let institution = institutions::table
 	    .order(institutions::id.desc())
-	    .first(conn)
-	    .expect("Failed to load created institution")
+	    .first(conn)?;
+
+	Ok(institution)
     }
 
     fn create_test_user(
@@ -57,28 +57,27 @@ mod tests {
 
     #[test]
     fn test_institution_name_uniqueness() {
-        let mut conn = establish_test_connection();
+	let mut conn = establish_test_connection();
 
-        // First insert should succeed
-        create_test_institution(&mut conn, "Unique Institution");
+	// First insert should succeed
+	create_test_institution(&mut conn, "Unique Institution")
+	    .expect("First institution insert should succeed");
 
-        // Second insert with same name should fail
-        let result = diesel::insert_into(institutions::table)
-            .values(&NewInstitution {
-                name: "Unique Institution".to_string(),
-                created_at: Utc::now().naive_utc(),
-                updated_at: Utc::now().naive_utc(),
-            })
-            .execute(&mut conn);
-
-        assert!(matches!(result, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))));
-
+	// Second insert with same name should fail
+	let result = create_test_institution(&mut conn, "Unique Institution");
+	assert!(matches!(
+	    result,
+	    Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))
+	));
     }
+
 
     #[test]
     fn test_user_uniqueness_constraints() {
 	let mut conn = establish_test_connection();
-	let inst = create_test_institution(&mut conn, "Test Inst");
+	let inst = create_test_institution(&mut conn, "Test Inst")
+	    .expect("First institution insert should succeed");
+
 
 	// First user should succeed
 	create_test_user(
