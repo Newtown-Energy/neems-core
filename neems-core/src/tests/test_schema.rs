@@ -28,6 +28,33 @@ mod tests {
 	Ok(institution)
     }
 
+    fn create_test_site(
+	conn: &mut SqliteConnection,
+	inst_id: i32,
+	name: &str,
+	address: &str,
+	latitude: f64,
+	longitude: f64,
+    ) -> Result<Site, diesel::result::Error> {
+	let new_site = NewSite {
+	    name: name.to_string(),
+	    address: address.to_string(),
+	    latitude,
+	    longitude,
+	    institution_id: inst_id,
+	    created_at: Utc::now().naive_utc(),
+	    updated_at: Utc::now().naive_utc(),
+	};
+
+	diesel::insert_into(sites::table)
+	    .values(&new_site)
+	    .execute(conn)?;
+
+	sites::table
+	    .order(sites::id.desc())
+	    .first(conn)
+    }
+
     fn create_test_user(
 	conn: &mut SqliteConnection,
 	inst_id: i32,
@@ -154,18 +181,14 @@ mod tests {
 	    .expect("First institution insert should succeed");
 
         // Create sites for this institution
-        diesel::insert_into(sites::table)
-            .values(&NewSite {
-                name: "Site A".to_string(),
-                address: "123 Main St".to_string(),
-                latitude: 40.7128,
-                longitude: -74.0060,
-                institution_id: inst.id.expect("Must have inst id"),
-                created_at: Utc::now().naive_utc(),
-                updated_at: Utc::now().naive_utc(),
-            })
-            .execute(&mut conn)
-            .expect("Failed to create site");
+	create_test_site(
+	    &mut conn,
+	    inst.id.expect("Must have inst id"),
+	    "Site A",
+	    "123 Main St",
+	    40.7128,
+	    -74.0060,
+	).expect("Failed to create site");
 
         // Verify relationship
         let sites = sites::table
@@ -175,6 +198,5 @@ mod tests {
         
         assert_eq!(sites.len(), 1);
     }
-
 
 }
