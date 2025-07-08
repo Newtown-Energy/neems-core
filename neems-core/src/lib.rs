@@ -18,6 +18,7 @@ pub mod db;
 pub use db::DbConn;
 pub mod institution; 
 pub mod models; 
+pub mod role;
 pub mod schema;  
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
@@ -113,6 +114,7 @@ pub fn test_rocket() -> Rocket<Build> {
             auth::logout::logout,
         ])
 	.mount("/api/1", institution::routes())
+	.mount("/api/1", role::routes())
         .mount("/", FileServer::from(static_dir).rank(10))
 }
 
