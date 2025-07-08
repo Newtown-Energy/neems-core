@@ -112,4 +112,40 @@ mod tests {
 	));
     }
 
+    #[test]
+    fn test_institution_to_users_relationship() {
+        let mut conn = establish_test_connection();
+	let inst = create_test_institution(&mut conn, "Test Inst")
+	    .expect("First institution insert should succeed");
+
+        // Create users for this institution
+	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user1", "user1@test.com")
+	    .expect("user1 should be created");
+	let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user2", "user2@test.com")
+	    .expect("user2 should be created");
+
+        // Verify relationship
+        let users = users::table
+            .filter(users::institution_id.eq(inst.id.expect("Must have inst id")))
+            .load::<User>(&mut conn)
+            .expect("Failed to load users");
+        
+        assert_eq!(users.len(), 2);
+        assert!(users.iter().any(|u| u.id == user1.id));
+        assert!(users.iter().any(|u| u.id == user2.id));
+
+	// Test foreign key constraint
+	let result = create_test_user(
+	    &mut conn,
+	    99999, // Invalid FK
+	    "newuser",
+	    "new@test.com"
+	);
+	assert!(matches!(
+	    result,
+	    Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))
+  	));
+    }
+
+
 }
