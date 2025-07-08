@@ -42,7 +42,8 @@ pub fn rocket() -> Rocket<Build> {
     // Build our figment configuration
     let figment = Figment::from(Config::default())
         // Merge with Rocket.toml, supporting _FILE suffixes
-        .merge(FileAdapter::wrap(Toml::file("Rocket.toml")))
+        .merge(FileAdapter::wrap(Toml::file("rocket.toml")))
+        .merge(FileAdapter::wrap(Toml::file("../rocket.toml")))
         // Merge with environment variables, supporting _FILE suffixes
         .merge(FileAdapter::wrap(Env::prefixed("ROCKET_")));
 
@@ -62,6 +63,54 @@ pub fn rocket() -> Rocket<Build> {
 	    auth::logout::logout,
         ])
         // Mount static file server at root (serves everything else)
+        .mount("/", FileServer::from(static_dir).rank(10))
+}
+
+pub fn test_rocket() -> Rocket<Build> {
+    use rocket::figment::{Figment, providers::{Serialized, Format, Toml}};
+    use rocket::Config;
+    use serde::{Deserialize, Serialize};
+    
+    #[derive(Debug, Deserialize, Serialize)]
+    struct Database {
+        url: String,
+    }
+    
+    #[derive(Debug, Deserialize, Serialize)]
+    struct Databases {
+        sqlite_db: Database,
+    }
+    
+    #[derive(Debug, Deserialize, Serialize)]
+    struct TestConfig {
+        databases: Databases,
+    }
+    
+    let test_config = TestConfig {
+        databases: Databases {
+            sqlite_db: Database {
+                url: ":memory:".to_string(),
+            },
+        },
+    };
+    
+    let figment = Figment::from(Config::default())
+        .merge(Serialized::defaults(test_config));
+    
+    let static_dir = workspace_root().join("static");
+    
+    rocket::custom(figment)
+        .attach(DbConn::fairing())
+        .register("/", catchers![not_found])
+        .mount("/api", routes![
+            api::health_status,
+            api::get_clients,
+            api::create_client,
+            api::encode_fixphrase,
+            auth::login::login,
+            auth::login::secure_hello,
+            auth::logout::logout,
+        ])
         .mount("/", FileServer::from(static_dir).rank(10))
 }
 

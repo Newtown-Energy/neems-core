@@ -6,3 +6,6 @@ ip_header = "X-Real-IP"
 port = 8000
 secret_key_file = "secret_key.txt"
 
+[default.databases]
+sqlite_db = { url = "test.db" }
+

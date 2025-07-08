@@ -1,12 +1,12 @@
 use rocket::local::blocking::Client;
 use rocket::http::{Status};
 use neems_core::api::{FixPhraseResponse, FixPhraseError}; 
-use neems_core::rocket;
+use neems_core::test_rocket;
 
 #[test]
 fn test_encode_fixphrase_success() {
     // 1. Set up test client
-    let client = Client::tracked(rocket()).expect("valid rocket instance");
+    let client = Client::tracked(test_rocket()).expect("valid rocket instance");
 
     // 2. Send request to API
     let response = client
@@ -27,7 +27,7 @@ fn test_encode_fixphrase_success() {
 
 #[test]
 fn test_encode_fixphrase_invalid_coords() {
-    let client = Client::tracked(rocket()).unwrap();
+    let client = Client::tracked(test_rocket()).unwrap();
 
     // Test invalid latitude
     let response = client
@@ -47,7 +47,7 @@ fn test_encode_fixphrase_invalid_coords() {
 
 #[test]
 fn test_api_response_structure() {
-    let client = Client::tracked(rocket()).unwrap();
+    let client = Client::tracked(test_rocket()).unwrap();
     let response = client
         .get("/api/1/fixphrase/encode/42.1409/-76.8518")
         .dispatch();
