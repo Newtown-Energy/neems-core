@@ -20,6 +20,7 @@ pub mod institution;
 pub mod models; 
 pub mod role;
 pub mod schema;  
+pub mod user;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 
@@ -115,6 +116,7 @@ pub fn test_rocket() -> Rocket<Build> {
         ])
 	.mount("/api/1", institution::routes())
 	.mount("/api/1", role::routes())
+	.mount("/api/1", user::routes())
         .mount("/", FileServer::from(static_dir).rank(10))
 }
 
