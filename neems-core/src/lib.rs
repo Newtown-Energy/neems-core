@@ -119,8 +119,9 @@ pub fn test_rocket() -> Rocket<Build> {
 #[cfg(test)]
 pub fn establish_test_connection() -> diesel::SqliteConnection {
     use diesel::Connection;
-    use diesel::sqlite::SqliteConnection;
     use diesel::connection::SimpleConnection;
+    use diesel::sqlite::SqliteConnection;
+    use diesel_migrations::MigrationHarness;
 
     let mut conn = SqliteConnection::establish(":memory:")
         .expect("Could not create test database");
