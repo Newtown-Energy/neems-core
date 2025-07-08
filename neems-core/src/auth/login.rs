@@ -5,15 +5,14 @@ login endpoint
  */
 
 use chrono::Utc;
-use diesel::associations::HasTable;
 use diesel::prelude::*;
-use rocket::{post, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json, State};
+use rocket::{post, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json};
 use rocket::serde::Deserialize;
 use uuid::Uuid;
 
 use crate::auth::session_guard::AuthenticatedUser;
 use crate::DbConn;
-use crate::models::{User, Session, NewSession};
+use crate::models::{User, NewSession};
 // use crate::schema::users::dsl::{users, username, password_hash};
 // use crate::schema::sessions::dsl::{sessions, id as session_id, user_id, created_at, expires_at, revoked};
 use crate::schema::{users, sessions};

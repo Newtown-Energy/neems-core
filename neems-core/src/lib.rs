@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations};
 use rocket::Build;
 use rocket::Config;
 use rocket::fs::FileServer;
@@ -68,7 +68,7 @@ pub fn rocket() -> Rocket<Build> {
 }
 
 pub fn test_rocket() -> Rocket<Build> {
-    use rocket::figment::{Figment, providers::{Serialized, Format, Toml}};
+    use rocket::figment::{Figment, providers::Serialized};
     use rocket::Config;
     use serde::{Deserialize, Serialize};
     

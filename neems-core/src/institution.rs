@@ -1,6 +1,5 @@
 // neems-core/src/api/institution.rs
 
-use chrono::Utc;
 use diesel::prelude::*;
 use diesel::QueryableByName;
 use diesel::sql_types::BigInt;

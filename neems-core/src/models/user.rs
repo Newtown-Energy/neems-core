@@ -1,5 +1,5 @@
 use crate::schema::users;
-use diesel::{Identifiable, Queryable, Insertable, Selectable};
+use diesel::{Identifiable, Queryable, Insertable};
 use serde::{Serialize, Deserialize};
 use chrono::NaiveDateTime;
 
