@@ -16,6 +16,7 @@ pub mod api;
 pub mod auth;
 pub mod db;
 pub use db::DbConn;
+pub mod institution; 
 pub mod models; 
 pub mod schema;  
 
@@ -111,6 +112,7 @@ pub fn test_rocket() -> Rocket<Build> {
             auth::login::secure_hello,
             auth::logout::logout,
         ])
+	.mount("/api/1", institution::routes())
         .mount("/", FileServer::from(static_dir).rank(10))
 }
 

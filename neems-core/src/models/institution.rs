@@ -15,6 +15,6 @@ pub struct Institution {
 #[diesel(table_name = crate::schema::institutions)]
 pub struct NewInstitution {
     pub name: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
 }
