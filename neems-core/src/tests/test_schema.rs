@@ -33,7 +33,7 @@ mod tests {
 	inst_id: i32,
 	username: &str,
 	email: &str,
-    ) -> User {
+    ) -> Result<User, diesel::result::Error> {
 	let new_user = NewUser {
 	    username: username.to_string(),
 	    email: email.to_string(),
@@ -46,13 +46,13 @@ mod tests {
 
 	diesel::insert_into(users::table)
 	    .values(&new_user)
-	    .execute(conn)
-	    .expect("Failed to insert user");
+	    .execute(conn)?;
 
-	users::table
+	let user = users::table
 	    .order(users::id.desc())
-	    .first(conn)
-	    .expect("Failed to load created user")
+	    .first(conn)?;
+
+	Ok(user)
     }
 
     #[test]
@@ -86,34 +86,31 @@ mod tests {
 	    inst.id.expect("Institution ID should be set"),
 	    "user1",
 	    "user1@test.com"
+	).expect("First user insert should succeed");
+
+	// Second user with duplicate username should fail
+	let result = create_test_user(
+	    &mut conn,
+	    inst.id.expect("Institution ID should be set"),
+	    "user1", // duplicate username
+	    "user2@test.com"
 	);
+	assert!(matches!(
+	    result,
+	    Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))
+	));
 
-        // Test username uniqueness
-        let result = diesel::insert_into(users::table)
-	    .values(&NewUser {
-		username: "user1".to_string(),  // Duplicate username
-		email: "user2@test.com".to_string(),
-		password_hash: "testhash".to_string(),
-		institution_id: inst.id.expect("Institution ID should be set"),
-		created_at: Utc::now().naive_utc(),
-		updated_at: Utc::now().naive_utc(),
-		totp_secret: "testsecret".to_string(),
-	    })
-            .execute(&mut conn);
-        assert!(matches!(result, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))));
-
-        // Test email uniqueness
-        let result = diesel::insert_into(users::table)
-	    .values(&NewUser {
-		username: "user2".to_string(),
-		email: "user1@test.com".to_string(),
-		password_hash: "testhash".to_string(),
-		institution_id: inst.id.expect("Institution ID should be set"),
-		created_at: Utc::now().naive_utc(),
-		updated_at: Utc::now().naive_utc(),
-		totp_secret: "testsecret".to_string(),
-	    })
-            .execute(&mut conn);
-        assert!(matches!(result, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))));
+	// Third user with duplicate email should fail
+	let result = create_test_user(
+	    &mut conn,
+	    inst.id.expect("Institution ID should be set"),
+	    "user2",
+	    "user1@test.com" // duplicate email
+	);
+	assert!(matches!(
+	    result,
+	    Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))
+	));
     }
+
 }
