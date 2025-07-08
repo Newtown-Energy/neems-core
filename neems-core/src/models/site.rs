@@ -15,3 +15,15 @@ pub struct Site {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
+
+#[derive(Insertable)]
+#[diesel(table_name = sites)]
+pub struct NewSite {
+    pub name: String,
+    pub address: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub institution_id: i32,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}

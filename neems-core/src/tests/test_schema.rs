@@ -147,5 +147,34 @@ mod tests {
   	));
     }
 
+    #[test]
+    fn test_institution_to_sites_relationship() {
+        let mut conn = establish_test_connection();
+	let inst = create_test_institution(&mut conn, "Test Inst")
+	    .expect("First institution insert should succeed");
+
+        // Create sites for this institution
+        diesel::insert_into(sites::table)
+            .values(&NewSite {
+                name: "Site A".to_string(),
+                address: "123 Main St".to_string(),
+                latitude: 40.7128,
+                longitude: -74.0060,
+                institution_id: inst.id.expect("Must have inst id"),
+                created_at: Utc::now().naive_utc(),
+                updated_at: Utc::now().naive_utc(),
+            })
+            .execute(&mut conn)
+            .expect("Failed to create site");
+
+        // Verify relationship
+        let sites = sites::table
+            .filter(sites::institution_id.eq(inst.id.expect("Must have inst id")))
+            .load::<Site>(&mut conn)
+            .expect("Failed to load sites");
+        
+        assert_eq!(sites.len(), 1);
+    }
+
 
 }
