@@ -17,10 +17,11 @@ mod tests {
 
     // Helper to create test institution
     fn create_test_institution(conn: &mut SqliteConnection, name: &str) -> Result<Institution, diesel::result::Error> {
+	let now = Some(Utc::now().naive_utc());
 	let new_institution = NewInstitution {
 	    name: name.to_string(),
-	    created_at: Utc::now().naive_utc(),
-	    updated_at: Utc::now().naive_utc(),
+	    created_at: now,
+	    updated_at: now,
 	};
 
 	diesel::insert_into(institutions::table)

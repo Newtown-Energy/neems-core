@@ -1,8 +1,6 @@
-use chrono::NaiveDateTime;
-use diesel::{Queryable, Identifiable, Insertable, Associations};
+use diesel::{Queryable, Identifiable, Insertable};
 use serde::{Serialize, Deserialize};
 use crate::schema::roles;
-use crate::models::user::User;
 
 #[derive(Queryable, Identifiable, Debug, Serialize, Deserialize)]
 pub struct Role {

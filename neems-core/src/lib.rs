@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations};
 use rocket::Build;
 use rocket::Config;
 use rocket::fs::FileServer;
@@ -16,6 +16,7 @@ pub mod api;
 pub mod auth;
 pub mod db;
 pub use db::DbConn;
+pub mod institution; 
 pub mod models; 
 pub mod schema;  
 
@@ -67,7 +68,7 @@ pub fn rocket() -> Rocket<Build> {
 }
 
 pub fn test_rocket() -> Rocket<Build> {
-    use rocket::figment::{Figment, providers::{Serialized, Format, Toml}};
+    use rocket::figment::{Figment, providers::Serialized};
     use rocket::Config;
     use serde::{Deserialize, Serialize};
     
@@ -111,14 +112,16 @@ pub fn test_rocket() -> Rocket<Build> {
             auth::login::secure_hello,
             auth::logout::logout,
         ])
+	.mount("/api/1", institution::routes())
         .mount("/", FileServer::from(static_dir).rank(10))
 }
 
 #[cfg(test)]
 pub fn establish_test_connection() -> diesel::SqliteConnection {
     use diesel::Connection;
-    use diesel::sqlite::SqliteConnection;
     use diesel::connection::SimpleConnection;
+    use diesel::sqlite::SqliteConnection;
+    use diesel_migrations::MigrationHarness;
 
     let mut conn = SqliteConnection::establish(":memory:")
         .expect("Could not create test database");

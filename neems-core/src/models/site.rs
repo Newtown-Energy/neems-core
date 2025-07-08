@@ -1,5 +1,5 @@
 use diesel::{Queryable, Identifiable, Insertable, Associations};
-use serde::{Serialize, Deserialize};
+use serde::Serialize;
 use chrono::NaiveDateTime;
 use crate::schema::sites;
 
