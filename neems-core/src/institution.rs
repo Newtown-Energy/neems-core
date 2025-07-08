@@ -12,7 +12,7 @@ use crate::models::{Institution, NewInstitution};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
-    #[sql_type = "BigInt"]
+    #[diesel(sql_type = BigInt)]
     last_insert_rowid: i64,
 }
 
