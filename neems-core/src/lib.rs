@@ -2,7 +2,10 @@
 extern crate rocket;
 
 pub mod api;
+pub mod models; 
+pub mod schema;  
 
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use rocket::Build;
 use rocket::Config;
 use rocket::fs::FileServer;
@@ -12,6 +15,8 @@ use rocket::Rocket;
 use std::path::PathBuf;
 use rocket::figment::{Figment, providers::{Env, Format, Toml}};
 use figment_file_provider_adapter::FileAdapter;
+
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 
 fn workspace_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -51,4 +56,27 @@ pub fn rocket() -> Rocket<Build> {
         ])
         // Mount static file server at root (serves everything else)
         .mount("/", FileServer::from(static_dir).rank(10))
+}
+
+#[cfg(test)]
+pub fn establish_test_connection() -> diesel::SqliteConnection {
+    use diesel::Connection;
+    use diesel::sqlite::SqliteConnection;
+    use diesel::connection::SimpleConnection;
+
+    let mut conn = SqliteConnection::establish(":memory:")
+        .expect("Could not create test database");
+
+    conn.batch_execute("PRAGMA foreign_keys = ON")
+        .expect("Could not enable foreign keys");
+
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("Failed to run migrations");
+
+    conn
+}
+
+// Pull in other tests
+mod tests {
+    mod test_schema;
 }

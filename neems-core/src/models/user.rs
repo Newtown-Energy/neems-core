@@ -1,10 +1,11 @@
 use crate::schema::users;
 use diesel::{Identifiable, Queryable, Insertable, Selectable};
 use serde::{Serialize, Deserialize};
+use chrono::NaiveDateTime;
 
 #[derive(Queryable, Identifiable, Debug, Serialize)]
 pub struct User {
-    pub id: i32,
+    pub id: Option<i32>,  // Nullable in schema
     pub username: String,  // Will be unique
     pub email: String,     // Will be unique
     pub password_hash: String,

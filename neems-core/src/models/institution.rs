@@ -1,17 +1,20 @@
-use diesel::{Identifiable, Queryable, Insertable};
 use chrono::NaiveDateTime;
+use diesel::{Identifiable, Queryable, Insertable};
+use serde::{Serialize, Deserialize};
 
-#[derive(Queryable, Identifiable, Debug)]
+#[derive(Queryable, Identifiable, Debug, Serialize)]
+#[diesel(table_name = crate::schema::institutions)]
 pub struct Institution {
-    pub id: i32,
-    pub name: String,  // Will be unique
+    pub id: Option<i32>,  // Nullable in schema
+    pub name: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Insertable)]
-#[diesel(table_name = institutions)]
+#[derive(Insertable, Debug, Deserialize)]
+#[diesel(table_name = crate::schema::institutions)]
 pub struct NewInstitution {
     pub name: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
-
