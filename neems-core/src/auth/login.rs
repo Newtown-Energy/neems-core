@@ -21,10 +21,10 @@ fn generate_session_token() -> String {
     Uuid::new_v4().to_string()
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct LoginRequest {
     username: String,
-    password: String,
+    password_hash: String, // format is "argon2:<salt>:<hash>"
 }
 
 #[post("/api/1/login", data = "<login>")]
@@ -39,9 +39,10 @@ pub async fn login(
     // 4. Create session token
     // 5. Insert session into DB
     // 6. Set cookie
+    let login_clone = login.clone(); // Clone to move into async block
     let user_result = db.run(move |conn| {
 	users::table
-	    .filter(users::username.eq(&login.username))
+	    .filter(users::username.eq(&login_clone.username))
 	    .first::<User>(conn)
 	    .optional()
     }).await;
@@ -58,7 +59,7 @@ pub async fn login(
 	}
     };
 
-    let password_ok = true; // TODO: Replace with actual password verification logic
+    let password_ok = login.password_hash != ""; // TODO: Replace with actual password verification logic
 
     if !password_ok {
         return Err(Status::Unauthorized);
