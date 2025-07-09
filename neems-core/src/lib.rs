@@ -57,6 +57,9 @@ pub fn rocket() -> Rocket<Build> {
 	    auth::login::secure_hello,
 	    auth::logout::logout,
         ])
+	.mount("/api/1", institution::routes())
+	.mount("/api/1", role::routes())
+	.mount("/api/1", user::routes())
         // Mount static file server at root (serves everything else)
         .mount("/", FileServer::from(static_dir).rank(10))
 }
