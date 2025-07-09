@@ -1,18 +1,10 @@
 use rocket::http::{ContentType};
 use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
-// use serde_json::json;
 
-use neems_core::db::{setup_test_db, test_rocket};
+use neems_core::db::{test_rocket};
 use neems_core::models::{Institution, User};
-use neems_core::institution::insert_institution; // Import the function
 
-// Helper to seed the test DB with "Newtown Energy" and return its ID.
-fn insert_institution_direct(conn: &mut diesel::SqliteConnection) -> i32 {
-    let inst = insert_institution(conn, "Newtown Energy".to_string())
-        .expect("Insert institution should succeed");
-    inst.id.expect("Institution should have an ID")
-}
 
 /// Helper to seed the test DB with "Newtown Energy" and return its ID.
 async fn seed_institution(client: &Client) -> i32 {
