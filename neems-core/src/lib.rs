@@ -112,7 +112,6 @@ pub fn test_rocket() -> Rocket<Build> {
         .mount("/", FileServer::from(static_dir).rank(10))
 }
 
-#[cfg(test)]
 pub fn establish_test_connection() -> diesel::SqliteConnection {
     use diesel::Connection;
     use diesel::connection::SimpleConnection;
@@ -131,7 +130,3 @@ pub fn establish_test_connection() -> diesel::SqliteConnection {
     conn
 }
 
-// Pull in other tests
-mod tests {
-    mod test_schema;
-}

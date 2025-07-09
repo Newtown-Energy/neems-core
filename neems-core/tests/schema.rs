@@ -8,9 +8,9 @@ Do not use it to test the actual application logic.
 #[cfg(test)]
 
 mod tests {
-    use crate::establish_test_connection;
-    use crate::models::*;
-    use crate::schema::*;
+    use neems_core::establish_test_connection;
+    use neems_core::models::*;
+    use neems_core::schema::*;
     use diesel::prelude::*;
     use chrono::Utc;
     use diesel::result::{Error, DatabaseErrorKind};
