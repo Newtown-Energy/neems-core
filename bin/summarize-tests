@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+
+import sys
+import re
+from collections import defaultdict
+
+# ANSI color codes
+COLOR_RED = "\033[31m"
+COLOR_ORANGE = "\033[33m"
+COLOR_RESET = "\033[0m"
+
+def parse_test_output(content):
+    summary_pattern = re.compile(
+        r'test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([\d.]+)s'
+    )
+    
+
+    totals = defaultdict(int)
+    total_time = 0.0
+    
+    for line in content.splitlines():
+        match = summary_pattern.search(line)
+        if match:
+            passed, failed, ignored, measured, filtered, time = match.groups()
+            totals['passed'] += int(passed)
+            totals['failed'] += int(failed)
+            totals['ignored'] += int(ignored)
+            totals['measured'] += int(measured)
+            totals['filtered'] += int(filtered)
+            total_time += float(time)
+    
+    return totals, total_time
+
+def colorize(number, color):
+    return f"{color}{number}{COLOR_RESET}"
+
+def get_result_status(totals):
+    if totals['failed'] > 0:
+        return colorize("FAIL", COLOR_RED)
+    elif totals['ignored'] > 0:
+        return colorize("ok", COLOR_ORANGE)
+    else:
+        return colorize("ok", COLOR_GREEN)
+
+def main():
+    # Read input from file or stdin
+    if len(sys.argv) > 1:
+        with open(sys.argv[1], 'r') as f:
+            content = f.read()
+    else:
+        content = sys.stdin.read()
+    
+    totals, total_time = parse_test_output(content)
+ 
+    # Prepare colored numbers
+    status = get_result_status(totals)
+    failed_str = str(totals['failed'])
+    ignored_str = str(totals['ignored'])   
+
+    # Colorize output
+    if totals['failed'] > 0:
+        failed_str = colorize(failed_str, COLOR_RED)
+    if totals['ignored'] > 0:
+        ignored_str = colorize(ignored_str, COLOR_ORANGE) 
+
+    
+    # Print summary in the same style as input
+    print(f"TOTAL result: {status}. {totals['passed']} passed; {failed_str} failed; "
+          f"{ignored_str} ignored; {totals['measured']} measured; "
+          f"{totals['filtered']} filtered out; finished in {total_time:.2f}s")
+
+
+if __name__ == "__main__":
+    main()
+
+# Local Variables:
+# mode: python
+# End:

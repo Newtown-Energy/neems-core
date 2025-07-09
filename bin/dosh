@@ -42,6 +42,9 @@ test() {
       s/\x1b\\(B//g;                 # Remove ESC ( B
     ' "$tmpfile"
 
+    
+    summarize-tests "$tmpfile"
+
     # Copy the test output to the clipboard, minus color and hyperlink codes
     wl-files -q "$tmpfile" 
 
