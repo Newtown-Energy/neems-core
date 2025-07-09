@@ -2,26 +2,18 @@ use rocket::http::{Status, ContentType};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::api::institution::routes;
 use neems_core::models::Institution;
-
-// Helper to create a Rocket instance for testing
-fn rocket() -> rocket::Rocket<rocket::Build> {
-    rocket::build()
-        .mount("/", routes())
-        // .attach(DbConn::fairing()) // Uncomment if you use a fairing for DB
-        // .manage(test_db_pool())    // Or however you provide a test DB
-}
+use neems_core::db::test_rocket;
 
 #[rocket::async_test]
 async fn test_create_institution() {
-    let client = Client::tracked(rocket()).await.expect("valid rocket instance");
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     let new_inst = json!({
         "name": "Test University"
     });
 
-    let response = client.post("/institutions")
+    let response = client.post("/api/1/institutions")
         .header(ContentType::JSON)
         .body(new_inst.to_string())
         .dispatch()
@@ -37,7 +29,7 @@ async fn test_create_institution() {
 
 #[rocket::async_test]
 async fn test_list_institutions() {
-    let client = Client::tracked(rocket()).await.expect("valid rocket instance");
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     // Optionally, create an institution first
     let new_inst = json!({ "name": "List Test College" });
@@ -47,7 +39,7 @@ async fn test_list_institutions() {
         .dispatch()
         .await;
 
-    let response = client.get("/institutions").dispatch().await;
+    let response = client.get("/api/1/institutions").dispatch().await;
     assert_eq!(response.status(), Status::Ok);
 
     let list: Vec<Institution> = response.into_json().await.expect("valid JSON response");

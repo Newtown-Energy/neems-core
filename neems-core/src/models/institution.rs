@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use diesel::{Identifiable, Queryable, Insertable};
 use serde::{Serialize, Deserialize};
 
-#[derive(Queryable, Identifiable, Debug, Serialize)]
+#[derive(Deserialize, Queryable, Identifiable, Debug, Serialize)]
 #[diesel(table_name = crate::schema::institutions)]
 pub struct Institution {
     pub id: Option<i32>,  // Nullable in schema
