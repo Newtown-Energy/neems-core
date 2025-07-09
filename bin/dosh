@@ -19,13 +19,34 @@ migrate() {
     diesel migration run
 }
 
-test() {
-    tmpfile=$(mktemp)
-    unbuffer cargo test --color always --quiet 2>&1 | tee "$tmpfile"
-    sed -i 's/\x1b\[[0-9;]*m//g' "$tmpfile"
-    wl-files -q "$tmpfile"
-    rm "$tmpfile"
+test2() {
+    echo "ARGS: $@"
+    cargo test --quiet --color="$@"
+}
 
+test() {
+    # Create temp file for test output
+    tmpfile=$(mktemp)
+
+    # Build and run command line
+    cmd=(cargo test --color always "$@")
+    script -q -c "$(printf "%q " "${cmd[@]}")" /dev/null \
+      | tee "$tmpfile" \
+      | sed -E $'s/\x1b]8;[^\\]*\\\\//g; s/\x1b\\\\//g'
+
+    # Remove ANSI color codes and OSC 8 hyperlinks from the tmpfile
+    sed -i -E $'
+      s/\x1b\\]8;[^\\]*\\\\//g;      # Remove OSC 8 hyperlink start
+      s/\x1b\\\\//g;                 # Remove OSC 8 hyperlink end
+      s/\x1b\\[[0-9;]*m//g;          # Remove ANSI color codes
+      s/\x1b\\(B//g;                 # Remove ESC ( B
+    ' "$tmpfile"
+
+    # Copy the test output to the clipboard, minus color and hyperlink codes
+    wl-files -q "$tmpfile" 
+
+    # Cleanup
+    rm "$tmpfile"
 }
 
 watch() {
