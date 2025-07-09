@@ -1,25 +1,24 @@
-use rocket::http::{Status, ContentType};
+use rocket::http::{ContentType};
 use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
-use serde_json::json;
+// use serde_json::json;
 
-use neems_core::institution::routes as institution_routes;
+use neems_core::db::{setup_test_db, test_rocket};
 use neems_core::models::{Institution, User};
-use neems_core::user::routes as user_routes;
+use neems_core::institution::insert_institution; // Import the function
 
-/// Helper to create a Rocket instance with both user and institution routes mounted.
-fn rocket() -> rocket::Rocket<rocket::Build> {
-    rocket::build()
-        .mount("/", user_routes())
-        .mount("/", institution_routes())
-        // .attach(DbConn::fairing()) // Uncomment if you use a DB fairing
+// Helper to seed the test DB with "Newtown Energy" and return its ID.
+fn insert_institution_direct(conn: &mut diesel::SqliteConnection) -> i32 {
+    let inst = insert_institution(conn, "Newtown Energy".to_string())
+        .expect("Insert institution should succeed");
+    inst.id.expect("Institution should have an ID")
 }
 
 /// Helper to seed the test DB with "Newtown Energy" and return its ID.
 async fn seed_institution(client: &Client) -> i32 {
     let new_inst = json!({ "name": "Newtown Energy" });
 
-    let response = client.post("/institutions")
+    let response = client.post("/api/1/institutions")
         .header(ContentType::JSON)
         .body(new_inst.to_string())
         .dispatch()
@@ -32,13 +31,14 @@ async fn seed_institution(client: &Client) -> i32 {
 }
 
 #[rocket::async_test]
-async fn test_create_user_with_seeded_institution() {
-    let client = Client::tracked(rocket()).await.expect("valid rocket instance");
+async fn test_create_user() {
+    // 1. Create a Rocket client
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
-    // Seed the institution and get its ID
+    // 2. Create institution via API (ensures it exists in the same database)
     let institution_id = seed_institution(&client).await;
 
-    // Now create a user using that institution_id
+    // 3. Create a user using that institution_id
     let new_user = json!({
         "username": "testuser",
         "email": "testuser@example.com",
@@ -47,7 +47,7 @@ async fn test_create_user_with_seeded_institution() {
         "totp_secret": "SECRET123"
     });
 
-    let response = client.post("/users")
+    let response = client.post("/api/1/users")
         .header(ContentType::JSON)
         .body(new_user.to_string())
         .dispatch()
@@ -60,9 +60,11 @@ async fn test_create_user_with_seeded_institution() {
     assert_eq!(returned.institution_id, institution_id);
 }
 
+
+
 #[rocket::async_test]
 async fn test_list_users_with_seeded_institution() {
-    let client = Client::tracked(rocket()).await.expect("valid rocket instance");
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     // Seed institution and create a user
     let institution_id = seed_institution(&client).await;
@@ -74,13 +76,13 @@ async fn test_list_users_with_seeded_institution() {
         "institution_id": institution_id,
         "totp_secret": "SECRET456"
     });
-    client.post("/users")
+    client.post("/api/1/users")
         .header(ContentType::JSON)
         .body(new_user.to_string())
         .dispatch()
         .await;
 
-    let response = client.get("/users").dispatch().await;
+    let response = client.get("/api/1/users").dispatch().await;
     assert_eq!(response.status(), rocket::http::Status::Ok);
 
     let list: Vec<User> = response.into_json().await.expect("valid JSON response");

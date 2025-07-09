@@ -6,7 +6,7 @@ use rocket::http::Status;
 use rocket::Route;
 
 use crate::db::DbConn;
-use crate::models::{User, NewUser};
+use crate::models::{User, UserNoTime, NewUser};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
@@ -17,16 +17,23 @@ struct LastInsertRowId {
 /// Inserts a new user and returns the inserted User
 pub fn insert_user(
     conn: &mut SqliteConnection,
-    mut new_user: NewUser,
+    new_user: UserNoTime,
 ) -> Result<User, diesel::result::Error> {
     use crate::schema::users::dsl::*;
 
     let now = chrono::Utc::now().naive_utc();
-    new_user.created_at = now;
-    new_user.updated_at = now;
+    let insertable_user = NewUser {
+        username: new_user.username,
+        email: new_user.email,
+        password_hash: new_user.password_hash,
+        created_at: now,
+        updated_at: now,
+        institution_id: new_user.institution_id,
+        totp_secret: new_user.totp_secret,
+    };
 
     diesel::insert_into(users)
-        .values(&new_user)
+        .values(&insertable_user)
         .execute(conn)?;
 
     let last_id = diesel::sql_query("SELECT last_insert_rowid() as last_insert_rowid")
@@ -41,12 +48,15 @@ pub fn insert_user(
 #[post("/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
-    new_user: Json<NewUser>
+    new_user: Json<UserNoTime>
 ) -> Result<Json<User>, Status> {
     db.run(move |conn| {
         insert_user(conn, new_user.into_inner())
             .map(Json)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|e| {
+                eprintln!("Error creating user: {:?}", e);
+                Status::InternalServerError
+            })
     }).await
 }
 
@@ -87,13 +97,10 @@ mod tests {
 	let institution = insert_institution(&mut conn, "Test Institution".to_string())
 	    .expect("Failed to insert institution");
 
-        let now = chrono::Utc::now().naive_utc();
-        let new_user = NewUser {
+        let new_user = UserNoTime {
             username: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password_hash: "hashedpassword".to_string(),
-            created_at: now,      // Will be overwritten in insert_user
-            updated_at: now,      // Will be overwritten in insert_user
             institution_id: institution.id.unwrap(),    // Use a valid institution id for your test db
             totp_secret: "secret".to_string(),
         };
@@ -123,22 +130,17 @@ mod tests {
 	    .expect("Failed to insert institution");
 
         // Insert two users
-        let now = chrono::Utc::now().naive_utc();
-        let user1 = NewUser {
+        let user1 = UserNoTime {
             username: "user1".to_string(),
             email: "user1@example.com".to_string(),
             password_hash: "pw1".to_string(),
-            created_at: now,
-            updated_at: now,
             institution_id: institution.id.unwrap(),
             totp_secret: "secret1".to_string(),
         };
-        let user2 = NewUser {
+        let user2 = UserNoTime {
             username: "user2".to_string(),
             email: "user2@example.com".to_string(),
             password_hash: "pw2".to_string(),
-            created_at: now,
-            updated_at: now,
             institution_id: institution.id.unwrap(),
             totp_secret: "secret2".to_string(),
         };
