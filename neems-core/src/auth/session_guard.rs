@@ -12,7 +12,7 @@ use chrono::Utc;
 
 use crate::models::{User, Session};
 use crate::schema::{sessions, users};
-use crate::DbConn;
+use crate::auth::login::DbRunner;
 
 /// A guard for routes that require an authenticated user.
 /// Automatically checks session cookies and validates them against the database.
@@ -22,7 +22,7 @@ pub struct AuthenticatedUser {
 }
 
 impl AuthenticatedUser {
-    pub async fn from_cookies_and_db(cookies: &CookieJar<'_>, db: &DbConn) -> Option<User> {
+    pub async fn from_cookies_and_db<D: DbRunner>(cookies: &CookieJar<'_>, db: &D) -> Option<User> {
         let session_cookie = cookies.get("session")?;
         let session_id = session_cookie.value().to_string();
 

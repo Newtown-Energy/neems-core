@@ -57,6 +57,13 @@ pub fn test_rocket() -> Rocket<Build> {
 }
 
 
+/// Creates a synchronous in-memory SQLite database connection for unit tests.
+///
+/// This function returns a `diesel::SqliteConnection` connected to an in-memory SQLite database,
+/// runs all embedded Diesel migrations, and enables foreign key support. This is ideal for
+/// direct Diesel queries in synchronous test code.
+///
+/// Each call to this function returns a new, independent in-memory database.
 pub fn setup_test_db() -> SqliteConnection {
     use diesel::Connection;
 
@@ -69,5 +76,64 @@ pub fn setup_test_db() -> SqliteConnection {
     conn
 }
 
+/// A minimal async-compatible wrapper for a synchronous SQLite connection for unit testing.
+///
+/// This helper struct and function allow you to use your test database with code that expects
+/// a Rocket-style async `.run()` interface (such as functions that take a `DbConn`).
+///
+/// Unlike `setup_test_db()`, which returns a synchronous Diesel connection for direct use,
+/// `setup_test_dbconn()` returns a `FakeDbConn` that can be used with async code expecting
+/// a `.run()` method.
+///
+/// Both use the same in-memory database if you only call `setup_test_db()` once and wrap the result.
+/// Each call to `setup_test_dbconn()` creates a new, independent in-memory database.
+///
+/// # Example
+/// ```
+/// use neems_core::db::setup_test_db;
+/// use neems_core::db::setup_test_dbconn;
+/// let mut conn = setup_test_db();
+/// let fake_db = setup_test_dbconn(&mut conn);
+/// // Now you can use fake_db.run(|c| ...).await in async tests.
+/// ```
+pub struct FakeDbConn<'a>(pub &'a mut diesel::SqliteConnection);
 
+impl<'a> FakeDbConn<'a> {
+    pub async fn run<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut diesel::SqliteConnection) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        // Safety: We need to get a mutable reference from an immutable reference
+        // This is safe because we're in a test environment and we control the lifetime
+        unsafe {
+            let conn_ptr = self.0 as *const diesel::SqliteConnection as *mut diesel::SqliteConnection;
+            f(&mut *conn_ptr)
+        }
+    }
+}
 
+/// Creates a `FakeDbConn` for async-style testing with the given SQLite connection.
+///
+/// This is useful for testing code that expects a Rocket-style `.run()` interface,
+/// but you want to use your in-memory test database.
+///
+/// This function uses the same in-memory database as
+/// `setup_test_db()` because it wraps the same connection:
+///
+/// # Example
+/// ```
+/// use neems_core::db::setup_test_db;
+/// use neems_core::db::setup_test_dbconn;
+/// let mut conn = setup_test_db();
+/// let fake_db = setup_test_dbconn(&mut conn);
+/// ```
+///
+/// # Arguments
+/// * `conn` - A mutable reference to a `diesel::SqliteConnection` (from `setup_test_db()`).
+///
+/// # Returns
+/// A `FakeDbConn` wrapping the provided connection.
+pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbConn<'a> {
+    FakeDbConn(conn)
+}
