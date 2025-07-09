@@ -3,14 +3,11 @@ extern crate rocket;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations};
 use rocket::Build;
-use rocket::Config;
 use rocket::fs::FileServer;
 use rocket::serde::json::{Json, json, Value};
 use rocket::request::Request;
 use rocket::Rocket;
 use std::path::PathBuf;
-use rocket::figment::{Figment, providers::{Env, Format, Toml}};
-use figment_file_provider_adapter::FileAdapter;
 
 pub mod api;
 pub mod auth;
