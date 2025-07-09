@@ -113,7 +113,8 @@ fn set_session_cookie(cookies: &CookieJar<'_>, session_token: &str) {
         .http_only(true)
         .secure(true)
         .same_site(SameSite::Lax)
-        .path("/");
+        .path("/")
+	.build();
     cookies.add(cookie);
 }
 
@@ -171,13 +172,14 @@ mod tests {
     use argon2::{Argon2, PasswordHasher};
     use argon2::password_hash::{SaltString};
     use rand_core::OsRng;
-    use rocket::http::{Cookie, SameSite};
-    use std::collections::HashMap;
+    use rocket::http::{Cookie};
 
+    use diesel::prelude::*;
     use crate::db::{setup_test_db, setup_test_dbconn};
+    use crate::models::User;
     use crate::institution::insert_institution;
+    use crate::models::UserNoTime;
     use crate::user::insert_user;
-    use crate::models::{UserNoTime, User};
     use super::*;
 
     /// Hash a password and return a string
@@ -189,12 +191,12 @@ mod tests {
     fn hash_password(password: &str) -> String {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
-        let password_hash = argon2.hash_password(password.as_bytes(), &salt)
+        let hash = argon2.hash_password(password.as_bytes(), &salt)
             .expect("hashing should succeed")
             .hash
             .unwrap()
             .to_string();
-        format!("argon2:{}:{}", salt.as_str(), password_hash)
+        format!("argon2:{}:{}", salt.as_str(), hash)
     }
 
 
@@ -203,12 +205,12 @@ mod tests {
         let institution = insert_institution(conn, "Open Tech Strategies".to_string())
             .expect("insert dummy institution");
 
-        let password_hash = hash_password("dummy password");
+        let hash = hash_password("dummy password");
 
         let dummy_user = UserNoTime {
             username: "Karl Fogel".to_string(),
             email: "legofkarl@ots.com".to_string(),
-            password_hash,
+            password_hash: hash,
             institution_id: institution.id.unwrap(),
             totp_secret: "dummysecret".to_string(),
         };
@@ -311,7 +313,7 @@ mod tests {
 
 
 
-    // Simplified mock implementation
+    // Simplified mock implementation of a cookie jar for testing
     pub struct MockCookieJar {
         pub cookies: Vec<Cookie<'static>>,
     }
@@ -361,14 +363,17 @@ mod tests {
         assert_eq!(cookie.path(), Some("/"));
     }
 
-    // Modified version of set_session_cookie that works with our mock
     fn set_session_cookie_mock(cookies: &mut MockCookieJar, session_token: &str) {
-        let cookie = Cookie::build(("session", session_token.to_string()))
-            .http_only(true)
-            .secure(true)
-            .same_site(SameSite::Lax)
-            .path("/")
-            .finish();
-        cookies.add(cookie);
+	let cookie = Cookie::build(("session", session_token.to_string()))
+	    .http_only(true)
+	    .secure(true)
+	    .same_site(SameSite::Lax)
+	    .path("/")
+	    .build();
+	cookies.add(cookie);
     }
+
+
+
+
 }
