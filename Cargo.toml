@@ -6,9 +6,13 @@ members = [
 resolver = "2"  # Recommended for Rust 2021+ editions
 
 [workspace.dependencies]
-diesel = { version = "2.1.0", features = ["sqlite"] }
+chrono = { version = "0.4", features = ["serde"] }
+diesel = { version = "2.1.0", features = ["sqlite", "chrono", "r2d2"] }
 diesel_migrations = "2.1.0"
 dotenvy = "0.15"  # For loading .env files
+figment_file_provider_adapter = "0.1"
 rocket = { version = "0.5.1", features = ["json"] }
+rocket_sync_db_pools = { version = "0.1.0", features = ["diesel_sqlite_pool"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+uuid = { version = "1.7.0", features = ["v4", "serde"] }

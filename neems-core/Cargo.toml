@@ -6,13 +6,18 @@ edition = "2024"
 [dependencies]
 fixphrase = { path = "../crates/fixphrase" }  
 
+chrono = { workspace = true }
 diesel.workspace = true
 diesel_migrations.workspace = true
 dotenvy.workspace = true
+figment_file_provider_adapter = { workspace = true }
 rocket.workspace = true
+rocket_sync_db_pools = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-rocket = { version = "0.5.0", features = ["json"] }
-serde_json = "1.0"
+rocket = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }

@@ -1,0 +1,29 @@
+use diesel::{Queryable, Identifiable, Insertable, Associations};
+use serde::Serialize;
+use chrono::NaiveDateTime;
+use crate::schema::sites;
+
+#[derive(Queryable, Identifiable, Associations, Debug, Serialize)]
+#[diesel(belongs_to(crate::models::institution::Institution))]
+pub struct Site {
+    pub id: Option<i32>,  // Nullable in schema
+    pub name: String,
+    pub address: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub institution_id: i32,  // Foreign key to Institution
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = sites)]
+pub struct NewSite {
+    pub name: String,
+    pub address: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub institution_id: i32,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
+}
