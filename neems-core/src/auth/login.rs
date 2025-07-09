@@ -235,5 +235,30 @@ mod tests {
         assert_eq!(found_user.password_hash, inserted_user.password_hash);
         assert_eq!(found_user.institution_id, inserted_user.institution_id);
     }
+
+    #[test]
+    fn test_verify_password() {
+	// Create a dummy user with a known password hash
+	let now = Utc::now().naive_utc();
+	let user = User {
+	    id: Some(1),
+	    username: "testuser".to_string(),
+	    email: "test@example.com".to_string(),
+	    password_hash: "argon2:somesalt:somehash".to_string(),
+	    institution_id: 1,
+	    created_at: now,
+	    updated_at: now,
+	    totp_secret: "dummysecret".to_string(),
+	};
+
+	// Case 1: Provided hash matches user's hash
+	let provided_hash = "argon2:somesalt:somehash";
+	assert!(verify_password(provided_hash, &user), "Hashes should match");
+
+	// Case 2: Provided hash does not match user's hash
+	let provided_hash = "argon2:somesalt:differenthash";
+	assert!(!verify_password(provided_hash, &user), "Hashes should not match");
+    }
+
 }
 
