@@ -20,7 +20,12 @@ migrate() {
 }
 
 test() {
-    cargo test --quiet --color=always "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' | wl-copy)
+    tmpfile=$(mktemp)
+    unbuffer cargo test --color always --quiet 2>&1 | tee "$tmpfile"
+    sed -i 's/\x1b\[[0-9;]*m//g' "$tmpfile"
+    wl-files -q "$tmpfile"
+    rm "$tmpfile"
+
 }
 
 watch() {
