@@ -47,11 +47,7 @@ pub fn rocket() -> Rocket<Build> {
 	// Mount /api routes first (takes precedence over static files)
         .mount("/api", routes![
             api::health_status,
-            api::get_clients,
-            api::create_client,
             api::encode_fixphrase,
-	    auth::login::login,
-	    auth::login::secure_hello,
 	    auth::logout::logout,
         ])
 	.mount("/api/1", institution::routes())
@@ -99,8 +95,6 @@ pub fn test_rocket() -> Rocket<Build> {
         .register("/", catchers![not_found])
         .mount("/api", routes![
             api::health_status,
-            api::get_clients,
-            api::create_client,
             api::encode_fixphrase,
             auth::login::login,
             auth::login::secure_hello,
