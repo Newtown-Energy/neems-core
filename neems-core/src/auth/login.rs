@@ -260,5 +260,47 @@ mod tests {
 	assert!(!verify_password(provided_hash, &user), "Hashes should not match");
     }
 
+    #[tokio::test]
+    async fn test_create_and_store_session() {
+	// Set up in-memory test database and async-compatible wrapper
+	let mut conn = setup_test_db();
+
+	// Insert dummy user
+	let inserted_user = insert_dummy_user(&mut conn);
+
+	let fake_db = setup_test_dbconn(&mut conn);
+
+	// Use the function under test
+	let session_token = create_and_store_session(&fake_db, inserted_user.id.unwrap())
+	    .await
+	    .expect("session creation should succeed");
+
+	// Clone the session_token for use in assertions later
+	let session_token_clone = session_token.clone();
+
+	// Verify the session was stored in the database
+	let stored_session = fake_db.run(move |conn| {
+	    sessions::table
+		.filter(sessions::id.eq(&session_token))
+		.first::<crate::models::Session>(conn)
+		.optional()
+	})
+	.await
+	.expect("db query should succeed");
+
+	assert!(stored_session.is_some());
+	let session = stored_session.unwrap();
+
+	// Verify session properties
+	assert_eq!(session.id, session_token_clone);
+	assert_eq!(session.user_id, inserted_user.id.unwrap());
+	assert!(!session.revoked);
+	assert!(session.expires_at.is_none());
+
+	// Verify created_at is recent (within last minute)
+	let now = Utc::now().naive_utc();
+	assert!(session.created_at <= now);
+	assert!(session.created_at > now - chrono::Duration::minutes(1));
+    }
 }
 
