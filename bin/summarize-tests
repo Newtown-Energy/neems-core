@@ -5,8 +5,9 @@ import re
 from collections import defaultdict
 
 # ANSI color codes
-COLOR_RED = "\033[31m"
+COLOR_GREEN = "\033[32m"
 COLOR_ORANGE = "\033[33m"
+COLOR_RED = "\033[31m"
 COLOR_RESET = "\033[0m"
 
 def parse_test_output(content):
