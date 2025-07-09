@@ -27,8 +27,15 @@ test() {
     cmd=(cargo test --color always "$@")
     script -q -e -c "$(printf "%q " "${cmd[@]}")" /dev/null \
       | tee "$tmpfile" \
-      | sed -E $'s/\x1b]8;[^\\]*\\\\//g; s/\x1b\\\\//g' \
-      | perl -pe 's/(?<!\r)\n/\r\n/g' 
+      | sed -E $'s/\x1b\\]8;[^\\]*\\\\//g;
+      	s/\x1b\\\\//g; 
+        s/\x1b\\(B//g;' \
+      | perl -pe 's/(?<!\r)\n/\r\n/g' \
+      | perl -pe 's/^M/\r\n/g' \
+      | perl -pe 's/^M/\r\n/g' 
+    
+      # | sed -E $'s/\x1b]8;[^\\]*\\\\//g; s/\x1b\\\\//g' 
+#      | perl -pe 's/(?<!\r)\n/\r\n/g' 
 
     # Remove ANSI color codes and OSC 8 hyperlinks from the tmpfile
     sed -i -E $'
