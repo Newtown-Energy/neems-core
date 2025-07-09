@@ -5,6 +5,7 @@ use diesel::QueryableByName;
 use diesel::sql_types::BigInt;
 use rocket::serde::json::Json;
 use rocket::http::Status;
+use rocket::response::status;
 use rocket::Route;
 
 use crate::db::DbConn;
@@ -42,18 +43,18 @@ pub fn insert_institution(
         .first::<Institution>(conn)
 }
 
+
 #[post("/institutions", data = "<new_institution>")]
 pub async fn create_institution(
     db: DbConn,
     new_institution: Json<InstitutionName>
-) -> Result<Json<Institution>, Status> {
+) -> Result<status::Created<Json<Institution>>, Status> {
     db.run(move |conn| {
         insert_institution(conn, new_institution.name.clone())
-            .map(Json)
+            .map(|inst| status::Created::new("/").body(Json(inst)))
             .map_err(|_| Status::InternalServerError)
     }).await
 }
-
 
 #[get("/institutions")]
 pub async fn list_institutions(

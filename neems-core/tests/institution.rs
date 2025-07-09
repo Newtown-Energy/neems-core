@@ -18,7 +18,7 @@ pub async fn create_institution_by_api(
         .dispatch()
         .await;
 
-    assert_eq!(response.status(), rocket::http::Status::Ok);
+    assert_eq!(response.status(), rocket::http::Status::Created);
 
     response
         .into_json::<Institution>()
@@ -40,23 +40,26 @@ async fn test_create_institution() {
 }
 
 
-#[ignore]
+
 #[rocket::async_test]
 async fn test_list_institutions() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
-    // Optionally, create an institution first
-    let new_inst = json!({ "name": "List Test College" });
-    client.post("/institutions")
-        .header(ContentType::JSON)
-        .body(new_inst.to_string())
+    // 1. First create a test institution
+    let new_inst = InstitutionNoTime { name: "Test University".to_string() };
+    let create_response = client.post("/api/1/institutions")
+        .json(&new_inst)
         .dispatch()
         .await;
+    assert_eq!(create_response.status(), Status::Created);
 
+    // 2. Now get the list
     let response = client.get("/api/1/institutions").dispatch().await;
     assert_eq!(response.status(), Status::Ok);
 
     let list: Vec<Institution> = response.into_json().await.expect("valid JSON response");
+    dbg!(&list);  // Debug output shows what we got
+
     assert!(!list.is_empty());
-    assert!(list.iter().any(|i| i.name == "List Test College"));
+    assert!(list.iter().any(|i| i.name == "Test University"));
 }
