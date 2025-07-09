@@ -21,3 +21,9 @@ pub struct NewSession {
     pub revoked: bool,
 }
 
+pub struct SessionNoTime {
+    pub id: String,
+    pub user_id: i32,
+    pub revoked: bool,
+}
+
