@@ -8,6 +8,8 @@ use rocket::figment::{
 };
 use rocket_sync_db_pools::{database, diesel};
 
+use crate::api;
+use crate::auth;
 use crate::institution;
 use crate::role;
 use crate::user;

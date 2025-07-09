@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use rocket::http::Status as HttpStatus;
 use rocket::serde::json::Json;
 use rocket::response::status as rocket_status;
+use rocket::Route;
 
 pub use fixphrase::{FixPhrase, FixPhraseError};
 
@@ -52,4 +53,8 @@ pub fn encode_fixphrase(
         }
         Err(e) => Err(rocket_status::Custom(HttpStatus::BadRequest, Json(e))),
     }
+}
+
+pub fn routes() -> Vec<Route> {
+    routes![health_status, encode_fixphrase, ]
 }
