@@ -49,6 +49,8 @@ pub fn test_rocket() -> Rocket<Build> {
     rocket::custom(figment)
         .attach(DbConn::fairing())
 	.attach(run_migrations_fairing())
+	.mount("/api", api::routes())
+	.mount("/api", auth::login::routes())
 	.mount("/api/1", institution::routes())
 	.mount("/api/1", role::routes())
 	.mount("/api/1", user::routes())

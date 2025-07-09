@@ -2,30 +2,43 @@ use rocket::http::{Status, ContentType};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::models::Institution;
 use neems_core::db::test_rocket;
+use neems_core::models::{Institution, InstitutionNoTime};
+
+/// Helper to create an institution via the API and return the created Institution
+pub async fn create_institution_by_api(
+    client: &Client,
+    inst: &InstitutionNoTime,
+) -> Institution {
+    let body = json!({ "name": &inst.name }).to_string();
+    let response = client
+        .post("/api/1/institutions")
+        .header(ContentType::JSON)
+        .body(body)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), rocket::http::Status::Ok);
+
+    response
+        .into_json::<Institution>()
+        .await
+        .expect("valid Institution JSON response")
+}
 
 #[rocket::async_test]
 async fn test_create_institution() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
-    let new_inst = json!({
-        "name": "Test University"
-    });
+    let new_inst = InstitutionNoTime { name: "Test University".to_string() };
 
-    let response = client.post("/api/1/institutions")
-        .header(ContentType::JSON)
-        .body(new_inst.to_string())
-        .dispatch()
-        .await;
+    let returned: Institution = create_institution_by_api(&client, &new_inst).await;
 
-    assert_eq!(response.status(), Status::Ok);
-
-    let returned: Institution = response.into_json().await.expect("valid JSON response");
     assert_eq!(returned.name, "Test University");
     assert!(returned.id.is_some());
     assert!(returned.created_at <= returned.updated_at);
 }
+
 
 #[ignore]
 #[rocket::async_test]

@@ -23,3 +23,8 @@ pub struct NewInstitution {
 pub struct InstitutionName {
     pub name: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct InstitutionNoTime {
+    pub name: String,
+}

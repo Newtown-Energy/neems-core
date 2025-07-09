@@ -6,7 +6,7 @@ login endpoint
 
 use chrono::Utc;
 use diesel::prelude::*;
-use rocket::{post, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json};
+use rocket::{post, Route, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json};
 use rocket::serde::Deserialize;
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ pub struct LoginRequest {
     password_hash: String, // format is "argon2:<salt>:<hash>"
 }
 
-#[post("/api/1/login", data = "<login>")]
+#[post("/1/login", data = "<login>")]
 pub async fn login(
     db: DbConn,
     cookies: &CookieJar<'_>,
@@ -97,7 +97,7 @@ pub async fn login(
     }
 }
 
-#[get("/hello")]
+#[get("/1/hello")]
 pub async fn secure_hello(db: DbConn, cookies: &CookieJar<'_>) -> Result<String, Status> {
     if let Some(user) = AuthenticatedUser::from_cookies_and_db(cookies, &db).await {
         Ok(format!("Hello, {}!", user.username))
@@ -108,42 +108,7 @@ pub async fn secure_hello(db: DbConn, cookies: &CookieJar<'_>) -> Result<String,
 
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use crate::test_rocket;
-
-    #[ignore]
-    #[tokio::test]
-    async fn test_secure_hello_requires_auth() {
-	assert_eq!(0,1);
-	let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
-
-	// 1. Unauthenticated request should fail
-	let response = client.get("/api/hello").dispatch().await;
-	assert_eq!(response.status(), Status::Unauthorized);
-
-	// 2. Simulate login to get session cookie
-	let login_body = json!({
-	    "username": "testuser",
-	    "password_hash": "argon2:...:..." // Use a real hash for your test user
-	});
-	let response = client.post("/api/1/login")
-	    .json(&login_body)
-	    .dispatch()
-	    .await;
-	assert_eq!(response.status(), Status::Ok);
-
-	let session_cookie = response.cookies().get("session").unwrap().clone();
-
-	// 3. Authenticated request should succeed
-	let response = client.get("/api/hello")
-	    .cookie(session_cookie)
-	    .dispatch()
-	    .await;
-	assert_eq!(response.status(), Status::Ok);
-	let body = response.into_string().await.unwrap();
-	assert!(body.contains("Hello, testuser"));
-    }
+pub fn routes() -> Vec<Route> {
+    routes![login,
+	    secure_hello]
 }

@@ -42,6 +42,8 @@ pub fn rocket() -> Rocket<Build> {
             api::encode_fixphrase,
 	    auth::logout::logout,
         ])
+	.mount("/api", api::routes())
+	.mount("/api", auth::login::routes())
 	.mount("/api/1", institution::routes())
 	.mount("/api/1", role::routes())
 	.mount("/api/1", user::routes())
