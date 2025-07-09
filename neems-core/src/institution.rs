@@ -77,19 +77,7 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diesel::sqlite::SqliteConnection;
-    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-
-    pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
-
-    /// Returns a new in-memory SQLite connection for testing.
-pub fn setup_test_db() -> SqliteConnection {
-    let mut conn = SqliteConnection::establish(":memory:")
-        .expect("Failed to create in-memory SQLite database");
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Migrations failed");
-    conn
-}
+    use crate::db::setup_test_db; 
 
     #[test]
     fn test_insert_institution() {
