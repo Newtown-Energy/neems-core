@@ -1,11 +1,18 @@
 use rocket::http::Status;
 use serde_json::json;
+
 use neems_core::db::test_rocket;
+use neems_core::models::InstitutionNoTime;
+mod institution;
+use institution::create_institution_by_api;
 
 #[ignore]
 #[tokio::test]
 async fn test_secure_hello_requires_auth() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+
+    let new_inst = InstitutionNoTime { name: "Newtown Energy".to_string() };
+    create_institution_by_api(&client, &new_inst).await;
 
     // 1. Unauthenticated request should fail
     let response = client.get("/api/1/hello").dispatch().await;
