@@ -42,17 +42,8 @@ fn not_found(req: &Request) -> Json<Value> {
 
 #[launch]
 pub fn rocket() -> Rocket<Build> {
-    // Build our figment configuration
-    // let figment = Figment::from(Config::default())
-    //     // Merge with rocket.toml, supporting _FILE suffixes
-    //     .merge(FileAdapter::wrap(Toml::file("rocket.toml")))
-    //     .merge(FileAdapter::wrap(Toml::file("../rocket.toml")))
-    //     // Merge with environment variables, supporting _FILE suffixes
-    //     .merge(FileAdapter::wrap(Env::prefixed("ROCKET_")));
-
     let static_dir = "static";
 
-    // rocket::custom(figment)
     rocket::build()
 	.attach(DbConn::fairing())
         .register("/", catchers![not_found])
