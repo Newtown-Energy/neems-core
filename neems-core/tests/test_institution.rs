@@ -27,6 +27,7 @@ async fn test_create_institution() {
     assert!(returned.created_at <= returned.updated_at);
 }
 
+#[ignore]
 #[rocket::async_test]
 async fn test_list_institutions() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");

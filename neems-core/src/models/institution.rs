@@ -18,3 +18,8 @@ pub struct NewInstitution {
     pub created_at: Option<NaiveDateTime>,
     pub updated_at: Option<NaiveDateTime>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct InstitutionName {
+    pub name: String,
+}
