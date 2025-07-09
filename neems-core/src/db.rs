@@ -1,5 +1,6 @@
+use diesel::connection::SimpleConnection;
+use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-
 use rocket::{Rocket, Build, fairing::AdHoc};
 use rocket::figment::{
     util::map,
@@ -51,15 +52,14 @@ pub fn test_rocket() -> Rocket<Build> {
 	.mount("/api/1", user::routes())
 }
 
-#[cfg(test)]
-use diesel::sqlite::SqliteConnection;
 
-#[cfg(test)]
 pub fn setup_test_db() -> SqliteConnection {
     use diesel::Connection;
 
     let mut conn = SqliteConnection::establish(":memory:")
         .expect("Failed to create in-memory SQLite database");
+    conn.batch_execute("PRAGMA foreign_keys = ON")
+	.expect("Could not enable foreign keys");
     conn.run_pending_migrations(MIGRATIONS)
         .expect("Migrations failed");
     conn

@@ -111,22 +111,3 @@ pub fn test_rocket() -> Rocket<Build> {
 	.mount("/api/1", user::routes())
         .mount("/", FileServer::from(static_dir).rank(10))
 }
-
-pub fn establish_test_connection() -> diesel::SqliteConnection {
-    use diesel::Connection;
-    use diesel::connection::SimpleConnection;
-    use diesel::sqlite::SqliteConnection;
-    use diesel_migrations::MigrationHarness;
-
-    let mut conn = SqliteConnection::establish(":memory:")
-        .expect("Could not create test database");
-
-    conn.batch_execute("PRAGMA foreign_keys = ON")
-        .expect("Could not enable foreign keys");
-
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Failed to run migrations");
-
-    conn
-}
-
