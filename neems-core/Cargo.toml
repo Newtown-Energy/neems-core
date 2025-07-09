@@ -18,6 +18,7 @@ serde_json.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+chrono = { workspace = true }
 rocket = { workspace = true }
 serde_json = { workspace = true }
-chrono = { workspace = true }
+tokio = {workspace = true}

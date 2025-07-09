@@ -134,4 +134,5 @@ pub fn establish_test_connection() -> diesel::SqliteConnection {
 // Pull in other tests
 mod tests {
     mod test_schema;
+    mod test_institution;
 }
