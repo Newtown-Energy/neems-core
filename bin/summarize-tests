@@ -12,7 +12,7 @@ COLOR_RESET = "\033[0m"
 
 def parse_test_output(content):
     summary_pattern = re.compile(
-        r'test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([\d.]+)s'
+            r'test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([\d.]+)s'
     )
     
 
