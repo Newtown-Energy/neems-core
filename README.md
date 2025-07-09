@@ -68,6 +68,30 @@ database instead of the current schema.rs file.
 
 There is a test suite for the backend.  Run it with `dosh test`.
 
+To run unit and integration tests that contain the name role:
+
+```
+dosh test role
+```
+
+To run the unit tests in the main crate:
+
+```
+dosh test --lib 
+```
+
+To run the unit tests in the main crate for role:
+
+```
+dosh test --lib role 
+```
+
+To run a specific set of integration tests (in this case, institution):
+
+```
+dosh test --test institution
+```
+
 ## Planned Features
 
 [ ] TOTP MFA
