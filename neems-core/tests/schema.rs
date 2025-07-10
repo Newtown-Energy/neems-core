@@ -8,9 +8,9 @@ Do not use it to test the actual application logic.
 #[cfg(test)]
 
 mod tests {
-    use crate::establish_test_connection;
-    use crate::models::*;
-    use crate::schema::*;
+    use neems_core::db::setup_test_db;
+    use neems_core::models::*;
+    use neems_core::schema::*;
     use diesel::prelude::*;
     use chrono::Utc;
     use diesel::result::{Error, DatabaseErrorKind};
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_institution_name_uniqueness() {
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 
 	// First insert should succeed
 	create_test_institution(&mut conn, "Unique Institution")
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_user_uniqueness_constraints() {
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Test Inst")
 	    .expect("First institution insert should succeed");
 
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_institution_to_users_relationship() {
-        let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Test Inst")
 	    .expect("First institution insert should succeed");
 
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_institution_to_sites_relationship() {
-        let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Test Inst")
 	    .expect("First institution insert should succeed");
 
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_site_name_uniqueness_per_institution() {
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst1 = create_test_institution(&mut conn, "Inst 1")
 	    .expect("First institution insert should succeed");
 	let inst2 = create_test_institution(&mut conn, "Inst 2")
@@ -272,7 +272,7 @@ mod tests {
     fn test_user_roles_many_to_many() {
 	use diesel::prelude::*;
 
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Roles Institution")
 	    .expect("Roles institution insert should succeed");
 	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser1", "roleuser1@test.com")

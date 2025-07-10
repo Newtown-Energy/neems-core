@@ -1,7 +1,7 @@
 use rocket::local::blocking::Client;
 use rocket::http::{Status};
 use neems_core::api::{FixPhraseResponse, FixPhraseError}; 
-use neems_core::test_rocket;
+use neems_core::db::test_rocket;
 
 #[test]
 fn test_encode_fixphrase_success() {
