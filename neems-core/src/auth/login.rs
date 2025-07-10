@@ -7,7 +7,8 @@ login endpoint
 use chrono::Utc;
 use diesel::prelude::*;
 use rocket::{post, Route, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json};
-use rocket::serde::Deserialize;
+use rocket::response;
+use rocket::serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 use crate::auth::session_guard::AuthenticatedUser;
@@ -20,6 +21,11 @@ use crate::schema::{users, sessions};
 
 fn generate_session_token() -> String {
     Uuid::new_v4().to_string()
+}
+
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    error: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -124,6 +130,11 @@ pub async fn process_login<D: DbRunner>(
     cookies: &CookieJar<'_>,
     login: &LoginRequest,
 ) -> Result<Status, Status> {
+    // Check for empty fields and return 400
+    if login.email.trim().is_empty() || login.password_hash.trim().is_empty() {
+        return Err(Status::BadRequest);
+    }
+
     let user = match find_user_by_email(db, &login.email).await? {
         Some(user) => user,
         None => return Err(Status::Unauthorized),
@@ -140,14 +151,19 @@ pub async fn process_login<D: DbRunner>(
     Ok(Status::Ok)
 }
 
-
 #[post("/1/login", data = "<login>")]
 pub async fn login(
     db: DbConn,
     cookies: &CookieJar<'_>,
     login: Json<LoginRequest>,
-) -> Result<Status, Status> {
-    process_login(&db, cookies, &login).await
+) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
+    match process_login(&db, cookies, &login).await {
+        Ok(status) => Ok(status),
+        Err(status) => {
+            let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
+            Err(response::status::Custom(status, err_json))
+        }
+    }
 }
 
 

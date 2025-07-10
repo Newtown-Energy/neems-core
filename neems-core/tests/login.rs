@@ -10,67 +10,6 @@ use institution::create_institution_by_api;
 use neems_core::institution::{random_energy_company_names};
 use neems_core::user::{create_user_by_api, random_usernames};
 
-#[ignore]
-#[tokio::test]
-async fn _test_successful_login_old() {
-    // --- 1. Create Rocket client for testing ---
-    let rocket = test_rocket();
-    let client = rocket::local::asynchronous::Client::tracked(rocket).await.unwrap();
-
-    // --- 2. Seed the DB with institution and user ---
-
-    // Create institution
-    let inst = InstitutionNoTime { name: "Reqwest Test Inst".to_string() };
-    let inst_resp = client.post("/api/1/institutions")
-        .json(&json!({ "name": inst.name }))
-        .dispatch()
-        .await;
-    assert!(inst_resp.status().code < 400);
-    let inst_json: serde_json::Value = inst_resp.into_json().await.unwrap();
-    let institution_id = inst_json["id"].as_i64().unwrap() as i32;
-
-    // Hash a password as your login expects
-    let _password = "testpass";
-    let salt = "somesalt"; // In production, use random salt
-    let hash = "somehash"; // In production, use argon2
-    let password_hash = format!("argon2:{}:{}", salt, hash);
-
-    // Create user
-    let user = UserNoTime {
-        email: "reqwestuser@example.com".to_string(),
-        password_hash: password_hash.clone(),
-        institution_id,
-        totp_secret: "dummysecret".to_string(),
-    };
-    let user_resp = client.post("/api/1/users")
-        .json(&json!({
-            "email": user.email,
-            "password_hash": user.password_hash,
-            "institution_id": user.institution_id,
-            "totp_secret": user.totp_secret,
-        }))
-        .dispatch()
-        .await;
-    assert!(user_resp.status().code < 400);
-
-    // --- 3. Test login with local client ---
-    let login_body = json!({
-        "email": user.email,
-        "password_hash": password_hash,
-    });
-
-    let resp = client.post("/api/1/login")
-        .json(&login_body)
-        .dispatch()
-        .await;
-
-    assert_eq!(resp.status(), Status::Ok);
-
-    // --- 4. Check for session cookie ---
-    let session_cookie = resp.cookies().get("session");
-    assert!(session_cookie.is_some(), "Session cookie should be set");
-}
-
 async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
     // First create institutions
     let inst_names = random_energy_company_names(2);
@@ -112,28 +51,98 @@ async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket
     client
 }
 
+/// Tests the /api/1/login endpoint for various failure scenarios.
+///
+/// This test verifies that:
+/// - A valid login request succeeds (sanity check).
+/// - Logging in with a non-existent email returns 401 Unauthorized and an appropriate error message.
+/// - Logging in with an incorrect password returns 401 Unauthorized and an appropriate error message.
+/// - Logging in with an empty email returns 400 Bad Request.
+/// - Logging in with an empty password returns 400 Bad Request.
+///
+/// The test ensures that authentication and input validation behave as expected
+/// and that error responses contain the correct status codes and messages.
 #[tokio::test]
-async fn test_successful_login() {
+async fn test_login_fail() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
     add_dummy_data(&client).await;
 
+    // Test successful login first to ensure our test user exists
+    let valid_login_body = json!({
+        "email": "testuser@example.com",
+        "password_hash": "dummy_hash"
+    });
+    let response = client.post("/api/1/login")
+        .json(&valid_login_body)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Test wrong email
+    let wrong_email_body = json!({
+        "email": "nonexistent@example.com",
+        "password_hash": "dummy_hash"
+    });
+    let response = client.post("/api/1/login")
+        .json(&wrong_email_body)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Unauthorized);
+    let response_body = response.into_string().await.unwrap();
+    let json: serde_json::Value = serde_json::from_str(&response_body).unwrap();
+    assert_eq!(json["error"], "Invalid credentials");
+
+    // Test wrong password
+    let wrong_password_body = json!({
+        "email": "testuser@example.com",
+        "password_hash": "wrong_password"
+    });
+    let response = client.post("/api/1/login")
+        .json(&wrong_password_body)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Unauthorized);
+    let response_body = response.into_string().await.unwrap();
+    assert!(response_body.contains("Invalid credentials"));
+
+    // Test empty email
+    let empty_email_body = json!({
+        "email": "",
+        "password_hash": "dummy_hash"
+    });
+    let response = client.post("/api/1/login")
+        .json(&empty_email_body)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::BadRequest);
+
+    // Test empty password
+    let empty_password_body = json!({
+        "email": "testuser@example.com",
+        "password_hash": ""
+    });
+    let response = client.post("/api/1/login")
+        .json(&empty_password_body)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::BadRequest);
 }
 
-#[ignore]
+
 #[tokio::test]
 async fn test_secure_hello_requires_auth() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
-
-    let new_inst = InstitutionNoTime { name: "Newtown Energy".to_string() };
-    create_institution_by_api(&client, &new_inst).await;
+    add_dummy_data(&client).await;
 
     // 1. Unauthenticated request should fail
-    let response = client.get("/api/1/hello").dispatch().await;
+    let response = client.get("/api/1/hello")
+        .dispatch()
+        .await;
     assert_eq!(response.status(), Status::Unauthorized);
 
-    // 2. Simulate login to get session cookie
+    // 2. login to get session cookie
     let login_body = json!({
-	"username": "testuser",
+	"email": "testuser@example.com",
 	"password_hash": "dummy_hash" // Use a real hash for your test user
     });
     let response = client.post("/api/1/login")
@@ -142,7 +151,9 @@ async fn test_secure_hello_requires_auth() {
 	.await;
     assert_eq!(response.status(), Status::Ok);
 
-    let session_cookie = response.cookies().get("session").unwrap().clone();
+    let session_cookie = response.cookies().get("session");
+    assert!(session_cookie.is_some(), "Session cookie should be set");
+    let session_cookie = session_cookie.unwrap().clone();
 
     // 3. Authenticated request should succeed
     let response = client.get("/api/1/hello")
@@ -151,5 +162,5 @@ async fn test_secure_hello_requires_auth() {
 	.await;
     assert_eq!(response.status(), Status::Ok);
     let body = response.into_string().await.unwrap();
-    assert!(body.contains("Hello, testuser"));
+    assert!(body.contains("Hello, testuser@example.com"));
 }
