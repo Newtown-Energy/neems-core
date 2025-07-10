@@ -16,13 +16,17 @@
 //!
 //! # Usage
 //! Add the routes from this module to your Rocket application with:
-//! ```
+//! ```text
 //! mount("/api", neems_core::auth::login::routes())
 //! ```
 //!
 //! # Security Notes
 //! - Session cookies are set as HTTP-only and Secure, with SameSite=Lax.
 
+use argon2::{
+    password_hash::{PasswordHash, PasswordVerifier},
+    Argon2
+};
 use chrono::Utc;
 use diesel::prelude::*;
 use rocket::{post, Route, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json};
@@ -50,7 +54,7 @@ pub struct ErrorResponse {
 #[derive(Clone, Deserialize)]
 pub struct LoginRequest {
     email: String,  // Changed from username to email
-    password_hash: String,
+    password: String,
 }
 
 
@@ -93,23 +97,9 @@ async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Option<U
     .map_err(|_| Status::InternalServerError)
 }
 
-/// Verifies the provided password hash against the stored user's password hash.
-///
-/// The `provided_hash` string must be of the form `<function>:<salt>:<hash>`.
-/// For example, for Argon2, it would be `"argon2:<salt>:<hash>"`.
-///
-/// This function simply compares the provided hash string to the user's stored hash string.
-/// In a real-world scenario, you should verify the password using a password hashing library
-/// and compare the hash of the provided password (after extracting salt and function) to the stored hash.
-///
-/// # Arguments
-/// * `provided_hash` - The hash string provided by the client, formatted as described.
-/// * `user` - The user record from the database, whose `password_hash` field is also in the same format.
-///
-/// # Returns
-/// * `true` if the hashes match, otherwise `false`.
-fn verify_password(provided_hash: &str, user: &User) -> bool {
-    provided_hash == user.password_hash
+fn verify_password(password: &str, stored_hash: &str) -> bool {
+    let parsed_hash = PasswordHash::new(stored_hash).expect("Invalid hash format");
+    Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
 }
 
 
@@ -149,8 +139,8 @@ pub async fn process_login<D: DbRunner>(
     cookies: &CookieJar<'_>,
     login: &LoginRequest,
 ) -> Result<Status, Status> {
-    // Check for empty fields and return 400
-    if login.email.trim().is_empty() || login.password_hash.trim().is_empty() {
+    // Check for empty fields
+    if login.email.trim().is_empty() || login.password.trim().is_empty() {
         return Err(Status::BadRequest);
     }
 
@@ -159,16 +149,16 @@ pub async fn process_login<D: DbRunner>(
         None => return Err(Status::Unauthorized),
     };
 
-    if !verify_password(&login.password_hash, &user) {
+    if !verify_password(&login.password, &user.password_hash) {
         return Err(Status::Unauthorized);
     }
 
     let session_token = create_and_store_session(db, user.id.unwrap()).await?;
-
     set_session_cookie(cookies, &session_token);
 
     Ok(Status::Ok)
 }
+
 
 #[post("/1/login", data = "<login>")]
 pub async fn login(
@@ -218,23 +208,37 @@ mod tests {
     use crate::user::insert_user;
     use super::*;
 
-    /// Hash a password and return a string
-    ///
-    /// Return string will be in the format "argon2:<salt>:<hash>".
-    ///
-    /// Note that this is a simplified version
-    /// for testing purposes. In production, you would pass a salt in.
     fn hash_password(password: &str) -> String {
         let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let hash = argon2.hash_password(password.as_bytes(), &salt)
-            .expect("hashing should succeed")
-            .hash
-            .unwrap()
-            .to_string();
-        format!("argon2:{}:{}", salt.as_str(), hash)
+        Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .expect("Hashing should succeed")
+            .to_string()
     }
 
+    #[test]
+    fn test_verify_password() {
+        let password = "correct_password";
+        let wrong_password = "wrong_password";
+        let hash = hash_password(password);
+        
+        let now = Utc::now().naive_utc();
+        let user = User {
+            id: Some(1),
+            email: "test@example.com".to_string(),
+            password_hash: hash,
+            institution_id: 1,
+            created_at: now,
+            updated_at: now,
+            totp_secret: "dummysecret".to_string(),
+        };
+
+        // Correct password should verify
+        assert!(verify_password(password, &user.password_hash));
+        
+        // Wrong password should fail
+        assert!(!verify_password(wrong_password, &user.password_hash));
+    }
 
     /// Inserts a dummy institution and a dummy user, returning the inserted user.
     fn insert_dummy_user(conn: &mut diesel::SqliteConnection) -> User {
@@ -274,28 +278,6 @@ mod tests {
         assert_eq!(found_user.institution_id, inserted_user.institution_id);
     }
 
-    #[test]
-    fn test_verify_password() {
-	// Create a dummy user with a known password hash
-	let now = Utc::now().naive_utc();
-	let user = User {
-	    id: Some(1),
-	    email: "test@example.com".to_string(),
-	    password_hash: "argon2:somesalt:somehash".to_string(),
-	    institution_id: 1,
-	    created_at: now,
-	    updated_at: now,
-	    totp_secret: "dummysecret".to_string(),
-	};
-
-	// Case 1: Provided hash matches user's hash
-	let provided_hash = "argon2:somesalt:somehash";
-	assert!(verify_password(provided_hash, &user), "Hashes should match");
-
-	// Case 2: Provided hash does not match user's hash
-	let provided_hash = "argon2:somesalt:differenthash";
-	assert!(!verify_password(provided_hash, &user), "Hashes should not match");
-    }
 
     #[tokio::test]
     async fn test_create_and_store_session() {

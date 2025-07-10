@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 fixphrase = { path = "../crates/fixphrase" }  
 
+argon2 = { workspace = true }
 chrono = { workspace = true }
 diesel.workspace = true
 diesel_migrations.workspace = true
