@@ -1,8 +1,9 @@
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 use diesel::QueryableByName;
-use rocket::serde::json::Json;
-use rocket::http::Status;
+use rocket::local::asynchronous::Client;
+use rocket::serde::json::{json, Json};
+use rocket::http::{ContentType, Status};
 use rocket::Route;
 
 use crate::db::DbConn;
@@ -13,6 +14,34 @@ struct LastInsertRowId {
     #[diesel(sql_type = BigInt)]
     last_insert_rowid: i64,
 }
+
+/// Helper to create a user via the API and return the created User
+pub async fn create_user_by_api(
+    client: &Client,
+    user: &UserNoTime,
+) -> User {
+    let body = json!({
+        "username": &user.username,
+        "email": &user.email,
+        "password_hash": &user.password_hash,
+        "institution_id": user.institution_id,
+        "totp_secret": &user.totp_secret
+    }).to_string();
+    let response = client
+        .post("/api/1/users")
+        .header(ContentType::JSON)
+        .body(body)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), rocket::http::Status::Created);
+
+    response
+        .into_json::<User>()
+        .await
+        .expect("valid User JSON response")
+}
+
 
 /// Inserts a new user and returns the inserted User
 pub fn insert_user(
