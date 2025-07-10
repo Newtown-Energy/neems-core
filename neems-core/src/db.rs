@@ -8,12 +8,6 @@ use rocket::figment::{
 };
 use rocket_sync_db_pools::{database, diesel};
 
-use crate::api;
-use crate::auth;
-use crate::institution;
-use crate::role;
-use crate::user;
-
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 
 #[database("sqlite_db")]
@@ -68,14 +62,11 @@ pub fn test_rocket() -> Rocket<Build> {
         .merge(("databases", map!["sqlite_db" => db_config]));
 
     // Build the Rocket instance with the DB fairing attached
-    rocket::custom(figment)
+    let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
-	.attach(run_migrations_and_pragmas_fairing())
-	.mount("/api", api::routes())
-	.mount("/api", auth::login::routes())
-	.mount("/api/1", institution::routes())
-	.mount("/api/1", role::routes())
-	.mount("/api/1", user::routes())
+	.attach(run_migrations_and_pragmas_fairing());
+
+    crate::mount_all_routes(rocket)
 }
 
 

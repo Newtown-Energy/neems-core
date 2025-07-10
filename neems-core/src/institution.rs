@@ -80,7 +80,7 @@ pub fn insert_institution(
 }
 
 
-#[post("/institutions", data = "<new_institution>")]
+#[post("/1/institutions", data = "<new_institution>")]
 pub async fn create_institution(
     db: DbConn,
     new_institution: Json<InstitutionName>
@@ -95,7 +95,7 @@ pub async fn create_institution(
     }).await
 }
 
-#[get("/institutions")]
+#[get("/1/institutions")]
 pub async fn list_institutions(
     db: DbConn
 ) -> Result<Json<Vec<Institution>>, Status> {
@@ -109,7 +109,7 @@ pub async fn list_institutions(
     }).await
 }
 
-// Helper to return all routes for mounting
+// Return all routes for mounting
 pub fn routes() -> Vec<Route> {
     routes![create_institution, list_institutions]
 }
