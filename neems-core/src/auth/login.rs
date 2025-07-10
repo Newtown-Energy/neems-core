@@ -1,8 +1,27 @@
-/*
-
-login endpoint
-
- */
+//! Authentication and Login Endpoints for neems-core
+//!
+//! This module implements the user login endpoint and related authentication logic for the neems-core API.
+//! It provides mechanisms for verifying user credentials, managing session tokens, and setting secure cookies.
+//!
+//! # Features
+//! - **User Login:** Accepts email and password, verifies credentials, and issues a session.
+//! - **Session Management:** Generates secure session tokens, stores them in the database, and sets HTTP-only cookies.
+//! - **Security:** Ensures session cookies are secure, HTTP-only, and have appropriate SameSite policies.
+//! - **Extensible Database Layer:** Abstracts database operations for testability and flexibility via the `DbRunner` trait.
+//! - **Test Utilities:** Includes helpers and mocks for unit testing authentication flows.
+//!
+//! # Endpoints
+//! - `POST /1/login` — Authenticates a user and sets a session cookie.
+//! - `GET /1/hello` — Example endpoint requiring authentication, returns a greeting for the logged-in user.
+//!
+//! # Usage
+//! Add the routes from this module to your Rocket application with:
+//! ```
+//! mount("/api", neems_core::auth::login::routes())
+//! ```
+//!
+//! # Security Notes
+//! - Session cookies are set as HTTP-only and Secure, with SameSite=Lax.
 
 use chrono::Utc;
 use diesel::prelude::*;
