@@ -226,8 +226,6 @@ HALF DONE:
 
     Some subtasks remain:
 
-    * Add dummy secure endpoints using the guard.
-
     * Configure CORS and cookie settings for your frontend domain.
 
 3. **Implement login/logout endpoints with rate limiting and lockouts.**
@@ -235,6 +233,5 @@ HALF DONE:
 
      In implementing session management endpoints, you guided me to
      making login and logout endpoints, so I appear to have partially
-     done step 3.
+     done step 3.  Still to come: rate limiting and lockouts.
 
-Let's add dummy secure endpoints using the guard.
