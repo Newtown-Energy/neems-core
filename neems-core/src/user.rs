@@ -188,7 +188,7 @@ mod tests {
         let user = result.unwrap();
         assert_eq!(user.email, "test@example.com");
         assert_eq!(user.password_hash, "hashedpassword");
-        assert_eq!(user.institution_id, 1);
+        assert_eq!(user.institution_id, 2); // one more than our existing institution, Newtown
         assert_eq!(user.totp_secret, "secret");
         assert!(user.id.is_some());
 
