@@ -8,9 +8,9 @@ Do not use it to test the actual application logic.
 #[cfg(test)]
 
 mod tests {
-    use crate::establish_test_connection;
-    use crate::models::*;
-    use crate::schema::*;
+    use neems_core::db::setup_test_db;
+    use neems_core::models::*;
+    use neems_core::schema::*;
     use diesel::prelude::*;
     use chrono::Utc;
     use diesel::result::{Error, DatabaseErrorKind};
@@ -84,11 +84,9 @@ mod tests {
     fn create_test_user(
 	conn: &mut SqliteConnection,
 	inst_id: i32,
-	username: &str,
 	email: &str,
     ) -> Result<User, diesel::result::Error> {
 	let new_user = NewUser {
-	    username: username.to_string(),
 	    email: email.to_string(),
 	    password_hash: "testhash".to_string(),
 	    institution_id: inst_id,
@@ -110,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_institution_name_uniqueness() {
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 
 	// First insert should succeed
 	create_test_institution(&mut conn, "Unique Institution")
@@ -126,8 +124,8 @@ mod tests {
 
 
     #[test]
-    fn test_user_uniqueness_constraints() {
-	let mut conn = establish_test_connection();
+    fn test_email_uniqueness_constraints() {
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Test Inst")
 	    .expect("First institution insert should succeed");
 
@@ -136,27 +134,20 @@ mod tests {
 	create_test_user(
 	    &mut conn,
 	    inst.id.expect("Institution ID should be set"),
-	    "user1",
 	    "user1@test.com"
 	).expect("First user insert should succeed");
 
-	// Second user with duplicate username should fail
-	let result = create_test_user(
+	// Second user with different email should succeed
+	create_test_user(
 	    &mut conn,
 	    inst.id.expect("Institution ID should be set"),
-	    "user1", // duplicate username
 	    "user2@test.com"
-	);
-	assert!(matches!(
-	    result,
-	    Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))
-	));
+	).expect("Second user insert should succeed");
 
 	// Third user with duplicate email should fail
 	let result = create_test_user(
 	    &mut conn,
 	    inst.id.expect("Institution ID should be set"),
-	    "user2",
 	    "user1@test.com" // duplicate email
 	);
 	assert!(matches!(
@@ -167,14 +158,14 @@ mod tests {
 
     #[test]
     fn test_institution_to_users_relationship() {
-        let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Test Inst")
 	    .expect("First institution insert should succeed");
 
         // Create users for this institution
-	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user1", "user1@test.com")
+	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user1@test.com")
 	    .expect("user1 should be created");
-	let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user2", "user2@test.com")
+	let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user2@test.com")
 	    .expect("user2 should be created");
 
         // Verify relationship
@@ -191,7 +182,6 @@ mod tests {
 	let result = create_test_user(
 	    &mut conn,
 	    99999, // Invalid FK
-	    "newuser",
 	    "new@test.com"
 	);
 	assert!(matches!(
@@ -202,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_institution_to_sites_relationship() {
-        let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Test Inst")
 	    .expect("First institution insert should succeed");
 
@@ -227,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_site_name_uniqueness_per_institution() {
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst1 = create_test_institution(&mut conn, "Inst 1")
 	    .expect("First institution insert should succeed");
 	let inst2 = create_test_institution(&mut conn, "Inst 2")
@@ -272,12 +262,12 @@ mod tests {
     fn test_user_roles_many_to_many() {
 	use diesel::prelude::*;
 
-	let mut conn = establish_test_connection();
+	let mut conn = setup_test_db();
 	let inst = create_test_institution(&mut conn, "Roles Institution")
 	    .expect("Roles institution insert should succeed");
-	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser1", "roleuser1@test.com")
+	let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser1@test.com")
 	    .expect("user1 should be created");
-	let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser2", "roleuser2@test.com")
+	let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser2@test.com")
 	    .expect("user2 should be created");
 
 	// Create roles
