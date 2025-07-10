@@ -74,7 +74,6 @@ pub async fn create_user_by_api(
     user: &UserNoTime,
 ) -> User {
     let body = json!({
-        "username": &user.username,
         "email": &user.email,
         "password_hash": &user.password_hash,
         "institution_id": user.institution_id,
@@ -105,7 +104,6 @@ pub fn insert_user(
 
     let now = chrono::Utc::now().naive_utc();
     let insertable_user = NewUser {
-        username: new_user.username,
         email: new_user.email,
         password_hash: new_user.password_hash,
         created_at: now,
@@ -179,7 +177,6 @@ mod tests {
 	    .expect("Failed to insert institution");
 
         let new_user = UserNoTime {
-            username: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password_hash: "hashedpassword".to_string(),
             institution_id: institution.id.unwrap(),    // Use a valid institution id for your test db
@@ -189,7 +186,6 @@ mod tests {
         let result = insert_user(&mut conn, new_user);
         assert!(result.is_ok());
         let user = result.unwrap();
-        assert_eq!(user.username, "testuser");
         assert_eq!(user.email, "test@example.com");
         assert_eq!(user.password_hash, "hashedpassword");
         assert_eq!(user.institution_id, 1);
@@ -212,14 +208,12 @@ mod tests {
 
         // Insert two users
         let user1 = UserNoTime {
-            username: "user1".to_string(),
             email: "user1@example.com".to_string(),
             password_hash: "pw1".to_string(),
             institution_id: institution.id.unwrap(),
             totp_secret: "secret1".to_string(),
         };
         let user2 = UserNoTime {
-            username: "user2".to_string(),
             email: "user2@example.com".to_string(),
             password_hash: "pw2".to_string(),
             institution_id: institution.id.unwrap(),
@@ -231,8 +225,8 @@ mod tests {
 
         let users = list_all_users(&mut conn).unwrap();
         assert_eq!(users.len(), 2);
-        assert_eq!(users[0].username, "user1");
-        assert_eq!(users[1].username, "user2");
+        assert_eq!(users[0].email, "user1@example.com");
+        assert_eq!(users[1].email, "user2@example.com");
         assert!(users[0].id < users[1].id);
     }
 }

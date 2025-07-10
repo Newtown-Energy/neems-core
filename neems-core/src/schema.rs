@@ -50,7 +50,6 @@ diesel::table! {
 diesel::table! {
     users (id) {
         id -> Nullable<Integer>,
-        username -> Text,
         email -> Text,
         password_hash -> Text,
         created_at -> Timestamp,
