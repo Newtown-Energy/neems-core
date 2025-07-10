@@ -38,8 +38,6 @@ pub fn rocket() -> Rocket<Build> {
         .register("/", catchers![not_found])
 	// Mount /api routes first (takes precedence over static files)
         .mount("/api", routes![
-            api::health_status,
-            api::encode_fixphrase,
 	    auth::logout::logout,
         ])
 	.mount("/api", api::routes())
