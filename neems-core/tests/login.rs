@@ -37,7 +37,6 @@ async fn _test_successful_login_old() {
 
     // Create user
     let user = UserNoTime {
-        username: "reqwestuser".to_string(),
         email: "reqwestuser@example.com".to_string(),
         password_hash: password_hash.clone(),
         institution_id,
@@ -45,7 +44,6 @@ async fn _test_successful_login_old() {
     };
     let user_resp = client.post("/api/1/users")
         .json(&json!({
-            "username": user.username,
             "email": user.email,
             "password_hash": user.password_hash,
             "institution_id": user.institution_id,
@@ -57,7 +55,7 @@ async fn _test_successful_login_old() {
 
     // --- 3. Test login with local client ---
     let login_body = json!({
-        "username": user.username,
+        "email": user.email,
         "password_hash": password_hash,
     });
 
@@ -76,23 +74,25 @@ async fn _test_successful_login_old() {
 async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
     // First create institutions
     let inst_names = random_energy_company_names(2);
-    let mut institution_ids = Vec::new();
+    let mut institutions = Vec::new();
     
     for name in inst_names {
         let inst = create_institution_by_api(&client, &InstitutionNoTime { name: name.to_string() }).await;
-        institution_ids.push(inst.id.unwrap());
+	institutions.push(inst);
     }
 
     // Then create users with proper UserNoTime data
     for username in random_usernames(50) {
-        // Create random email based on username
-        let email = format!("{}@example.com", username.to_lowercase());
-        
-        // Get a random institution ID from those we created
-        let institution_id = *institution_ids.choose(&mut rand::rng()).unwrap();
+        // Get a random institution from those we created
+	let inst = institutions.choose(&mut rand::rng()).expect("No institutions available");
+
+	// Gran the id from that institution
+        let institution_id = inst.id.expect("Institution must have an ID");
+
+        // Create random email based on username + @ + institution + .com
+        let email = format!("{}@{}.com", username.to_lowercase(), inst.name.to_lowercase().replace(" ", "-"));
         
         create_user_by_api(&client, &UserNoTime {
-            username: username.to_string(),
             email,
             password_hash: "dummy_hash".to_string(),
             institution_id,
@@ -101,11 +101,11 @@ async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket
     }
     
     // One more user, this time with a predefined username
+    let inst = institutions.choose(&mut rand::rng()).expect("No institutions available");
     create_user_by_api(&client, &UserNoTime {
-	username: "testuser".to_string(),
 	email: "testuser@example.com".to_string(),
 	password_hash: "dummy_hash".to_string(), 
-	institution_id: *institution_ids.choose(&mut rand::rng()).unwrap(),
+	institution_id: inst.id.expect("Institution must have an ID"),
 	totp_secret: "dummy_secret".to_string(),
     }).await;
 

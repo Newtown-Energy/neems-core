@@ -32,7 +32,6 @@ async fn test_create_user() {
 
     // 3. Create a user using that institution_id
     let new_user = json!({
-        "username": "testuser",
         "email": "testuser@example.com",
         "password_hash": "hashed_pw",
         "institution_id": institution_id,
@@ -45,17 +44,17 @@ async fn test_create_user() {
         .dispatch()
         .await;
 
-    assert_eq!(response.status(), rocket::http::Status::Ok);
+    assert_eq!(response.status(), rocket::http::Status::Created);
 
     let returned: User = response.into_json().await.expect("valid JSON response");
-    assert_eq!(returned.username, "testuser");
+    assert_eq!(returned.email, "testuser@example.com");
     assert_eq!(returned.institution_id, institution_id);
 }
 
 
 
 #[rocket::async_test]
-async fn test_list_users_with_seeded_institution() {
+async fn test_list_users() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     // Seed institution and create a user
@@ -79,5 +78,5 @@ async fn test_list_users_with_seeded_institution() {
 
     let list: Vec<User> = response.into_json().await.expect("valid JSON response");
     assert!(!list.is_empty());
-    assert!(list.iter().any(|u| u.username == "listuser"));
+    assert!(list.iter().any(|u| u.email == "listuser@example.com"));
 }
