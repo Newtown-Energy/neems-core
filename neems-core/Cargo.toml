@@ -11,6 +11,7 @@ diesel.workspace = true
 diesel_migrations.workspace = true
 dotenvy.workspace = true
 figment_file_provider_adapter = { workspace = true }
+rand = { workspace = true }
 rocket.workspace = true
 rocket_sync_db_pools = { workspace = true }
 serde.workspace = true
