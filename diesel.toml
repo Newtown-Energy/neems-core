@@ -2,8 +2,8 @@
 # see https://diesel.rs/guides/configuring-diesel-cli
 
 [print_schema]
-file = "neems-core/src/schema.rs"
+file = "core/src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 
 [migrations_directory]
-dir = "/home/james/Newtown/src/neems/neems-core/migrations"
+dir = "migrations"
