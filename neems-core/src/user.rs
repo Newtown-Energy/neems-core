@@ -18,6 +18,14 @@ struct LastInsertRowId {
     last_insert_rowid: i64,
 }
 
+// fn hash_password(password: &str) -> String {
+//     let salt = SaltString::generate(&mut OsRng);
+//     Argon2::default()
+// 	.hash_password(password.as_bytes(), &salt)
+// 	.expect("Hashing should succeed")
+// 	.to_string()
+// }
+
 pub fn random_usernames(count: usize) -> Vec<&'static str> {
     let names = vec![
 	"a.johnson", "b.williams", "c.miller", "d.davis", "e.rodriguez",
