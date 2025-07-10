@@ -1,6 +1,3 @@
-use reqwest::Client;
-use rocket::config::{Config, LogLevel};
-use rocket::figment::Figment;
 use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
@@ -11,21 +8,12 @@ mod institution;
 use institution::create_institution_by_api;
 
 #[tokio::test]
-async fn test_successful_login_with_reqwest() {
-    // --- 1. Start Rocket on a random port ---
-    let figment = Figment::from(Config::default())
-        .merge(("port", 0)) // 0 = random port
-        .merge(("log_level", LogLevel::Off));
-    let rocket = test_rocket().configure(figment);
-    let rocket = rocket.launch().await.expect("launch rocket");
-
-    // Get the port Rocket actually bound to
-    let port = rocket.config().port;
-    let base_url = format!("http://localhost:{}", port);
+async fn test_successful_login() {
+    // --- 1. Create Rocket client for testing ---
+    let rocket = test_rocket();
+    let client = rocket::local::asynchronous::Client::tracked(rocket).await.unwrap();
 
     // --- 2. Seed the DB with institution and user ---
-    // Use a Rocket client to seed via API
-    let client = rocket::local::asynchronous::Client::tracked(rocket).await.unwrap();
 
     // Create institution
     let inst = InstitutionNoTime { name: "Reqwest Test Inst".to_string() };
@@ -38,7 +26,7 @@ async fn test_successful_login_with_reqwest() {
     let institution_id = inst_json["id"].as_i64().unwrap() as i32;
 
     // Hash a password as your login expects
-    let password = "testpass";
+    let _password = "testpass";
     let salt = "somesalt"; // In production, use random salt
     let hash = "somehash"; // In production, use argon2
     let password_hash = format!("argon2:{}:{}", salt, hash);
@@ -63,29 +51,21 @@ async fn test_successful_login_with_reqwest() {
         .await;
     assert!(user_resp.status().code < 400);
 
-    // --- 3. Use reqwest to POST to /api/1/login ---
-    let reqwest_client = Client::builder()
-        .cookie_store(true)
-        .build()
-        .unwrap();
-
+    // --- 3. Test login with local client ---
     let login_body = json!({
         "username": user.username,
         "password_hash": password_hash,
     });
 
-    let resp = reqwest_client
-        .post(&format!("{}/api/1/login", base_url))
+    let resp = client.post("/api/1/login")
         .json(&login_body)
-        .send()
-        .await
-        .unwrap();
+        .dispatch()
+        .await;
 
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), Status::Ok);
 
     // --- 4. Check for session cookie ---
-    let cookies = resp.cookies().collect::<Vec<_>>();
-    let session_cookie = cookies.iter().find(|c| c.name() == "session");
+    let session_cookie = resp.cookies().get("session");
     assert!(session_cookie.is_some(), "Session cookie should be set");
 }
 
