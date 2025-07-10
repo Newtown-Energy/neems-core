@@ -1,8 +1,12 @@
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 use diesel::QueryableByName;
-use rocket::serde::json::Json;
-use rocket::http::Status;
+use rand::rng;
+use rand::prelude::IndexedRandom;
+use rocket::local::asynchronous::Client;
+use rocket::response::status;
+use rocket::serde::json::{json, Json};
+use rocket::http::{ContentType, Status};
 use rocket::Route;
 
 use crate::db::DbConn;
@@ -14,6 +18,83 @@ struct LastInsertRowId {
     last_insert_rowid: i64,
 }
 
+pub fn random_usernames(count: usize) -> Vec<&'static str> {
+    let names = vec![
+	"a.johnson", "b.williams", "c.miller", "d.davis", "e.rodriguez",
+	"f.martinez", "g.lee", "h.wilson", "i.clark", "j.hernandez",
+	"k.young", "l.walker", "m.hall", "n.allen", "o.green", "p.adams",
+	"q.nelson", "r.mitchell", "s.carter", "t.roberts", "amandak",
+	"brandonp", "chrisl", "davidm", "ericb", "frankr", "garys",
+	"heathert", "ianw", "jenniferg", "kevinh", "lisac", "michaeld",
+	"nicolef", "oliverj", "patrickt", "quincyv", "rachelm", "stevenn",
+	"taylorq", "jameskw1", "sarahml2", "robertdf3", "laurajg4",
+	"thomasap5", "emilyrs6", "danielkt7", "megandw8", "ryanbh9",
+	"oliviamc10", "aljohnson", "bkmartin", "cjwilson", "dlthomas",
+	"emharris", "fnmoore", "gpgarcia", "hrjackson", "iswhite", "jdtaylor",
+	"browns", "moorej", "evansm", "kingr", "wrighta", "scottl", "riverak",
+	"hayesd", "collinsp", "murphyb", "mikescott", "aligray", "chrismyers",
+	"jenngreen", "robhall", "davecook", "sarahkim", "timnguyen",
+	"katediaz", "jimreed", "analyst_amy", "director_mark", "manager_lisa",
+	"tech_sam", "scientist_raj", "ops_carlos", "ceo_adam", "cto_priya",
+	"designer_tom", "specialist_lee", "wind_mike", "nuclear_dave",
+	"battery_lucy", "grid_omar", "fusion_anna", "hydro_ryan",
+	"solar_priya", "storage_paul", "transmission_ella", "renewables_jack",
+	"a.kumar24", "b.liang2024", "c.patel_eng", "d.yang_ops",
+	"e.choi_tech", "f.singh1", "g.wu2023", "h.garcia_ce", "i.vargas_pe",
+	"j.nguyen_lead", "alexclark", "briancook", "carolynlee", "davidbrown",
+	"ericawang", "franklinm", "gracehill", "henryford", "ivyzhang",
+	"jasonpark", "volts_ryan", "amp_anne", "watt_dan", "joule_mary",
+	"ohm_steve", "grid_master", "solar_expert", "wind_tech", "nuke_ops",
+	"fusion_research", "battery_ai", "smartgrid_pro", "renewables_lead",
+	"carbon_zero", "green_volt", "energy_analyst", "power_engineer",
+	"grid_designer", "sustainability_1", "clean_energy_22", "ceo_johnson",
+	"cfo_smith", "cto_lee", "vp_operations", "director_energy", "head_rd",
+	"manager_grid", "lead_engineer", "senior_designer", "principal_tech",
+	"engineer1", "systems_ops", "grid_analyst", "nuke_specialist",
+	"solar_tech", "wind_engineer", "battery_design", "transmission_pro",
+	"power_ops", "fusion_researcher", "hr_jane", "finance_mike",
+	"legal_lisa", "admin_alex", "it_support", "comms_dan", "pr_sarah",
+	"facilities_tom", "security_lead", "logistics_team", "jdoe_energy",
+	"asmith_power", "rlee_solar", "kwang_grid", "tchen_nuke",
+	"lrod_fusion", "pmartin_wind", "sgarcia_storage", "dwilson_ops",
+	"ajames_ce", "bkim_tech", "clopez_eng", "dhall_design",
+	"eyoung_analyst", "fscott_lead", "gadams_rd", "hbaker_sys",
+	"igray_ai", "jflores_data", "kharris_coo", "lmurphy_cfo",
+	"mrivera_cto", "npham_vp", "opark_dir", "pcole_mgr", "qedwards_hr",
+	"rfoster_fin", "snguyen_legal", "tross_it", "upatel_admin"
+    ];
+    let mut rng = rng();
+    let selected: Vec<_> = names.choose_multiple(&mut rng, count).copied().collect();
+    selected
+}
+
+/// Helper to create a user via the API and return the created User
+pub async fn create_user_by_api(
+    client: &Client,
+    user: &UserNoTime,
+) -> User {
+    let body = json!({
+        "email": &user.email,
+        "password_hash": &user.password_hash,
+        "institution_id": user.institution_id,
+        "totp_secret": &user.totp_secret
+    }).to_string();
+    let response = client
+        .post("/api/1/users")
+        .header(ContentType::JSON)
+        .body(body)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), rocket::http::Status::Created);
+
+    response
+        .into_json::<User>()
+        .await
+        .expect("valid User JSON response")
+}
+
+
 /// Inserts a new user and returns the inserted User
 pub fn insert_user(
     conn: &mut SqliteConnection,
@@ -23,7 +104,6 @@ pub fn insert_user(
 
     let now = chrono::Utc::now().naive_utc();
     let insertable_user = NewUser {
-        username: new_user.username,
         email: new_user.email,
         password_hash: new_user.password_hash,
         created_at: now,
@@ -49,17 +129,16 @@ pub fn insert_user(
 pub async fn create_user(
     db: DbConn,
     new_user: Json<UserNoTime>
-) -> Result<Json<User>, Status> {
+) -> Result<status::Created<Json<User>>, Status> {
     db.run(move |conn| {
         insert_user(conn, new_user.into_inner())
-            .map(Json)
+            .map(|user| status::Created::new("/").body(Json(user)))
             .map_err(|e| {
                 eprintln!("Error creating user: {:?}", e);
                 Status::InternalServerError
             })
     }).await
 }
-
 
 /// Returns all users in ascending order by id.
 pub fn list_all_users(
@@ -98,7 +177,6 @@ mod tests {
 	    .expect("Failed to insert institution");
 
         let new_user = UserNoTime {
-            username: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password_hash: "hashedpassword".to_string(),
             institution_id: institution.id.unwrap(),    // Use a valid institution id for your test db
@@ -108,7 +186,6 @@ mod tests {
         let result = insert_user(&mut conn, new_user);
         assert!(result.is_ok());
         let user = result.unwrap();
-        assert_eq!(user.username, "testuser");
         assert_eq!(user.email, "test@example.com");
         assert_eq!(user.password_hash, "hashedpassword");
         assert_eq!(user.institution_id, 1);
@@ -131,14 +208,12 @@ mod tests {
 
         // Insert two users
         let user1 = UserNoTime {
-            username: "user1".to_string(),
             email: "user1@example.com".to_string(),
             password_hash: "pw1".to_string(),
             institution_id: institution.id.unwrap(),
             totp_secret: "secret1".to_string(),
         };
         let user2 = UserNoTime {
-            username: "user2".to_string(),
             email: "user2@example.com".to_string(),
             password_hash: "pw2".to_string(),
             institution_id: institution.id.unwrap(),
@@ -150,8 +225,8 @@ mod tests {
 
         let users = list_all_users(&mut conn).unwrap();
         assert_eq!(users.len(), 2);
-        assert_eq!(users[0].username, "user1");
-        assert_eq!(users[1].username, "user2");
+        assert_eq!(users[0].email, "user1@example.com");
+        assert_eq!(users[1].email, "user2@example.com");
         assert!(users[0].id < users[1].id);
     }
 }

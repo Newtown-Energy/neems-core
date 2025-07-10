@@ -24,9 +24,10 @@ fn generate_session_token() -> String {
 
 #[derive(Clone, Deserialize)]
 pub struct LoginRequest {
-    username: String,
-    password_hash: String, // format is "argon2:<salt>:<hash>"
+    email: String,  // Changed from username to email
+    password_hash: String,
 }
+
 
 pub trait DbRunner {
     fn run<F, R>(&self, f: F) -> impl std::future::Future<Output = R>
@@ -55,11 +56,11 @@ impl<'a> DbRunner for FakeDbConn<'a> {
     }
 }
 
-async fn find_user_by_username<D: DbRunner>(db: &D, username: &str) -> Result<Option<User>, Status> {
-    let username = username.to_owned(); // Make an owned String
+async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Option<User>, Status> {
+    let email = email.to_owned();
     db.run(move |conn| {
         users::table
-            .filter(users::username.eq(username))
+            .filter(users::email.eq(email))
             .first::<User>(conn)
             .optional()
     })
@@ -123,7 +124,7 @@ pub async fn process_login<D: DbRunner>(
     cookies: &CookieJar<'_>,
     login: &LoginRequest,
 ) -> Result<Status, Status> {
-    let user = match find_user_by_username(db, &login.username).await? {
+    let user = match find_user_by_email(db, &login.email).await? {
         Some(user) => user,
         None => return Err(Status::Unauthorized),
     };
@@ -153,7 +154,7 @@ pub async fn login(
 #[get("/1/hello")]
 pub async fn secure_hello(db: DbConn, cookies: &CookieJar<'_>) -> Result<String, Status> {
     if let Some(user) = AuthenticatedUser::from_cookies_and_db(cookies, &db).await {
-        Ok(format!("Hello, {}!", user.username))
+        Ok(format!("Hello, {}!", user.email))
     } else {
         Err(Status::Unauthorized)
     }
@@ -208,7 +209,6 @@ mod tests {
         let hash = hash_password("dummy password");
 
         let dummy_user = UserNoTime {
-            username: "Karl Fogel".to_string(),
             email: "legofkarl@ots.com".to_string(),
             password_hash: hash,
             institution_id: institution.id.unwrap(),
@@ -228,13 +228,12 @@ mod tests {
         let fake_db = setup_test_dbconn(&mut conn);
 
         // Use the function under test
-        let found = find_user_by_username(&fake_db, "Karl Fogel")
+        let found = find_user_by_email(&fake_db, "legofkarl@ots.com")
             .await
             .expect("db query should succeed");
 
         assert!(found.is_some());
         let found_user = found.unwrap();
-        assert_eq!(found_user.username, inserted_user.username);
         assert_eq!(found_user.email, inserted_user.email);
         assert_eq!(found_user.password_hash, inserted_user.password_hash);
         assert_eq!(found_user.institution_id, inserted_user.institution_id);
@@ -246,7 +245,6 @@ mod tests {
 	let now = Utc::now().naive_utc();
 	let user = User {
 	    id: Some(1),
-	    username: "testuser".to_string(),
 	    email: "test@example.com".to_string(),
 	    password_hash: "argon2:somesalt:somehash".to_string(),
 	    institution_id: 1,
