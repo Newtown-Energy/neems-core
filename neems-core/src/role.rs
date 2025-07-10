@@ -96,27 +96,14 @@ mod tests {
     fn test_list_all_roles() {
 	let mut conn = setup_test_db();
 
-	// Insert a couple of roles directly
-	let role1 = NewRole {
-	    name: "Admin".to_string(),
-	    description: Some("Administrator".to_string()),
-	};
-	let role2 = NewRole {
-	    name: "User".to_string(),
-	    description: Some("Regular user".to_string()),
-	};
-
-	let _inserted1 = insert_role(&mut conn, role1).unwrap();
-	let _inserted2 = insert_role(&mut conn, role2).unwrap();
-
 	let roles = list_all_roles(&mut conn).unwrap();
-	assert_eq!(roles.len(), 2);
+	assert_eq!(roles.len(), 4);
 
 	// Check ordering and content
-	assert_eq!(roles[0].name, "Admin");
-	assert_eq!(roles[1].name, "User");
-	assert_eq!(roles[0].description, Some("Administrator".to_string()));
-	assert_eq!(roles[1].description, Some("Regular user".to_string()));
+	assert_eq!(roles[0].name, "newtown-admin");
+	assert_eq!(roles[1].name, "newtown-staff");
+	assert_eq!(roles[0].description, Some("Administrator for Newtown".to_string()));
+	assert_eq!(roles[1].description, Some("Staff member for Newtown".to_string()));
 
 	// IDs should be present and ascending
 	assert!(roles[0].id.is_some());
