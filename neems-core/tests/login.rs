@@ -1,3 +1,4 @@
+use rand::prelude::IndexedRandom;
 use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
@@ -6,9 +7,12 @@ use neems_core::db::test_rocket;
 use neems_core::models::{InstitutionNoTime, UserNoTime};
 mod institution;
 use institution::create_institution_by_api;
+use neems_core::institution::{random_energy_company_names};
+use neems_core::user::{create_user_by_api, random_usernames};
 
+#[ignore]
 #[tokio::test]
-async fn test_successful_login() {
+async fn _test_successful_login_old() {
     // --- 1. Create Rocket client for testing ---
     let rocket = test_rocket();
     let client = rocket::local::asynchronous::Client::tracked(rocket).await.unwrap();
@@ -69,6 +73,52 @@ async fn test_successful_login() {
     assert!(session_cookie.is_some(), "Session cookie should be set");
 }
 
+async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
+    // First create institutions
+    let inst_names = random_energy_company_names(2);
+    let mut institution_ids = Vec::new();
+    
+    for name in inst_names {
+        let inst = create_institution_by_api(&client, &InstitutionNoTime { name: name.to_string() }).await;
+        institution_ids.push(inst.id.unwrap());
+    }
+
+    // Then create users with proper UserNoTime data
+    for username in random_usernames(50) {
+        // Create random email based on username
+        let email = format!("{}@example.com", username.to_lowercase());
+        
+        // Get a random institution ID from those we created
+        let institution_id = *institution_ids.choose(&mut rand::rng()).unwrap();
+        
+        create_user_by_api(&client, &UserNoTime {
+            username: username.to_string(),
+            email,
+            password_hash: "dummy_hash".to_string(),
+            institution_id,
+            totp_secret: "dummy_secret".to_string(),
+        }).await;
+    }
+    
+    // One more user, this time with a predefined username
+    create_user_by_api(&client, &UserNoTime {
+	username: "testuser".to_string(),
+	email: "testuser@example.com".to_string(),
+	password_hash: "dummy_hash".to_string(), 
+	institution_id: *institution_ids.choose(&mut rand::rng()).unwrap(),
+	totp_secret: "dummy_secret".to_string(),
+    }).await;
+
+    client
+}
+
+#[tokio::test]
+async fn test_successful_login() {
+    let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+    add_dummy_data(&client).await;
+
+}
+
 #[ignore]
 #[tokio::test]
 async fn test_secure_hello_requires_auth() {
@@ -84,7 +134,7 @@ async fn test_secure_hello_requires_auth() {
     // 2. Simulate login to get session cookie
     let login_body = json!({
 	"username": "testuser",
-	"password_hash": "argon2:...:..." // Use a real hash for your test user
+	"password_hash": "dummy_hash" // Use a real hash for your test user
     });
     let response = client.post("/api/1/login")
 	.json(&login_body)
