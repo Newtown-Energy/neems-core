@@ -19,6 +19,28 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 #[database("sqlite_db")]
 pub struct DbConn(diesel::SqliteConnection);
 
+fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
+    conn.batch_execute(
+        r#"
+        PRAGMA foreign_keys = ON;
+        PRAGMA synchronous = OFF;
+        PRAGMA journal_mode = OFF;
+        "#
+    ).expect("Failed to set SQLite PRAGMAs");
+}
+pub fn run_migrations_and_pragmas_fairing() -> AdHoc {
+    AdHoc::on_ignite("Diesel Migrations", |rocket| async {
+        let conn = DbConn::get_one(&rocket).await
+            .expect("database connection for migration");
+        conn.run(|c| {
+            set_sqlite_test_pragmas(c);
+            c.run_pending_migrations(MIGRATIONS)
+                .expect("diesel migrations");
+        }).await;
+        rocket
+    })
+}
+
 pub fn run_migrations_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         // Get a database connection from Rocket's pool
@@ -48,7 +70,7 @@ pub fn test_rocket() -> Rocket<Build> {
     // Build the Rocket instance with the DB fairing attached
     rocket::custom(figment)
         .attach(DbConn::fairing())
-	.attach(run_migrations_fairing())
+	.attach(run_migrations_and_pragmas_fairing())
 	.mount("/api", api::routes())
 	.mount("/api", auth::login::routes())
 	.mount("/api/1", institution::routes())
