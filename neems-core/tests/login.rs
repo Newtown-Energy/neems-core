@@ -1,3 +1,5 @@
+#[macro_use] extern crate time_test;
+
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
     Argon2
@@ -13,7 +15,7 @@ use neems_core::models::{InstitutionNoTime, UserNoTime};
 mod institution;
 use institution::create_institution_by_api;
 use neems_core::institution::{random_energy_company_names};
-use neems_core::user::{create_user_by_api, random_usernames};
+use neems_core::user::{create_user_by_api};
 
 
 /// Hash passwords with Argon2
@@ -26,38 +28,8 @@ fn hash_password(password: &str) -> String {
 }
 
 async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
-    // First create institutions
-    let inst_names = random_energy_company_names(2);
-    let mut institutions = Vec::new();
-    
-    for name in inst_names {
-        let inst = create_institution_by_api(&client, &InstitutionNoTime { name: name.to_string() }).await;
-        institutions.push(inst);
-    }
-
-    // Create users with properly hashed passwords
-    for username in random_usernames(50) {
-        // Get a random institution
-        let inst = institutions.choose(&mut rand::rng()).expect("No institutions available");
-        let institution_id = inst.id.expect("Institution must have an ID");
-
-        // Create email
-        let email = format!("{}@{}.com", username.to_lowercase(), 
-                           inst.name.to_lowercase().replace(" ", "-"));
-        
-        // Use a consistent test password but properly hashed
-        let password_hash = hash_password("testpassword123");
-        
-        create_user_by_api(&client, &UserNoTime {
-            email,
-            password_hash,
-            institution_id,
-            totp_secret: "dummy_secret".to_string(),
-        }).await;
-    }
-    
-    // One predefined test user with known credentials
-    let inst = institutions.choose(&mut rand::rng()).expect("No institutions available");
+    let name = random_energy_company_names(1)[0];
+    let inst = create_institution_by_api(&client, &InstitutionNoTime { name: name.to_string() }).await;
     let test_password_hash = hash_password("testpassword");
     create_user_by_api(&client, &UserNoTime {
         email: "testuser@example.com".to_string(),
@@ -72,6 +44,7 @@ async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket
 #[tokio::test]
 async fn test_login_success() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+    time_test!("test_login_success");
     add_dummy_data(&client).await;
 
     let response = client.post("/api/1/login")
@@ -90,6 +63,7 @@ async fn test_login_success() {
 async fn test_wrong_email() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
     add_dummy_data(&client).await;
+    time_test!("test_wrong_email");
 
     let response = client.post("/api/1/login")
         .json(&json!({
@@ -107,6 +81,7 @@ async fn test_wrong_email() {
 #[tokio::test]
 async fn test_wrong_password() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+    time_test!("test_wrong_password");
     add_dummy_data(&client).await;
 
     let response = client.post("/api/1/login")
@@ -126,6 +101,7 @@ async fn test_wrong_password() {
 async fn test_empty_email() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
     add_dummy_data(&client).await;
+    time_test!("test_empty_email");
 
     let response = client.post("/api/1/login")
         .json(&json!({
@@ -141,6 +117,7 @@ async fn test_empty_email() {
 #[tokio::test]
 async fn test_empty_password() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+    time_test!("test_empty_password");
     add_dummy_data(&client).await;
 
     let response = client.post("/api/1/login")
@@ -158,6 +135,7 @@ async fn test_empty_password() {
 async fn test_secure_hello_requires_auth() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
     add_dummy_data(&client).await;
+    time_test!("test_secure_hello_requires_auth");
 
     // 1. Test unauthenticated request fails
     let response = client.get("/api/1/hello")
