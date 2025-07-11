@@ -30,11 +30,11 @@ pub async fn create_institution_by_api(
 async fn test_create_institution() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
-    let new_inst = InstitutionNoTime { name: "Test University".to_string() };
+    let new_inst = InstitutionNoTime { name: "Test Company".to_string() };
 
     let returned: Institution = create_institution_by_api(&client, &new_inst).await;
 
-    assert_eq!(returned.name, "Test University");
+    assert_eq!(returned.name, "Test Company");
     assert!(returned.id.is_some());
     assert!(returned.created_at <= returned.updated_at);
 }
@@ -46,7 +46,7 @@ async fn test_list_institutions() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     // 1. First create a test institution
-    let new_inst = InstitutionNoTime { name: "Test University".to_string() };
+    let new_inst = InstitutionNoTime { name: "Test LLC".to_string() };
     let create_response = client.post("/api/1/institutions")
         .json(&new_inst)
         .dispatch()
@@ -61,5 +61,5 @@ async fn test_list_institutions() {
     dbg!(&list);  // Debug output shows what we got
 
     assert!(!list.is_empty());
-    assert!(list.iter().any(|i| i.name == "Test University"));
+    assert!(list.iter().any(|i| i.name == "Test LLC"));
 }

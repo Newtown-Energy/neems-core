@@ -8,7 +8,7 @@ use neems_core::models::{Institution, User};
 
 /// Helper to seed the test DB with "Newtown Energy" and return its ID.
 async fn seed_institution(client: &Client) -> i32 {
-    let new_inst = json!({ "name": "Newtown Energy" });
+    let new_inst = json!({ "name": "A Bogus Company" });
 
     let response = client.post("/api/1/institutions")
         .header(ContentType::JSON)
