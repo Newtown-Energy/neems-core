@@ -88,7 +88,10 @@ pub async fn create_institution(
     db.run(move |conn| {
         insert_institution(conn, new_institution.name.clone())
             .map(|inst| status::Created::new("/").body(Json(inst)))
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|e| {
+                eprintln!("Error creating institution: {:?}", e);
+                Status::InternalServerError
+            })
     }).await
 }
 

@@ -155,7 +155,10 @@ pub async fn list_users(
     db.run(|conn| {
         list_all_users(conn)
             .map(Json)
-            .map_err(|_| Status::InternalServerError)
+            .map_err(|e| {
+                eprintln!("Error listing users: {:?}", e);
+                Status::InternalServerError
+            })
     }).await
 }
 
