@@ -32,7 +32,7 @@ pub fn insert_role(
         .first::<Role>(conn)
 }
 
-#[post("/roles", data = "<new_role>")]
+#[post("/1/roles", data = "<new_role>")]
 pub async fn create_role(
     db: DbConn,
     new_role: Json<NewRole>
@@ -52,7 +52,7 @@ pub fn list_all_roles(
     roles.order(id.asc()).load::<Role>(conn)
 }
 
-#[get("/roles")]
+#[get("/1/roles")]
 pub async fn list_roles(
     db: DbConn
 ) -> Result<Json<Vec<Role>>, Status> {

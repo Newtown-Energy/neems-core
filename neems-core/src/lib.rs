@@ -2,11 +2,10 @@
 extern crate rocket;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations};
-use rocket::Build;
+use rocket::{Rocket, Build};
 use rocket::fs::FileServer;
 use rocket::serde::json::{Json, json, Value};
 use rocket::request::Request;
-use rocket::Rocket;
 
 pub mod api;
 pub mod auth;
@@ -29,22 +28,22 @@ fn not_found(req: &Request) -> Json<Value> {
     }))
 }
 
+pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
+    rocket
+        .mount("/api", routes![auth::logout::logout,])
+        .mount("/api", api::routes())
+        .mount("/api", auth::login::routes())
+        .mount("/api", institution::routes())
+        .mount("/api", role::routes())
+        .mount("/api", user::routes())
+}
+
 #[launch]
 pub fn rocket() -> Rocket<Build> {
-    let static_dir = "static";
 
-    rocket::build()
+    let rocket = rocket::build()
 	.attach(DbConn::fairing())
-        .register("/", catchers![not_found])
-	// Mount /api routes first (takes precedence over static files)
-        .mount("/api", routes![
-	    auth::logout::logout,
-        ])
-	.mount("/api", api::routes())
-	.mount("/api", auth::login::routes())
-	.mount("/api/1", institution::routes())
-	.mount("/api/1", role::routes())
-	.mount("/api/1", user::routes())
-        // Mount static file server at root (serves everything else)
-        .mount("/", FileServer::from(static_dir).rank(10))
+        .register("/", catchers![not_found]);
+
+    mount_api_routes(rocket).mount("/", FileServer::from("static").rank(10))
 }

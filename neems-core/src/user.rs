@@ -133,7 +133,7 @@ pub fn insert_user(
         .first::<User>(conn)
 }
 
-#[post("/users", data = "<new_user>")]
+#[post("/1/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
     new_user: Json<UserNoTime>
@@ -156,7 +156,7 @@ pub fn list_all_users(
     users.order(id.asc()).load::<User>(conn)
 }
 
-#[get("/users")]
+#[get("/1/users")]
 pub async fn list_users(
     db: DbConn
 ) -> Result<Json<Vec<User>>, Status> {
