@@ -28,7 +28,7 @@ fn not_found(req: &Request) -> Json<Value> {
     }))
 }
 
-pub fn mount_all_routes(rocket: Rocket<Build>) -> Rocket<Build> {
+pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
     rocket
         .mount("/api", routes![auth::logout::logout,])
         .mount("/api", api::routes())
@@ -36,7 +36,6 @@ pub fn mount_all_routes(rocket: Rocket<Build>) -> Rocket<Build> {
         .mount("/api", institution::routes())
         .mount("/api", role::routes())
         .mount("/api", user::routes())
-        .mount("/", FileServer::from("static").rank(10))
 }
 
 #[launch]
@@ -46,5 +45,5 @@ pub fn rocket() -> Rocket<Build> {
 	.attach(DbConn::fairing())
         .register("/", catchers![not_found]);
 
-    mount_all_routes(rocket)
+    mount_api_routes(rocket).mount("/", FileServer::from("static").rank(10))
 }

@@ -66,7 +66,7 @@ pub fn test_rocket() -> Rocket<Build> {
         .attach(DbConn::fairing())
 	.attach(run_migrations_and_pragmas_fairing());
 
-    crate::mount_all_routes(rocket)
+    crate::mount_api_routes(rocket)
 }
 
 
