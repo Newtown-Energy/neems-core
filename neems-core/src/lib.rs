@@ -33,12 +33,15 @@ fn not_found(req: &Request) -> Json<Value> {
     }))
 }
 
+/// Add default admin user and inst if needed.
+///
+/// Set the default admin email/pass based on envars NEEMS_DEFAULT_EMAIL and NEEMS_DEFAULT_PASSWORD
 pub fn admin_init_fairing() -> AdHoc {
     AdHoc::try_on_ignite("Admin User Initialization", |rocket| async {
         // Load .env variables
         dotenv().ok();
 
-        // Get a database connection from the pool
+        // Get a database connection from the pool.
         let conn = match DbConn::get_one(&rocket).await {
             Some(conn) => conn,
             None => {
@@ -84,9 +87,57 @@ pub fn admin_init_fairing() -> AdHoc {
         }).await;
 
         match result {
-            Ok(_institution) => {
-                // You can pass _institution to the next step (role/user) if you wish
-                Ok(rocket)
+            Ok(institution) => {
+                // Now create the admin user
+                let admin_email = std::env::var("NEEMS_DEFAULT_EMAIL").unwrap_or_else(|_| "admin@example.com".to_string());
+                
+                let user_result = conn.run(move |c| {
+                    use crate::user::*;
+                    use crate::models::{User, UserNoTime};
+                    use crate::schema::users::dsl::*;
+                    use diesel::prelude::*;
+                    
+                    // Check if admin user already exists
+                    let existing_user = users.filter(email.eq(&admin_email))
+                        .first::<User>(c)
+                        .optional()
+                        .expect("user query should not fail");
+                    
+                    if existing_user.is_some() {
+                        println!("[admin-init] Admin user '{}' already exists", admin_email);
+                        return Ok(());
+                    }
+                    
+                    // Get admin password from env or default
+                    let admin_password = std::env::var("NEEMS_DEFAULT_PASSWORD").unwrap_or_else(|_| "admin".to_string());
+                    
+                    // Create admin user
+                    let admin_user = UserNoTime {
+                        email: admin_email.clone(),
+                        password_hash: admin_password, // Will be hashed by insert_user
+                        institution_id: institution.id.expect("must have institution id"),
+                        totp_secret: "".to_string(), // Empty TOTP secret
+                    };
+                    
+                    match insert_user(c, admin_user) {
+                        Ok(_user) => {
+                            println!("[admin-init] Created admin user: '{}'", admin_email);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            eprintln!("[admin-init] ERROR creating admin user: {:?}", e);
+                            Err(e)
+                        }
+                    }
+                }).await;
+                
+                match user_result {
+                    Ok(()) => Ok(rocket),
+                    Err(e) => {
+                        eprintln!("[admin-init] FATAL: Admin user creation failed: {:?}", e);
+                        Err(rocket)
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("[admin-init] FATAL: Admin institution step failed: {:?}", e);

@@ -3,11 +3,12 @@ use diesel::sql_types::BigInt;
 use diesel::QueryableByName;
 use rand::rng;
 use rand::prelude::IndexedRandom;
+use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use rocket::response::status;
-use rocket::serde::json::{json, Json};
-use rocket::http::{ContentType, Status};
 use rocket::Route;
+use rocket::serde::json::{json, Json};
+use rocket::tokio;
 
 use crate::db::DbConn;
 use crate::models::{User, UserNoTime, NewUser};
@@ -240,4 +241,34 @@ mod tests {
         assert_eq!(users[1].email, "user2@example.com");
         assert!(users[0].id < users[1].id);
     }
+}
+
+
+#[tokio::test]
+async fn test_admin_user_is_created() {
+    use crate::db::test_rocket;
+    use rocket::local::asynchronous::Client;
+
+    // Start Rocket with the admin fairing attached
+    let rocket = test_rocket();
+    let client = Client::tracked(rocket).await.expect("valid rocket instance");
+
+    // Get a DB connection from the pool
+    let conn = crate::db::DbConn::get_one(client.rocket()).await
+        .expect("get db connection");
+
+    // Use the default admin email (from env or fallback)
+    let admin_email = std::env::var("NEEMS_DEFAULT_USER").unwrap_or_else(|_| "admin@example.com".to_string());
+
+    // Query for the admin user
+    let found = conn.run(move |c| {
+        use crate::models::User;
+        use crate::schema::users::dsl::*;
+        users.filter(email.eq(admin_email))
+            .first::<User>(c)
+            .optional()
+            .expect("user query should not fail")
+    }).await;
+
+    assert!(found.is_some(), "Admin user should exist after fairing runs");
 }
