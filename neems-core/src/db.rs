@@ -64,8 +64,8 @@ pub fn test_rocket() -> Rocket<Build> {
     // Build the Rocket instance with the DB fairing attached
     let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
-	.attach(run_migrations_and_pragmas_fairing());
-
+	.attach(run_migrations_and_pragmas_fairing())
+	.attach(crate::admin_init_fairing());
     crate::mount_api_routes(rocket)
 }
 
