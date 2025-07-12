@@ -11,7 +11,7 @@ use rocket::response::status;
 use rocket::Route;
 
 use crate::db::DbConn;
-use crate::models::{Institution, NewInstitution, InstitutionName};
+use crate::models::{Institution, NewInstitution, InstitutionName, InstitutionNoTime};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
@@ -51,6 +51,21 @@ pub fn random_energy_company_names(count: usize) -> Vec<&'static str> {
     let mut rng = rng();
     let selected: Vec<_> = names.choose_multiple(&mut rng, count).copied().collect();
     selected
+}
+
+
+/// Try to find an institution by name (case-sensitive).
+/// Returns Ok(Some(Institution)) if found, Ok(None) if not, Err on DB error.
+pub fn get_institution_by_name(
+    conn: &mut SqliteConnection,
+    inst: &InstitutionNoTime,
+) -> Result<Option<Institution>, diesel::result::Error> {
+    use crate::schema::institutions::dsl::*;
+    let result = institutions
+        .filter(name.eq(&inst.name))
+        .first::<Institution>(conn)
+        .optional()?;
+    Ok(result)
 }
 
 pub fn insert_institution(
