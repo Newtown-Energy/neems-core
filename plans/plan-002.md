@@ -10,6 +10,8 @@ You have provided all the necessary details to proceed. Here’s a concise, acti
    - Implement a Rocket fairing that runs during startup.
    - The fairing must have access to a database connection and block launch on any failure.
 
+DONE.
+
 2. **Institution Lookup/Creation**
    - Search for an institution named:
      - "Newtown Energy"
@@ -17,26 +19,38 @@ You have provided all the necessary details to proceed. Here’s a concise, acti
      - "Newtown Energy, Inc."
    - If none are found, create an institution named "Newtown Energy".
 
+DONE.
+
 3. **Role Lookup/Creation**
    - Check if a role named `newtown-admin` exists for the institution.
    - If not, create the `newtown-admin` role and associate it with the institution.
 
+DONE.
+
 4. **Admin User Existence Check**
    - Query for any user with the `newtown-admin` role.
    - If such a user exists, the process ends here.
+
+DONE.
 
 5. **Environment Variable Handling**
    - Use dotenv to load environment variables.
    - Email: Use `NEEMS_DEFAULT_USER` or default to `admin@example.com`.
    - Password: Use `NEEMS_DEFAULT_PASSWORD` or default to `admin`.
 
+DONE.
+
 6. **User Creation**
    - Use the existing user insertion function (which handles password hashing).
    - Do not set a TOTP secret.
    - Assign the new user the `newtown-admin` role for the institution.
 
+DONE.
+
 7. **Error Handling**
    - On any error (DB, creation, missing prerequisites), print a clear error message and terminate the process.
+
+DONE.
 
 8. **Testing**
    - Write a unit or integration test to verify:
