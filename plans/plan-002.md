@@ -58,6 +58,8 @@ DONE.
      - No duplicate admin user is created if one already exists.
      - The `newtown-admin` role is created if missing and not duplicated.
 
+DONE.
+
 #### Notes
 
 - The fairing should be attached in both test and production environments as needed.
@@ -65,4 +67,3 @@ DONE.
 - The process should be idempotent: running it multiple times must not create duplicates.
 - All error situations must cause a startup failure with a clear log message.
 
-If you need guidance on integrating with existing user, role, or institution routines, or want to review specific code modules before implementation, let me know.
