@@ -5,7 +5,6 @@ use argon2::{
     Argon2
 };
 use rand_core::OsRng;
-use rand::prelude::IndexedRandom;
 use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;

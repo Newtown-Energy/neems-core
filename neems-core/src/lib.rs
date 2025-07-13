@@ -120,9 +120,60 @@ pub fn admin_init_fairing() -> AdHoc {
                     };
                     
                     match insert_user(c, admin_user) {
-                        Ok(_user) => {
+                        Ok(user) => {
                             println!("[admin-init] Created admin user: '{}'", admin_email);
-                            Ok(())
+                            
+                            // Now assign the newtown-admin role
+                            use crate::role::*;
+                            use crate::models::{Role, NewRole, NewUserRole};
+                            use crate::schema::roles::dsl::*;
+                            use crate::schema::user_roles;
+                            
+                            let role_name = "newtown-admin";
+                            
+                            // First, check if the role exists
+                            let existing_role = roles.filter(name.eq(role_name))
+                                .first::<Role>(c)
+                                .optional()
+                                .expect("role query should not fail");
+                            
+                            let role = match existing_role {
+                                Some(r) => r,
+                                None => {
+                                    // Role doesn't exist, create it
+                                    println!("[admin-init] Creating role: '{}'", role_name);
+                                    let new_role = NewRole {
+                                        name: role_name.to_string(),
+                                        description: Some("Administrator for Newtown".to_string()),
+                                    };
+                                    match insert_role(c, new_role) {
+                                        Ok(r) => r,
+                                        Err(e) => {
+                                            eprintln!("[admin-init] ERROR creating role: {:?}", e);
+                                            return Err(e);
+                                        }
+                                    }
+                                }
+                            };
+                            
+                            // Create the user-role association
+                            let new_user_role = NewUserRole {
+                                user_id: user.id.expect("user must have id"),
+                                role_id: role.id.expect("role must have id"),
+                            };
+                            
+                            match diesel::insert_into(user_roles::table)
+                                .values(&new_user_role)
+                                .execute(c) {
+                                Ok(_) => {
+                                    println!("[admin-init] Assigned role '{}' to user '{}'", role_name, admin_email);
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    eprintln!("[admin-init] ERROR assigning role: {:?}", e);
+                                    Err(e)
+                                }
+                            }
                         }
                         Err(e) => {
                             eprintln!("[admin-init] ERROR creating admin user: {:?}", e);
