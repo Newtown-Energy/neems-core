@@ -7,6 +7,7 @@ use rocket::fs::FileServer;
 use rocket::serde::json::{Json, json, Value};
 use rocket::request::Request;
 
+pub mod admin_init_fairing;
 pub mod api;
 pub mod auth;
 pub mod db;
@@ -43,6 +44,7 @@ pub fn rocket() -> Rocket<Build> {
 
     let rocket = rocket::build()
 	.attach(DbConn::fairing())
+	.attach(admin_init_fairing::admin_init_fairing())
         .register("/", catchers![not_found]);
 
     mount_api_routes(rocket).mount("/", FileServer::from("static").rank(10))
