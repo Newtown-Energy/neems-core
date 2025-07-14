@@ -40,7 +40,7 @@ async fn get_db_connection(rocket: &Rocket<rocket::Build>) -> Option<DbConn> {
     match DbConn::get_one(rocket).await {
         Some(conn) => Some(conn),
         None => {
-            eprintln!("[admin-init] ERROR: Could not get DB connection.");
+            error!("[admin-init] ERROR: Could not get DB connection.");
             None
         }
     }
@@ -63,12 +63,12 @@ fn find_or_create_institution(c: &mut SqliteConnection) -> Result<crate::models:
         let inst_no_time = InstitutionNoTime { name: cand.to_string() };
         match get_institution_by_name(c, &inst_no_time) {
             Ok(Some(found)) => {
-                println!("[admin-init] Matched institution: '{}'", cand);
+                info!("[admin-init] Matched institution: '{}'", cand);
                 return Ok(found);
             }
             Ok(None) => continue,
             Err(e) => {
-                eprintln!("[admin-init] ERROR querying institution '{}': {:?}", cand, e);
+                error!("[admin-init] ERROR querying institution '{}': {:?}", cand, e);
                 return Err(e);
             }
         }
@@ -78,7 +78,7 @@ fn find_or_create_institution(c: &mut SqliteConnection) -> Result<crate::models:
     match insert_institution(c, "Newtown Energy".to_string()) {
         Ok(inst) => Ok(inst),
         Err(e) => {
-            eprintln!("[admin-init] ERROR creating institution: {:?}", e);
+            error!("[admin-init] ERROR creating institution: {:?}", e);
             Err(e)
         }
     }
@@ -90,7 +90,7 @@ async fn setup_admin_user(conn: &DbConn, institution: crate::models::Institution
     conn.run(move |c| {
         create_admin_user_if_needed(c, &admin_email, &institution)
     }).await.map_err(|e| {
-        eprintln!("[admin-init] FATAL: Admin user creation failed: {:?}", e);
+        error!("[admin-init] FATAL: Admin user creation failed: {:?}", e);
         rocket::build()
     })
 }
@@ -101,7 +101,7 @@ fn get_admin_email() -> String {
 
 fn create_admin_user_if_needed(c: &mut SqliteConnection, admin_email: &str, institution: &crate::models::Institution) -> Result<(), diesel::result::Error> {
     if admin_user_exists(c, admin_email)? {
-        println!("[admin-init] Admin user '{}' already exists", admin_email);
+        info!("[admin-init] Admin user '{}' already exists", admin_email);
         return Ok(());
     }
 
@@ -131,11 +131,11 @@ fn create_admin_user(c: &mut SqliteConnection, admin_email: &str, institution: &
     
     match insert_user(c, admin_user) {
         Ok(user) => {
-            println!("[admin-init] Created admin user: '{}'", admin_email);
+            info!("[admin-init] Created admin user: '{}'", admin_email);
             Ok(user)
         }
         Err(e) => {
-            eprintln!("[admin-init] ERROR creating admin user: {:?}", e);
+            error!("[admin-init] ERROR creating admin user: {:?}", e);
             Err(e)
         }
     }
@@ -161,7 +161,7 @@ fn find_or_create_admin_role(c: &mut SqliteConnection, role_name: &str) -> Resul
     match existing_role {
         Some(r) => Ok(r),
         None => {
-            println!("[admin-init] Creating role: '{}'", role_name);
+            info!("[admin-init] Creating role: '{}'", role_name);
             let new_role = NewRole {
                 name: role_name.to_string(),
                 description: Some("Administrator for Newtown".to_string()),
@@ -169,7 +169,7 @@ fn find_or_create_admin_role(c: &mut SqliteConnection, role_name: &str) -> Resul
             match insert_role(c, new_role) {
                 Ok(r) => Ok(r),
                 Err(e) => {
-                    eprintln!("[admin-init] ERROR creating role: {:?}", e);
+                    error!("[admin-init] ERROR creating role: {:?}", e);
                     Err(e)
                 }
             }
@@ -191,7 +191,7 @@ fn create_user_role_association(c: &mut SqliteConnection, user: &crate::models::
             Ok(())
         }
         Err(e) => {
-            eprintln!("[admin-init] ERROR assigning role: {:?}", e);
+            error!("[admin-init] ERROR assigning role: {:?}", e);
             Err(e)
         }
     }
