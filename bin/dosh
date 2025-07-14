@@ -6,6 +6,42 @@ SCRIPTNAME=`basename "$0"`
 BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
 
+_install_cranelift() {
+    echo "➡️ Setting up Cranelift build environment..."
+
+    # Check for rustup
+    if ! command -v rustup >/dev/null 2>&1; then
+        echo "❌ Error: rustup not found. Please install Rust first: https://rustup.rs/"
+        exit 1
+    fi
+
+    # Check for nightly toolchain
+    if ! rustup toolchain list | grep -q nightly; then
+        echo "🔄 Nightly toolchain not found. Installing..."
+        rustup toolchain install nightly
+    fi
+
+    # Check for Cranelift component
+    local cranelift_path="$HOME/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/codegen-backends/librustc_codegen_cranelift-*.so"
+    if [ -z "$(ls $cranelift_path 2>/dev/null)" ]; then
+        echo "🔄 Cranelift backend not found. Installing..."
+        rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+
+        # Verify installation succeeded
+	if [ -z "$(ls $cranelift_path 2>/dev/null)" ]; then
+            echo "⚠️ Cranelift installation failed. Falling back to regular build..."
+            cargo build "$@"
+            return
+        fi
+    fi
+}
+
+build() {
+    # Build the dev project.  Don't use cranelift for release builds.
+    echo "🚀 Building with Cranelift for faster dev compilation..."
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build "$@"
+}
+
 migrate() {
     # Install diesel command line tool
     which diesel > /dev/null || cargo binstall diesel_cli
@@ -23,8 +59,15 @@ test() {
     # Create temp file for test output
     tmpfile=$(mktemp)
 
+    # Build first with cranelift
+    build || {
+	echo "❌ Build failed. Skipping tests."
+	return 1
+    }
+
     # Build and run command line
-    cmd=(cargo test --color always "$@")
+    cmd=(RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly test --color=always "$@")
+    # cmd=(cargo test --color always "$@")
     script -q -e -c "$(printf "%q " "${cmd[@]}")" /dev/null \
       | tee "$tmpfile" \
       | sed -E $'s/\x1b\\]8;[^\\]*\\\\//g;
@@ -34,9 +77,6 @@ test() {
       | perl -pe 's/^M/\r\n/g' \
       | perl -pe 's/^M/\r\n/g' 
     
-      # | sed -E $'s/\x1b]8;[^\\]*\\\\//g; s/\x1b\\\\//g' 
-#      | perl -pe 's/(?<!\r)\n/\r\n/g' 
-
     # Remove ANSI color codes and OSC 8 hyperlinks from the tmpfile
     sed -i -E $'
       s/\x1b\\]8;[^\\]*\\\\//g;      # Remove OSC 8 hyperlink start
