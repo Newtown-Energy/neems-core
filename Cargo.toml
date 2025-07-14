@@ -11,7 +11,6 @@ chrono = { version = "0.4", features = ["serde"] }
 diesel = { version = "2.2.11", features = ["sqlite", "chrono", "r2d2"] }
 diesel_migrations = "2.2.0"
 dotenvy = "0.15"  # For loading .env files
-figment_file_provider_adapter = "0.1"
 rand = "0.9"
 rand_core = "0.6"
 reqwest = { version = "0.12", features = ["json", "cookies"] }
