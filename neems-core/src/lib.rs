@@ -39,11 +39,14 @@ pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
         .mount("/api", user::routes())
 }
 
+/// Note that this function doesn't get tested by our tests.  Tests
+/// set up the test_rocket in-memory db.  That is defined in db.rs.
 #[launch]
 pub fn rocket() -> Rocket<Build> {
 
     let rocket = rocket::build()
 	.attach(DbConn::fairing())
+	.attach(db::run_migrations_fairing())
 	.attach(admin_init_fairing::admin_init_fairing())
         .register("/", catchers![not_found]);
 
