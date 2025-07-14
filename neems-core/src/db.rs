@@ -15,37 +15,51 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 #[database("sqlite_db")]
 pub struct DbConn(diesel::SqliteConnection);
 
-fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
-    conn.batch_execute(
-        r#"
-        PRAGMA foreign_keys = ON;
-        PRAGMA synchronous = OFF;
-        PRAGMA journal_mode = OFF;
-        "#
-    ).expect("Failed to set SQLite PRAGMAs");
+fn set_foreign_keys(conn: &mut diesel::SqliteConnection) {
+    conn.batch_execute("PRAGMA foreign_keys = ON")
+	.expect("Failed to enable foreign keys");
 }
-pub fn run_migrations_and_pragmas_fairing() -> AdHoc {
+pub fn set_foreign_keys_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
         conn.run(|c| {
-            set_sqlite_test_pragmas(c);
-            c.run_pending_migrations(MIGRATIONS)
-                .expect("diesel migrations");
+            set_foreign_keys(c);
         }).await;
         rocket
     })
 }
 
+fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
+    conn.batch_execute(
+        r#"
+        PRAGMA synchronous = OFF;
+        PRAGMA journal_mode = OFF;
+        "#
+    ).expect("Failed to set SQLite PRAGMAs");
+}
+fn set_sqlite_test_pragmas_fairing() -> AdHoc {
+    AdHoc::on_ignite("Diesel Migrations", |rocket| async {
+	let conn = DbConn::get_one(&rocket).await
+	    .expect("database connection for migration");
+	conn.run(|c| {
+	    set_sqlite_test_pragmas(c);
+	}).await;
+	rocket
+    })
+}
+
+fn run_pending_migrations(conn: &mut diesel::SqliteConnection) {
+    conn.run_pending_migrations(MIGRATIONS)
+	.expect("Failed to run pending migrations");
+}
 pub fn run_migrations_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         // Get a database connection from Rocket's pool
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
-        // Run migrations on that connection
         conn.run(|c| {
-            c.run_pending_migrations(MIGRATIONS)
-                .expect("diesel migrations");
+	    run_pending_migrations(c);
         }).await;
         rocket
     })
@@ -66,7 +80,9 @@ pub fn test_rocket() -> Rocket<Build> {
     // Build the Rocket instance with the DB fairing attached
     let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
-	.attach(run_migrations_and_pragmas_fairing())
+	.attach(set_foreign_keys_fairing())
+	.attach(set_sqlite_test_pragmas_fairing())
+	.attach(run_migrations_fairing())
 	.attach(admin_init_fairing());
     crate::mount_api_routes(rocket)
 }
@@ -84,10 +100,8 @@ pub fn setup_test_db() -> SqliteConnection {
 
     let mut conn = SqliteConnection::establish(":memory:")
         .expect("Failed to create in-memory SQLite database");
-    conn.batch_execute("PRAGMA foreign_keys = ON")
-	.expect("Could not enable foreign keys");
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Migrations failed");
+    set_foreign_keys(&mut conn);
+    run_pending_migrations(&mut conn);
     conn
 }
 

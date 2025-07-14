@@ -46,6 +46,7 @@ pub fn rocket() -> Rocket<Build> {
 
     let rocket = rocket::build()
 	.attach(DbConn::fairing())
+	.attach(db::set_foreign_keys_fairing())
 	.attach(db::run_migrations_fairing())
 	.attach(admin_init_fairing::admin_init_fairing())
         .register("/", catchers![not_found]);
