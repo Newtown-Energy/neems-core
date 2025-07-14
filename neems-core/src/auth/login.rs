@@ -24,8 +24,8 @@
 //! - Session cookies are set as HTTP-only and Secure, with SameSite=Lax.
 
 use argon2::{
-    password_hash::{PasswordHash, PasswordVerifier},
-    Argon2
+    password_hash::{PasswordHash, PasswordVerifier, SaltString, rand_core::OsRng},
+    Argon2, PasswordHasher
 };
 use chrono::Utc;
 use diesel::prelude::*;
@@ -159,6 +159,13 @@ pub async fn process_login<D: DbRunner>(
     Ok(Status::Ok)
 }
 
+pub fn hash_password(password: &str) -> String {
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .expect("Hashing should succeed")
+        .to_string()
+}
 
 #[post("/1/login", data = "<login>")]
 pub async fn login(
@@ -195,9 +202,6 @@ pub fn routes() -> Vec<Route> {
 
 #[cfg(test)]
 mod tests {
-    use argon2::{Argon2, PasswordHasher};
-    use argon2::password_hash::{SaltString};
-    use rand_core::OsRng;
     use rocket::http::{Cookie};
 
     use diesel::prelude::*;
@@ -208,13 +212,6 @@ mod tests {
     use crate::user::insert_user;
     use super::*;
 
-    fn hash_password(password: &str) -> String {
-        let salt = SaltString::generate(&mut OsRng);
-        Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .expect("Hashing should succeed")
-            .to_string()
-    }
 
     #[test]
     fn test_verify_password() {

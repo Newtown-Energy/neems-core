@@ -1,30 +1,16 @@
 #[macro_use] extern crate time_test;
 
-use argon2::{
-    password_hash::{PasswordHasher, SaltString},
-    Argon2
-};
-use rand_core::OsRng;
 use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
 
+use neems_core::auth::login::hash_password;
 use neems_core::db::test_rocket;
 use neems_core::models::{InstitutionNoTime, UserNoTime};
 mod institution;
 use institution::create_institution_by_api;
 use neems_core::institution::{random_energy_company_names};
 use neems_core::user::{create_user_by_api};
-
-
-/// Hash passwords with Argon2
-fn hash_password(password: &str) -> String {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-	.hash_password(password.as_bytes(), &salt)
-	.expect("Hashing should succeed")
-	.to_string()
-}
 
 async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
     let name = random_energy_company_names(1)[0];

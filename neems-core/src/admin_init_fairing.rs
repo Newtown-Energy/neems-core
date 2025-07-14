@@ -11,6 +11,7 @@ use crate::schema::users::dsl::*;
 use crate::schema::roles::dsl::*;
 use crate::schema::user_roles;
 use crate::user::*;
+use crate::auth::login::hash_password;
 
 /// Add default admin user and inst if needed.
 ///
@@ -121,10 +122,11 @@ fn admin_user_exists(c: &mut SqliteConnection, admin_email: &str) -> Result<bool
 
 fn create_admin_user(c: &mut SqliteConnection, admin_email: &str, institution: &crate::models::Institution) -> Result<crate::models::User, diesel::result::Error> {
     let admin_password = get_admin_password();
+    let passhash = hash_password(&admin_password);
     
     let admin_user = UserNoTime {
         email: admin_email.to_string(),
-        password_hash: admin_password,
+        password_hash: passhash,
         institution_id: institution.id.expect("must have institution id"),
         totp_secret: "".to_string(),
     };
