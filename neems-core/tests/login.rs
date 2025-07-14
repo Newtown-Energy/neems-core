@@ -12,7 +12,7 @@ use institution::create_institution_by_api;
 use neems_core::institution::{random_energy_company_names};
 use neems_core::user::{create_user_by_api};
 
-async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
+pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
     let name = random_energy_company_names(1)[0];
     let inst = create_institution_by_api(&client, &InstitutionNoTime { name: name.to_string() }).await;
     let test_password_hash = hash_password("testpassword");

@@ -4,12 +4,12 @@ logout endpoint
 
 */
 
-use rocket::{post, http::{Cookie, CookieJar, Status}};
+use rocket::{post, http::{Cookie, CookieJar, Status}, Route};
 use diesel::prelude::*;
 use crate::DbConn;
 use crate::schema::sessions::dsl::*;
 
-#[post("/api/1/logout")]
+#[post("/1/logout")]
 pub async fn logout(
     db: DbConn,
     cookies: &CookieJar<'_>,
@@ -30,3 +30,8 @@ pub async fn logout(
     }
     Status::Ok
 }
+
+pub fn routes() -> Vec<Route> {
+    routes![logout]
+}
+
