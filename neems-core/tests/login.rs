@@ -1,64 +1,37 @@
 #[macro_use] extern crate time_test;
 
-use rocket::http::{Status, ContentType};
+use rocket::http::{Status};
 use rocket::tokio;
 use serde_json::json;
 
 use neems_core::orm::login::hash_password;
-use neems_core::orm::test_rocket;
-use neems_core::models::{InstitutionNoTime, UserNoTime};
+use neems_core::orm::{test_rocket, DbConn};
+use neems_core::orm::institution::insert_institution;
+use neems_core::orm::user::insert_user;
+use neems_core::models::{UserNoTime};
 mod institution;
-use institution::create_institution_by_api;
 use neems_core::institution::{random_energy_company_names};
-use neems_core::api::user::{create_user_by_api};
 
-/// Creates dummy data for testing by first logging in as admin, then creating test institution and user.
-/// This function demonstrates the authentication flow: admin user (created by fairing) -> create institution -> create test user.
+/// Creates dummy data for testing by directly inserting test institution and user into the database.
+/// This function uses ORM functions directly instead of API endpoints.
 pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
-    // First login as admin to get authentication cookie
-    let admin_login = json!({
-        "email": "admin@example.com",
-        "password": "admin"
-    });
+    // Get database connection from the same pool that the client uses
+    let db_conn = DbConn::get_one(client.rocket()).await
+        .expect("database connection for add_dummy_data");
     
-    let login_response = client.post("/api/1/login")
-        .json(&admin_login)
-        .dispatch()
-        .await;
-    
-    assert_eq!(login_response.status(), Status::Ok);
-    let admin_cookie = login_response.cookies().get("session")
-        .expect("Admin session cookie should be set")
-        .clone();
-    
-    // Create institution using admin authentication
-    let name = random_energy_company_names(1)[0];
-    let inst_body = json!({ "name": name });
-    let inst_response = client.post("/api/1/institutions")
-        .cookie(admin_cookie.clone())
-        .json(&inst_body)
-        .dispatch()
-        .await;
-    
-    assert_eq!(inst_response.status(), Status::Created);
-    let inst: neems_core::models::Institution = inst_response.into_json().await.expect("valid institution");
-    
-    // Create test user using admin authentication
-    let test_password_hash = hash_password("testpassword");
-    let user_body = json!({
-        "email": "testuser@example.com",
-        "password_hash": test_password_hash,
-        "institution_id": inst.id.expect("Institution must have an ID"),
-        "totp_secret": "dummy_secret"
-    });
-    
-    let user_response = client.post("/api/1/users")
-        .cookie(admin_cookie)
-        .json(&user_body)
-        .dispatch()
-        .await;
-    
-    assert_eq!(user_response.status(), Status::Created);
+    db_conn.run(|conn| {
+        // Create institution directly using ORM
+        let inst = insert_institution(conn, random_energy_company_names(1)[0].to_string())
+            .expect("Failed to insert institution");
+
+        // Create test user directly using ORM
+        insert_user(conn, UserNoTime {
+            email: "testuser@example.com".to_string(),
+            password_hash: hash_password("testpassword"),
+            institution_id: inst.id.expect("Institution must have an ID"),
+            totp_secret: "dummy_secret".to_string(),
+        }).expect("Failed to insert user");
+    }).await;
     
     client
 }
