@@ -11,7 +11,7 @@ use crate::schema::users::dsl::*;
 use crate::schema::roles::dsl::*;
 use crate::schema::user_roles;
 use crate::orm::user::insert_user;
-use crate::auth::login::hash_password;
+use crate::orm::login::hash_password;
 
 /// Add default admin user and inst if needed.
 ///

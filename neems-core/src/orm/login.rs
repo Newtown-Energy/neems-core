@@ -1,27 +1,8 @@
-//! Authentication and Login Endpoints for neems-core
+//! Database operations for user authentication and session management.
 //!
-//! This module implements the user login endpoint and related authentication logic for the neems-core API.
-//! It provides mechanisms for verifying user credentials, managing session tokens, and setting secure cookies.
-//!
-//! # Features
-//! - **User Login:** Accepts email and password, verifies credentials, and issues a session.
-//! - **Session Management:** Generates secure session tokens, stores them in the database, and sets HTTP-only cookies.
-//! - **Security:** Ensures session cookies are secure, HTTP-only, and have appropriate SameSite policies.
-//! - **Extensible Database Layer:** Abstracts database operations for testability and flexibility via the `DbRunner` trait.
-//! - **Test Utilities:** Includes helpers and mocks for unit testing authentication flows.
-//!
-//! # Endpoints
-//! - `POST /1/login` — Authenticates a user and sets a session cookie.
-//! - `GET /1/hello` — Example endpoint requiring authentication, returns a greeting for the logged-in user.
-//!
-//! # Usage
-//! Add the routes from this module to your Rocket application with:
-//! ```text
-//! mount("/api", neems_core::auth::login::routes())
-//! ```
-//!
-//! # Security Notes
-//! - Session cookies are set as HTTP-only and Secure, with SameSite=Lax.
+//! This module provides database layer functions for user login, session creation,
+//! password verification, and session storage. It abstracts database operations
+//! to support both production and testing environments.
 
 use argon2::{
     password_hash::{PasswordHash, PasswordVerifier, SaltString, rand_core::OsRng},
@@ -29,36 +10,26 @@ use argon2::{
 };
 use chrono::Utc;
 use diesel::prelude::*;
-use rocket::{post, Route, http::{Cookie, CookieJar, SameSite, Status}, serde::json::Json};
-use rocket::response;
-use rocket::serde::{Serialize, Deserialize};
+use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use uuid::Uuid;
 
-use crate::auth::session_guard::AuthenticatedUser;
 use crate::DbConn;
 use crate::orm::FakeDbConn;
 use crate::models::{User, NewSession};
-// use crate::schema::users::dsl::{users, username, password_hash};
-// use crate::schema::sessions::dsl::{sessions, id as session_id, user_id, created_at, expires_at, revoked};
 use crate::schema::{users, sessions};
 
-fn generate_session_token() -> String {
-    Uuid::new_v4().to_string()
-}
-
-#[derive(Serialize)]
-pub struct ErrorResponse {
-    error: String,
-}
-
-#[derive(Clone, Deserialize)]
-pub struct LoginRequest {
-    email: String,  // Changed from username to email
-    password: String,
-}
-
-
+/// Trait for abstracting database operations to support both production and testing.
+///
+/// This trait allows the same functions to work with both `DbConn` (production)
+/// and `FakeDbConn` (testing) by providing a unified interface for database operations.
 pub trait DbRunner {
+    /// Executes a database operation with a connection.
+    ///
+    /// # Arguments
+    /// * `f` - Closure that takes a database connection and returns a result
+    ///
+    /// # Returns
+    /// Future that resolves to the result of the database operation
     fn run<F, R>(&self, f: F) -> impl std::future::Future<Output = R>
     where
         F: FnOnce(&mut diesel::SqliteConnection) -> R + Send + 'static,
@@ -85,7 +56,31 @@ impl<'a> DbRunner for FakeDbConn<'a> {
     }
 }
 
-async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Option<User>, Status> {
+/// Generates a new UUID-based session token.
+///
+/// This function creates a cryptographically secure random UUID for use as
+/// a session token. The token is returned as a string representation.
+///
+/// # Returns
+/// A new UUID string to be used as a session token
+fn generate_session_token() -> String {
+    Uuid::new_v4().to_string()
+}
+
+/// Finds a user by their email address.
+///
+/// This function queries the database to find a user with the specified email
+/// address. It returns `None` if no user is found or an error occurs.
+///
+/// # Arguments
+/// * `db` - Database connection implementing the `DbRunner` trait
+/// * `email` - Email address to search for
+///
+/// # Returns
+/// * `Ok(Some(User))` - User found with matching email
+/// * `Ok(None)` - No user found with that email
+/// * `Err(Status::InternalServerError)` - Database query failed
+pub async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Option<User>, Status> {
     let email = email.to_owned();
     db.run(move |conn| {
         users::table
@@ -97,13 +92,37 @@ async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Option<U
     .map_err(|_| Status::InternalServerError)
 }
 
+/// Verifies a password against a stored hash.
+///
+/// This function uses Argon2 password hashing to verify that a plain text
+/// password matches the stored hash. It safely handles hash parsing errors
+/// and returns `false` for invalid formats.
+///
+/// # Arguments
+/// * `password` - Plain text password to verify
+/// * `stored_hash` - Argon2 hash string from the database
+///
+/// # Returns
+/// * `true` - Password matches the stored hash
+/// * `false` - Password doesn't match or hash format is invalid
 fn verify_password(password: &str, stored_hash: &str) -> bool {
     let parsed_hash = PasswordHash::new(stored_hash).expect("Invalid hash format");
     Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
 }
 
-
-async fn create_and_store_session<D: DbRunner>(db: &D, user_id: i32) -> Result<String, Status> {
+/// Creates a new session and stores it in the database.
+///
+/// This function generates a new session token, creates a session record
+/// in the database, and returns the token for use in cookies or headers.
+///
+/// # Arguments
+/// * `db` - Database connection implementing the `DbRunner` trait
+/// * `user_id` - ID of the user to create the session for
+///
+/// # Returns
+/// * `Ok(String)` - Session token that was created and stored
+/// * `Err(Status::InternalServerError)` - Database insertion failed
+pub async fn create_and_store_session<D: DbRunner>(db: &D, user_id: i32) -> Result<String, Status> {
     let session_token = generate_session_token();
     let now = Utc::now().naive_utc();
 
@@ -124,20 +143,54 @@ async fn create_and_store_session<D: DbRunner>(db: &D, user_id: i32) -> Result<S
     Ok(session_token)
 }
 
+/// Sets a secure session cookie in the response.
+///
+/// This function creates a session cookie with security settings appropriate
+/// for production use: HTTP-only, secure, and SameSite=Lax protection.
+///
+/// # Arguments
+/// * `cookies` - Cookie jar to add the session cookie to
+/// * `session_token` - Session token value to store in the cookie
+///
+/// # Security Features
+/// - `http_only(true)` - Prevents JavaScript access to the cookie
+/// - `secure(true)` - Requires HTTPS for cookie transmission
+/// - `same_site(SameSite::Lax)` - Provides CSRF protection
+/// - `path("/")` - Makes cookie available for all paths
 fn set_session_cookie(cookies: &CookieJar<'_>, session_token: &str) {
     let cookie = Cookie::build(("session", session_token.to_string()))
         .http_only(true)
         .secure(true)
         .same_site(SameSite::Lax)
         .path("/")
-	.build();
+        .build();
     cookies.add(cookie);
 }
 
+/// Processes a complete login workflow including validation and session creation.
+///
+/// This function handles the complete login process: validates input, finds the user,
+/// verifies the password, creates a session, and sets the session cookie.
+///
+/// # Arguments
+/// * `db` - Database connection implementing the `DbRunner` trait
+/// * `cookies` - Cookie jar for setting the session cookie
+/// * `login` - Login request containing email and password
+///
+/// # Returns
+/// * `Ok(Status::Ok)` - Login successful, session created and cookie set
+/// * `Err(Status::BadRequest)` - Empty email or password provided
+/// * `Err(Status::Unauthorized)` - Invalid credentials or user not found
+/// * `Err(Status::InternalServerError)` - Database operation failed
+///
+/// # Security Notes
+/// - Returns generic "Unauthorized" for both invalid users and wrong passwords
+/// - Validates input to prevent empty credential attempts
+/// - Uses secure password hashing for verification
 pub async fn process_login<D: DbRunner>(
     db: &D,
     cookies: &CookieJar<'_>,
-    login: &LoginRequest,
+    login: &crate::api::login::LoginRequest,
 ) -> Result<Status, Status> {
     // Check for empty fields
     if login.email.trim().is_empty() || login.password.trim().is_empty() {
@@ -159,6 +212,22 @@ pub async fn process_login<D: DbRunner>(
     Ok(Status::Ok)
 }
 
+/// Hashes a password using Argon2 with a random salt.
+///
+/// This function creates a secure hash of a password using the Argon2 algorithm
+/// with a cryptographically random salt. The resulting hash can be safely stored
+/// in the database and used for password verification.
+///
+/// # Arguments
+/// * `password` - Plain text password to hash
+///
+/// # Returns
+/// Argon2 hash string suitable for database storage
+///
+/// # Security
+/// - Uses Argon2 default parameters (recommended for security)
+/// - Generates a random salt for each password
+/// - Panics if hashing fails (should not happen in normal operation)
 pub fn hash_password(password: &str) -> String {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
@@ -167,43 +236,9 @@ pub fn hash_password(password: &str) -> String {
         .to_string()
 }
 
-#[post("/1/login", data = "<login>")]
-pub async fn login(
-    db: DbConn,
-    cookies: &CookieJar<'_>,
-    login: Json<LoginRequest>,
-) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
-    match process_login(&db, cookies, &login).await {
-        Ok(status) => Ok(status),
-        Err(status) => {
-            let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
-            Err(response::status::Custom(status, err_json))
-        }
-    }
-}
-
-
-#[get("/1/hello")]
-pub async fn secure_hello(db: DbConn, cookies: &CookieJar<'_>) -> Result<String, Status> {
-    if let Some(user) = AuthenticatedUser::from_cookies_and_db(cookies, &db).await {
-        Ok(format!("Hello, {}!", user.email))
-    } else {
-        Err(Status::Unauthorized)
-    }
-}
-
-
-
-pub fn routes() -> Vec<Route> {
-    routes![login,
-	    secure_hello]
-}
-
-
 #[cfg(test)]
 mod tests {
-    use rocket::http::{Cookie};
-
+    use rocket::http::Cookie;
     use diesel::prelude::*;
     use crate::orm::{setup_test_db, setup_test_dbconn};
     use crate::models::User;
@@ -211,7 +246,6 @@ mod tests {
     use crate::models::UserNoTime;
     use crate::orm::user::insert_user;
     use super::*;
-
 
     #[test]
     fn test_verify_password() {
@@ -254,7 +288,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_find_user_by_username() {
+    async fn test_find_user_by_email() {
         // Set up in-memory test database and async-compatible wrapper
         let mut conn = setup_test_db();
         
@@ -275,55 +309,48 @@ mod tests {
         assert_eq!(found_user.institution_id, inserted_user.institution_id);
     }
 
-
     #[tokio::test]
     async fn test_create_and_store_session() {
-	// Set up in-memory test database and async-compatible wrapper
-	let mut conn = setup_test_db();
+        // Set up in-memory test database and async-compatible wrapper
+        let mut conn = setup_test_db();
 
-	// Insert dummy user
-	let inserted_user = insert_dummy_user(&mut conn);
+        // Insert dummy user
+        let inserted_user = insert_dummy_user(&mut conn);
 
-	let fake_db = setup_test_dbconn(&mut conn);
+        let fake_db = setup_test_dbconn(&mut conn);
 
-	// Use the function under test
-	let session_token = create_and_store_session(&fake_db, inserted_user.id.unwrap())
-	    .await
-	    .expect("session creation should succeed");
+        // Use the function under test
+        let session_token = create_and_store_session(&fake_db, inserted_user.id.unwrap())
+            .await
+            .expect("session creation should succeed");
 
-	// Clone the session_token for use in assertions later
-	let session_token_clone = session_token.clone();
+        // Clone the session_token for use in assertions later
+        let session_token_clone = session_token.clone();
 
-	// Verify the session was stored in the database
-	let stored_session = fake_db.run(move |conn| {
-	    sessions::table
-		.filter(sessions::id.eq(&session_token))
-		.first::<crate::models::Session>(conn)
-		.optional()
-	})
-	.await
-	.expect("db query should succeed");
+        // Verify the session was stored in the database
+        let stored_session = fake_db.run(move |conn| {
+            sessions::table
+                .filter(sessions::id.eq(&session_token))
+                .first::<crate::models::Session>(conn)
+                .optional()
+        })
+        .await
+        .expect("db query should succeed");
 
-	assert!(stored_session.is_some());
-	let session = stored_session.unwrap();
+        assert!(stored_session.is_some());
+        let session = stored_session.unwrap();
 
-	// Verify session properties
-	assert_eq!(session.id, session_token_clone);
-	assert_eq!(session.user_id, inserted_user.id.unwrap());
-	assert!(!session.revoked);
-	assert!(session.expires_at.is_none());
+        // Verify session properties
+        assert_eq!(session.id, session_token_clone);
+        assert_eq!(session.user_id, inserted_user.id.unwrap());
+        assert!(!session.revoked);
+        assert!(session.expires_at.is_none());
 
-	// Verify created_at is recent (within last minute)
-	let now = Utc::now().naive_utc();
-	assert!(session.created_at <= now);
-	assert!(session.created_at > now - chrono::Duration::minutes(1));
+        // Verify created_at is recent (within last minute)
+        let now = Utc::now().naive_utc();
+        assert!(session.created_at <= now);
+        assert!(session.created_at > now - chrono::Duration::minutes(1));
     }
-
-
-
-
-
-
 
     // Simplified mock implementation of a cookie jar for testing
     pub struct MockCookieJar {
@@ -344,15 +371,6 @@ mod tests {
         }
     }
 
-    // Implement the minimal needed CookieJar behavior
-    impl<'a> From<&'a MockCookieJar> for &'a rocket::http::CookieJar<'a> {
-        fn from(mock: &'a MockCookieJar) -> &'a rocket::http::CookieJar<'a> {
-            // This is a dummy implementation just to satisfy the type system
-            // In practice, we won't actually use this conversion
-            unsafe { std::mem::transmute(&mock.cookies) }
-        }
-    }
-
     #[test]
     fn test_set_session_cookie_with_mock() {
         // Create mock jar
@@ -362,7 +380,6 @@ mod tests {
         let session_token = "test_session_token_123";
 
         // Call the function under test using our mock
-        // We need to adapt our function to accept the mock type
         set_session_cookie_mock(&mut jar, session_token);
 
         // Verify the cookie was set with correct properties
@@ -376,16 +393,12 @@ mod tests {
     }
 
     fn set_session_cookie_mock(cookies: &mut MockCookieJar, session_token: &str) {
-	let cookie = Cookie::build(("session", session_token.to_string()))
-	    .http_only(true)
-	    .secure(true)
-	    .same_site(SameSite::Lax)
-	    .path("/")
-	    .build();
-	cookies.add(cookie);
+        let cookie = Cookie::build(("session", session_token.to_string()))
+            .http_only(true)
+            .secure(true)
+            .same_site(SameSite::Lax)
+            .path("/")
+            .build();
+        cookies.add(cookie);
     }
-
-
-
-
 }

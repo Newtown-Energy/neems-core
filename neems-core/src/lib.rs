@@ -32,8 +32,6 @@ fn not_found(req: &Request) -> Json<Value> {
 pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
     rocket
         .mount("/api", api::routes())
-        .mount("/api", auth::login::routes())
-        .mount("/api", auth::logout::routes())
 }
 
 fn log_rocket_info(rocket: &Rocket<Build>) {

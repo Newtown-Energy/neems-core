@@ -1,0 +1,97 @@
+//! API endpoints for user login and authentication.
+//!
+//! This module provides HTTP endpoints for user authentication, session management,
+//! and secure API access. It handles user login requests, generates session tokens,
+//! and provides authenticated endpoints.
+
+use rocket::{post, get, Route, http::{CookieJar, Status}, serde::json::Json};
+use rocket::response;
+use rocket::serde::{Serialize, Deserialize};
+
+use crate::auth::session_guard::AuthenticatedUser;
+use crate::DbConn;
+use crate::orm::login::process_login;
+
+/// Error response structure for authentication failures.
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    error: String,
+}
+
+/// Login request structure containing user credentials.
+#[derive(Clone, Deserialize)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+/// Login endpoint that authenticates users and creates sessions.
+///
+/// This endpoint accepts user credentials via JSON, validates them against
+/// the database, and if successful, creates a session token and sets a
+/// secure HTTP-only cookie.
+///
+/// # Arguments
+/// * `db` - Database connection for user validation and session storage
+/// * `cookies` - Cookie jar for setting the session cookie
+/// * `login` - JSON payload containing email and password
+///
+/// # Returns
+/// * `Ok(Status::Ok)` - Authentication successful, session cookie set
+/// * `Err(Custom<Json<ErrorResponse>>)` - Authentication failed with error details
+///
+/// # Security
+/// - Session cookies are HTTP-only, secure, and use SameSite=Lax
+/// - Passwords are verified using Argon2 hashing
+/// - Invalid credentials return generic error messages to prevent enumeration
+#[post("/1/login", data = "<login>")]
+pub async fn login(
+    db: DbConn,
+    cookies: &CookieJar<'_>,
+    login: Json<LoginRequest>,
+) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
+    match process_login(&db, cookies, &login).await {
+        Ok(status) => Ok(status),
+        Err(status) => {
+            let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
+            Err(response::status::Custom(status, err_json))
+        }
+    }
+}
+
+/// Secure hello endpoint that requires authentication.
+///
+/// This endpoint demonstrates authenticated API access by returning a
+/// personalized greeting for authenticated users. It validates the session
+/// cookie and returns the user's email in the response.
+///
+/// # Arguments
+/// * `db` - Database connection for session validation
+/// * `cookies` - Cookie jar containing the session cookie
+///
+/// # Returns
+/// * `Ok(String)` - Personalized greeting with user's email
+/// * `Err(Status::Unauthorized)` - No valid session found
+///
+/// # Authentication
+/// Uses the `AuthenticatedUser` guard to verify the session token
+/// against the database and ensure the session is valid and not expired.
+#[get("/1/hello")]
+pub async fn secure_hello(db: DbConn, cookies: &CookieJar<'_>) -> Result<String, Status> {
+    if let Some(user) = AuthenticatedUser::from_cookies_and_db(cookies, &db).await {
+        Ok(format!("Hello, {}!", user.email))
+    } else {
+        Err(Status::Unauthorized)
+    }
+}
+
+/// Returns all login-related API routes.
+///
+/// This function collects all login and authentication endpoints for
+/// registration with the Rocket web framework.
+///
+/// # Returns
+/// Vector of Route objects for login endpoints
+pub fn routes() -> Vec<Route> {
+    routes![login, secure_hello]
+}

@@ -75,6 +75,7 @@ test() {
     # cmd=(cargo test --color always "$@")
     script -q -e -c "$(printf "%q " "${cmd[@]}")" /dev/null \
       | tee "$tmpfile" \
+      | grep -v 'Building' \
       | sed -E $'s/\x1b\\]8;[^\\]*\\\\//g;
       	s/\x1b\\\\//g; 
         s/\x1b\\(B//g;' \

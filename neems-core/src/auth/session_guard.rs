@@ -12,7 +12,7 @@ use chrono::Utc;
 
 use crate::models::{User, Session};
 use crate::schema::{sessions, users};
-use crate::auth::login::DbRunner;
+use crate::orm::login::DbRunner;
 
 /// A guard for routes that require an authenticated user.
 /// Automatically checks session cookies and validates them against the database.
