@@ -4,7 +4,7 @@ use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::Route;
 
-use crate::db::DbConn;
+use crate::orm::DbConn;
 use crate::models::{Role, NewRole};
 
 #[derive(QueryableByName)]
@@ -71,7 +71,7 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::setup_test_db;
+    use crate::orm::setup_test_db;
 
     #[test]
     fn test_insert_role() {

@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 use crate::auth::session_guard::AuthenticatedUser;
 use crate::DbConn;
-use crate::db::FakeDbConn;
+use crate::orm::FakeDbConn;
 use crate::models::{User, NewSession};
 // use crate::schema::users::dsl::{users, username, password_hash};
 // use crate::schema::sessions::dsl::{sessions, id as session_id, user_id, created_at, expires_at, revoked};
@@ -205,7 +205,7 @@ mod tests {
     use rocket::http::{Cookie};
 
     use diesel::prelude::*;
-    use crate::db::{setup_test_db, setup_test_dbconn};
+    use crate::orm::{setup_test_db, setup_test_dbconn};
     use crate::models::User;
     use crate::institution::insert_institution;
     use crate::models::UserNoTime;

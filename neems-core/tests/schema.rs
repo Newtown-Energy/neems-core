@@ -8,7 +8,7 @@ Do not use it to test the actual application logic.
 #[cfg(test)]
 
 mod tests {
-    use neems_core::db::setup_test_db;
+    use neems_core::orm::setup_test_db;
     use neems_core::models::*;
     use neems_core::schema::*;
     use diesel::prelude::*;

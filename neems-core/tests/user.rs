@@ -2,7 +2,7 @@ use rocket::http::{ContentType};
 use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
 
-use neems_core::db::{test_rocket};
+use neems_core::orm::test_rocket;
 use neems_core::models::{Institution, User};
 
 

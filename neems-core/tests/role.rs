@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_core::models::Role;
-use neems_core::db::test_rocket; // <-- Import the test rocket
+use neems_core::orm::test_rocket;
 
 #[rocket::async_test]
 async fn test_create_role() {

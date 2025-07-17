@@ -3,7 +3,7 @@ use dotenvy::dotenv;
 use rocket::fairing::AdHoc;
 use rocket::Rocket;
 
-use crate::db::DbConn;
+use crate::orm::DbConn;
 use crate::institution::{get_institution_by_name, insert_institution};
 use crate::models::{InstitutionNoTime, User, UserNoTime, Role, NewRole, NewUserRole};
 use crate::role::*;

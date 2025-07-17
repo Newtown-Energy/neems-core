@@ -2,7 +2,7 @@ use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
 
-use neems_core::db::test_rocket;
+use neems_core::orm::test_rocket;
 
 #[tokio::test]
 async fn test_logout() {

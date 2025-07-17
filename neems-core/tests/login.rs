@@ -5,7 +5,7 @@ use rocket::tokio;
 use serde_json::json;
 
 use neems_core::auth::login::hash_password;
-use neems_core::db::test_rocket;
+use neems_core::orm::test_rocket;
 use neems_core::models::{InstitutionNoTime, UserNoTime};
 mod institution;
 use institution::create_institution_by_api;

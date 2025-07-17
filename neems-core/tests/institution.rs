@@ -2,7 +2,7 @@ use rocket::http::{Status, ContentType};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::db::test_rocket;
+use neems_core::orm::test_rocket;
 use neems_core::models::{Institution, InstitutionNoTime};
 
 /// Helper to create an institution via the API and return the created Institution

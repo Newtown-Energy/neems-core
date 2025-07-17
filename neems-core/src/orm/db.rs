@@ -119,8 +119,8 @@ pub fn setup_test_db() -> SqliteConnection {
 ///
 /// # Example
 /// ```
-/// use neems_core::db::setup_test_db;
-/// use neems_core::db::setup_test_dbconn;
+/// use neems_core::orm::setup_test_db;
+/// use neems_core::orm::setup_test_dbconn;
 /// let mut conn = setup_test_db();
 /// let fake_db = setup_test_dbconn(&mut conn);
 /// // Now you can use fake_db.run(|c| ...).await in async tests.
@@ -152,8 +152,8 @@ impl<'a> FakeDbConn<'a> {
 ///
 /// # Example
 /// ```
-/// use neems_core::db::setup_test_db;
-/// use neems_core::db::setup_test_dbconn;
+/// use neems_core::orm::setup_test_db;
+/// use neems_core::orm::setup_test_dbconn;
 /// let mut conn = setup_test_db();
 /// let fake_db = setup_test_dbconn(&mut conn);
 /// ```

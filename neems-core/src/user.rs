@@ -10,7 +10,7 @@ use rocket::Route;
 use rocket::serde::json::{json, Json};
 use rocket::tokio;
 
-use crate::db::DbConn;
+use crate::orm::DbConn;
 use crate::models::{User, UserNoTime, NewUser};
 
 #[derive(QueryableByName)]
@@ -170,7 +170,7 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::setup_test_db;
+    use crate::orm::setup_test_db;
     use crate::institution::insert_institution;
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
 
 #[tokio::test]
 async fn test_admin_user_is_created() {
-    use crate::db::test_rocket;
+    use crate::orm::test_rocket;
     use rocket::local::asynchronous::Client;
 
     // Start Rocket with the admin fairing attached
@@ -246,7 +246,7 @@ async fn test_admin_user_is_created() {
     let client = Client::tracked(rocket).await.expect("valid rocket instance");
 
     // Get a DB connection from the pool
-    let conn = crate::db::DbConn::get_one(client.rocket()).await
+    let conn = crate::orm::DbConn::get_one(client.rocket()).await
         .expect("get db connection");
 
     // Use the default admin email (from env or fallback)

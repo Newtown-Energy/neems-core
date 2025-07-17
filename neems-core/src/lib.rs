@@ -11,8 +11,8 @@ use rocket::request::Request;
 pub mod admin_init_fairing;
 pub mod api;
 pub mod auth;
-pub mod db;
-pub use db::DbConn;
+pub mod orm;
+pub use orm::DbConn;
 pub mod institution; 
 pub mod models; 
 pub mod role;
@@ -75,8 +75,8 @@ pub fn rocket() -> Rocket<Build> {
 
     let rocket = rocket::build()
 	.attach(DbConn::fairing())
-	.attach(db::set_foreign_keys_fairing())
-	.attach(db::run_migrations_fairing())
+	.attach(orm::set_foreign_keys_fairing())
+	.attach(orm::run_migrations_fairing())
 	.attach(admin_init_fairing::admin_init_fairing())
         .register("/", catchers![not_found]);
 
