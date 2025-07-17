@@ -3,3 +3,5 @@
 DELETE FROM roles
 WHERE name IN ('newtown-admin', 'newtown-staff', 'admin', 'user');
 
+DELETE FROM institutions WHERE name = 'Newtown Energy';
+

@@ -3,3 +3,4 @@ DROP TABLE sites;
 DROP TABLE roles;
 DROP TABLE users;
 DROP TABLE institutions;
+DROP TABLE sessions;

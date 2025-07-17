@@ -9,7 +9,6 @@ CREATE TABLE institutions (
 -- Create users table with unique username and email constraints
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL,
@@ -21,7 +20,7 @@ CREATE TABLE users (
 -- Create roles table
 CREATE TABLE roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     description TEXT
 );
 
@@ -43,4 +42,12 @@ CREATE TABLE user_roles (
     user_id INTEGER NOT NULL REFERENCES users(id),
     role_id INTEGER NOT NULL REFERENCES roles(id),
     PRIMARY KEY (user_id, role_id)
+);
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP,
+    revoked BOOLEAN NOT NULL DEFAULT 0,
+    FOREIGN KEY(user_id) REFERENCES users(id)
 );
