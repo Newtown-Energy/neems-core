@@ -207,9 +207,9 @@ mod tests {
     use diesel::prelude::*;
     use crate::orm::{setup_test_db, setup_test_dbconn};
     use crate::models::User;
-    use crate::institution::insert_institution;
+    use crate::orm::institution::insert_institution;
     use crate::models::UserNoTime;
-    use crate::user::insert_user;
+    use crate::orm::user::insert_user;
     use super::*;
 
 
