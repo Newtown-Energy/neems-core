@@ -51,7 +51,7 @@ pub fn list_all_users(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::setup_test_db;
+    use crate::orm::testing::setup_test_db;
     use crate::orm::institution::insert_institution;
 
     #[test]

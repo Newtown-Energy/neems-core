@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_core::models::Role;
-use neems_core::orm::test_rocket;
+use neems_core::orm::testing::test_rocket;
 
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {

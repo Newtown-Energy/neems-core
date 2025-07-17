@@ -4,7 +4,7 @@
 // Do not use it to test the actual application logic.
 //
 
-use neems_core::orm::setup_test_db;
+use neems_core::orm::testing::setup_test_db;
 use neems_core::models::*;
 use neems_core::schema::*;
 use diesel::prelude::*;
@@ -12,7 +12,6 @@ use chrono::Utc;
 use diesel::result::{Error, DatabaseErrorKind};
 
 
-// Helper to create test institution
 fn create_test_institution(conn: &mut SqliteConnection, name: &str) -> Result<Institution, diesel::result::Error> {
     let now = Some(Utc::now().naive_utc());
     let new_institution = NewInstitution {

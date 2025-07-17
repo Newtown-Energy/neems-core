@@ -39,7 +39,7 @@ pub fn get_all_roles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::setup_test_db;
+    use crate::orm::testing::setup_test_db;
 
     #[test]
     fn test_insert_role() {

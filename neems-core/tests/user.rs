@@ -4,7 +4,7 @@ use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
 use rocket::tokio;
 
-use neems_core::orm::test_rocket;
+use neems_core::orm::testing::test_rocket;
 use neems_core::models::{Institution, Role, User};
 use neems_core::schema::users::dsl::*;
 use neems_core::schema::roles;
@@ -48,22 +48,6 @@ async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie
     let inst_id = institution.id.expect("Institution should have an ID");
     
     (inst_id, login_cookie)
-}
-
-/// Helper to seed the test DB with "Newtown Energy" and return its ID.
-async fn seed_institution(client: &Client) -> i32 {
-    let new_inst = json!({ "name": "A Bogus Company" });
-
-    let response = client.post("/api/1/institutions")
-        .header(ContentType::JSON)
-        .body(new_inst.to_string())
-        .dispatch()
-        .await;
-
-    assert!(response.status().code < 400, "Institution creation failed");
-
-    let institution: Institution = response.into_json().await.expect("valid JSON");
-    institution.id.expect("Institution should have an ID")
 }
 
 

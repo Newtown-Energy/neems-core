@@ -14,7 +14,7 @@ use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use uuid::Uuid;
 
 use crate::DbConn;
-use crate::orm::FakeDbConn;
+use crate::orm::testing::FakeDbConn;
 use crate::models::{User, NewSession};
 use crate::schema::{users, sessions};
 
@@ -241,7 +241,7 @@ pub fn hash_password(password: &str) -> String {
 mod tests {
     use rocket::http::Cookie;
     use diesel::prelude::*;
-    use crate::orm::{setup_test_db, setup_test_dbconn};
+    use crate::orm::testing::{setup_test_db, setup_test_dbconn};
     use crate::models::User;
     use crate::orm::institution::insert_institution;
     use crate::models::UserNoTime;
