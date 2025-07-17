@@ -121,9 +121,14 @@ pub fn run_migrations_fairing() -> AdHoc {
 /// - Admin initialization completed
 /// - API routes mounted
 pub fn test_rocket() -> Rocket<Build> {
+    use uuid::Uuid;
+
+    // Generate a unique database name for this test instance
+    let unique_db_name = format!("file:test_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+
     // Configure the in-memory SQLite database
     let db_config: Map<_, Value> = map! {
-        "url" => "file:test_db?mode=memory&cache=shared".into(),  // Shared in-memory DB
+        "url" => unique_db_name.into(),  // Unique shared in-memory DB per test
         "pool_size" => 5.into(),
         "timeout" => 5.into(),
     };
