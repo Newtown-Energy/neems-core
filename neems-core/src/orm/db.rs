@@ -35,7 +35,7 @@ fn set_foreign_keys(conn: &mut diesel::SqliteConnection) {
 /// This fairing will execute when the Rocket application ignites, ensuring foreign keys
 /// are enabled for all database connections in the pool.
 pub fn set_foreign_keys_fairing() -> AdHoc {
-    AdHoc::on_ignite("Diesel Migrations", |rocket| async {
+    AdHoc::on_ignite("Set Foreign Keys", |rocket| async {
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
         conn.run(|c| {
@@ -72,7 +72,7 @@ fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
 /// This fairing configures SQLite for faster but less durable operation,
 /// suitable only for testing environments.
 fn set_sqlite_test_pragmas_fairing() -> AdHoc {
-    AdHoc::on_ignite("Diesel Migrations", |rocket| async {
+    AdHoc::on_ignite("Set SQLite Test Pragmas", |rocket| async {
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
         conn.run(|c| {
@@ -121,10 +121,15 @@ pub fn run_migrations_fairing() -> AdHoc {
 /// - Admin initialization completed
 /// - API routes mounted
 pub fn test_rocket() -> Rocket<Build> {
+    use uuid::Uuid;
+
+    // Generate a unique database name for this test instance
+    let unique_db_name = format!("file:test_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+
     // Configure the in-memory SQLite database
     let db_config: Map<_, Value> = map! {
-        "url" => ":memory:".into(),
-        "pool_size" => 10.into(),
+        "url" => unique_db_name.into(),  // Unique shared in-memory DB per test
+        "pool_size" => 5.into(),
         "timeout" => 5.into(),
     };
 
@@ -210,4 +215,18 @@ impl<'a> FakeDbConn<'a> {
 /// A `FakeDbConn` wrapping the provided connection
 pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbConn<'a> {
     FakeDbConn(conn)
+}
+
+/// Creates a minimal Rocket instance for testing APIs that don't require a database.
+///
+/// This is useful for testing endpoints that don't need database access, avoiding
+/// potential database conflicts and improving test performance.
+///
+/// The returned Rocket instance will have:
+/// - Only fixphrase API routes mounted
+/// - No database connection
+/// - No database-related fairings
+pub fn test_rocket_no_db() -> Rocket<Build> {
+    rocket::build()
+        .mount("/api", crate::api::fixphrase::routes())
 }

@@ -10,6 +10,46 @@ use neems_core::schema::users::dsl::*;
 use neems_core::schema::roles;
 use neems_core::schema::user_roles;
 
+/// Helper to login and get session cookie
+async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {
+    let login_body = json!({
+        "email": "admin@example.com",
+        "password": "admin"
+    });
+    
+    let response = client.post("/api/1/login")
+        .header(ContentType::JSON)
+        .body(login_body.to_string())
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Ok);
+    response.cookies().get("session")
+        .expect("Session cookie should be set")
+        .clone()
+        .into_owned()
+}
+
+/// Helper to create authenticated user and institution
+async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie<'static>) {
+    // Create institution with authentication
+    let login_cookie = login_and_get_session(client).await;
+    
+    let new_inst = json!({ "name": "A Bogus Company" });
+    let response = client.post("/api/1/institutions")
+        .header(ContentType::JSON)
+        .cookie(login_cookie.clone())
+        .body(new_inst.to_string())
+        .dispatch()
+        .await;
+    
+    assert!(response.status().code < 400, "Institution creation failed");
+    let institution: Institution = response.into_json().await.expect("valid JSON");
+    let inst_id = institution.id.expect("Institution should have an ID");
+    
+    (inst_id, login_cookie)
+}
+
 /// Helper to seed the test DB with "Newtown Energy" and return its ID.
 async fn seed_institution(client: &Client) -> i32 {
     let new_inst = json!({ "name": "A Bogus Company" });
@@ -24,65 +64,6 @@ async fn seed_institution(client: &Client) -> i32 {
 
     let institution: Institution = response.into_json().await.expect("valid JSON");
     institution.id.expect("Institution should have an ID")
-}
-
-#[rocket::async_test]
-async fn test_create_user() {
-    // 1. Create a Rocket client
-    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
-
-    // 2. Create institution via API (ensures it exists in the same database)
-    let inst_id = seed_institution(&client).await;
-
-    // 3. Create a user using that institution_id
-    let new_user = json!({
-        "email": "testuser@example.com",
-        "password_hash": "hashed_pw",
-        "institution_id": inst_id,
-        "totp_secret": "SECRET123"
-    });
-
-    let response = client.post("/api/1/users")
-        .header(ContentType::JSON)
-        .body(new_user.to_string())
-        .dispatch()
-        .await;
-
-    assert_eq!(response.status(), rocket::http::Status::Created);
-
-    let returned: User = response.into_json().await.expect("valid JSON response");
-    assert_eq!(returned.email, "testuser@example.com");
-    assert_eq!(returned.institution_id, inst_id);
-}
-
-
-
-#[rocket::async_test]
-async fn test_list_users() {
-    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
-
-    // Seed institution and create a user
-    let inst_id = seed_institution(&client).await;
-
-    let new_user = json!({
-        "username": "listuser",
-        "email": "listuser@example.com",
-        "password_hash": "hashed_pw2",
-        "institution_id": inst_id,
-        "totp_secret": "SECRET456"
-    });
-    client.post("/api/1/users")
-        .header(ContentType::JSON)
-        .body(new_user.to_string())
-        .dispatch()
-        .await;
-
-    let response = client.get("/api/1/users").dispatch().await;
-    assert_eq!(response.status(), rocket::http::Status::Ok);
-
-    let list: Vec<User> = response.into_json().await.expect("valid JSON response");
-    assert!(!list.is_empty());
-    assert!(list.iter().any(|u| u.email == "listuser@example.com"));
 }
 
 
@@ -129,4 +110,67 @@ async fn test_admin_user_is_created() {
 
     assert!(found_user.is_some(), "Admin user should exist after fairing runs");
     assert!(has_admin_role, "Admin user should have the newtown-admin role");
+}
+
+#[rocket::async_test]
+async fn test_create_user_requires_auth() {
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
+    
+    // Test unauthenticated request fails
+    let new_user = json!({
+        "email": "testuser@example.com",
+        "password_hash": "hashed_pw",
+        "institution_id": 1,
+        "totp_secret": "SECRET123"
+    });
+    
+    let response = client.post("/api/1/users")
+        .header(ContentType::JSON)
+        .body(new_user.to_string())
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Unauthorized);
+    
+    // Test authenticated request succeeds
+    let session_cookie = login_and_get_session(&client).await;
+    let (inst_id, _) = setup_authenticated_user(&client).await;
+    
+    let new_user_auth = json!({
+        "email": "newuser@example.com",
+        "password_hash": "hashed_pw",
+        "institution_id": inst_id,
+        "totp_secret": "SECRET123"
+    });
+    
+    let response = client.post("/api/1/users")
+        .header(ContentType::JSON)
+        .cookie(session_cookie)
+        .body(new_user_auth.to_string())
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Created);
+}
+
+#[rocket::async_test]
+async fn test_list_users_requires_auth() {
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
+    
+    // Test unauthenticated request fails
+    let response = client.get("/api/1/users").dispatch().await;
+    assert_eq!(response.status(), rocket::http::Status::Unauthorized);
+    
+    // Test authenticated request succeeds
+    let session_cookie = login_and_get_session(&client).await;
+    
+    let response = client.get("/api/1/users")
+        .cookie(session_cookie)
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Ok);
+    
+    let list: Vec<User> = response.into_json().await.expect("valid JSON response");
+    assert!(!list.is_empty()); // Should have at least the admin user
 }

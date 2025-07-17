@@ -12,6 +12,7 @@ use rocket::response::status;
 use rocket::Route;
 use rocket::serde::json::{json, Json};
 
+use crate::auth::session_guard::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::user::{insert_user, list_all_users};
 use crate::models::{User, UserNoTime};
@@ -133,7 +134,8 @@ pub async fn create_user_by_api(
 #[post("/1/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
-    new_user: Json<UserNoTime>
+    new_user: Json<UserNoTime>,
+    _auth_user: AuthenticatedUser
 ) -> Result<status::Created<Json<User>>, Status> {
     db.run(move |conn| {
         insert_user(conn, new_user.into_inner())
@@ -159,7 +161,8 @@ pub async fn create_user(
 /// * `Err(Status)` - Error during retrieval (typically InternalServerError)
 #[get("/1/users")]
 pub async fn list_users(
-    db: DbConn
+    db: DbConn,
+    _auth_user: AuthenticatedUser
 ) -> Result<Json<Vec<User>>, Status> {
     db.run(|conn| {
         list_all_users(conn)

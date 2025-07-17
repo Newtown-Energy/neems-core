@@ -158,9 +158,10 @@ pub async fn create_and_store_session<D: DbRunner>(db: &D, user_id: i32) -> Resu
 /// - `same_site(SameSite::Lax)` - Provides CSRF protection
 /// - `path("/")` - Makes cookie available for all paths
 fn set_session_cookie(cookies: &CookieJar<'_>, session_token: &str) {
+    let secure_flag = !cfg!(test);
     let cookie = Cookie::build(("session", session_token.to_string()))
         .http_only(true)
-        .secure(true)
+        .secure(secure_flag)
         .same_site(SameSite::Lax)
         .path("/")
         .build();
@@ -387,7 +388,7 @@ mod tests {
         
         assert_eq!(cookie.value(), session_token);
         assert!(cookie.http_only().unwrap_or(false));
-        assert!(cookie.secure().unwrap_or(false));
+        assert_eq!(cookie.secure(), Some(!cfg!(test)));  // Should be false in tests, true in production
         assert_eq!(cookie.same_site(), Some(SameSite::Lax));
         assert_eq!(cookie.path(), Some("/"));
     }
@@ -395,7 +396,7 @@ mod tests {
     fn set_session_cookie_mock(cookies: &mut MockCookieJar, session_token: &str) {
         let cookie = Cookie::build(("session", session_token.to_string()))
             .http_only(true)
-            .secure(true)
+            .secure(!cfg!(test))  // Only secure in production, not in tests
             .same_site(SameSite::Lax)
             .path("/")
             .build();

@@ -9,6 +9,7 @@ use rocket::http::Status;
 use rocket::response::status;
 use rocket::Route;
 
+use crate::auth::session_guard::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::{Institution, InstitutionName};
 use crate::institution::insert_institution;
@@ -29,7 +30,8 @@ use crate::orm::institution::get_all_institutions;
 #[post("/1/institutions", data = "<new_institution>")]
 pub async fn create_institution(
     db: DbConn,
-    new_institution: Json<InstitutionName>
+    new_institution: Json<InstitutionName>,
+    _auth_user: AuthenticatedUser
 ) -> Result<status::Created<Json<Institution>>, Status> {
     db.run(move |conn| {
         insert_institution(conn, new_institution.name.clone())
@@ -54,7 +56,8 @@ pub async fn create_institution(
 /// * `Err(Status)` - Error during retrieval (typically InternalServerError)
 #[get("/1/institutions")]
 pub async fn list_institutions(
-    db: DbConn
+    db: DbConn,
+    _auth_user: AuthenticatedUser
 ) -> Result<Json<Vec<Institution>>, Status> {
     db.run(|conn| {
         get_all_institutions(conn)

@@ -8,6 +8,7 @@ use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::Route;
 
+use crate::auth::session_guard::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::role::{insert_role, get_all_roles};
 use crate::models::{Role, NewRole};
@@ -27,7 +28,8 @@ use crate::models::{Role, NewRole};
 #[post("/1/roles", data = "<new_role>")]
 pub async fn create_role(
     db: DbConn,
-    new_role: Json<NewRole>
+    new_role: Json<NewRole>,
+    _auth_user: AuthenticatedUser
 ) -> Result<Json<Role>, Status> {
     db.run(move |conn| {
         insert_role(conn, new_role.into_inner())
@@ -49,7 +51,8 @@ pub async fn create_role(
 /// * `Err(Status)` - Error during retrieval (typically InternalServerError)
 #[get("/1/roles")]
 pub async fn list_roles(
-    db: DbConn
+    db: DbConn,
+    _auth_user: AuthenticatedUser
 ) -> Result<Json<Vec<Role>>, Status> {
     db.run(|conn| {
         get_all_roles(conn)
