@@ -1,3 +1,9 @@
+//! API endpoints for managing users.
+//!
+//! This module provides HTTP endpoints for creating and listing users,
+//! along with utility functions for generating test data and helper functions
+//! for API testing.
+
 use rand::rng;
 use rand::prelude::IndexedRandom;
 use rocket::http::{ContentType, Status};
@@ -10,6 +16,17 @@ use crate::orm::DbConn;
 use crate::orm::user::{insert_user, list_all_users};
 use crate::models::{User, UserNoTime};
 
+/// Generates a random selection of usernames for testing purposes.
+///
+/// This function returns a vector of randomly selected usernames from a
+/// predefined list of test usernames. It's primarily used for generating
+/// test data and populating development environments.
+///
+/// # Arguments
+/// * `count` - The number of random usernames to select
+///
+/// # Returns
+/// A vector of randomly selected username strings
 pub fn random_usernames(count: usize) -> Vec<&'static str> {
     let names = vec![
 	"a.johnson", "b.williams", "c.miller", "d.davis", "e.rodriguez",
@@ -60,7 +77,21 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
     selected
 }
 
-/// Helper to create a user via the API and return the created User
+/// Helper function to create a user via the API and return the created User.
+///
+/// This function is primarily used for testing purposes. It makes a POST request
+/// to the user creation endpoint and returns the newly created user object.
+///
+/// # Arguments
+/// * `client` - The Rocket test client instance
+/// * `user` - The user data to create (without timestamp fields)
+///
+/// # Returns
+/// The created User object with all fields populated
+///
+/// # Panics
+/// This function will panic if the API request fails or returns invalid data,
+/// as it's intended for testing scenarios where such failures indicate test problems.
 pub async fn create_user_by_api(
     client: &Client,
     user: &UserNoTime,
@@ -86,6 +117,19 @@ pub async fn create_user_by_api(
         .expect("valid User JSON response")
 }
 
+/// Creates a new user in the system.
+///
+/// This endpoint accepts a JSON payload containing user information and
+/// creates a new user record in the database. The user data should not
+/// include timestamp fields as they are automatically generated.
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `new_user` - JSON payload containing the new user data
+///
+/// # Returns
+/// * `Ok(status::Created<Json<User>>)` - Successfully created user
+/// * `Err(Status)` - Error during creation (typically InternalServerError)
 #[post("/1/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
@@ -101,6 +145,18 @@ pub async fn create_user(
     }).await
 }
 
+/// Lists all users in the system.
+///
+/// This endpoint retrieves all users from the database and returns them
+/// as a JSON array. This includes all user information including timestamps
+/// and associated institution IDs.
+///
+/// # Arguments
+/// * `db` - Database connection pool
+///
+/// # Returns
+/// * `Ok(Json<Vec<User>>)` - List of all users
+/// * `Err(Status)` - Error during retrieval (typically InternalServerError)
 #[get("/1/users")]
 pub async fn list_users(
     db: DbConn
@@ -115,6 +171,13 @@ pub async fn list_users(
     }).await
 }
 
+/// Returns a vector of all routes defined in this module.
+///
+/// This function collects all the route handlers defined in this module
+/// and returns them as a vector for registration with the Rocket framework.
+///
+/// # Returns
+/// A vector containing all route handlers for user endpoints
 pub fn routes() -> Vec<Route> {
     routes![create_user, list_users]
 }

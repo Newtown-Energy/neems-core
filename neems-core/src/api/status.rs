@@ -1,6 +1,7 @@
-/*
-API version 1 - Status endpoints
-*/
+//! API version 1 - Status endpoints
+//!
+//! This module provides health check and status endpoints for monitoring
+//! the application's operational state and availability.
 
 use serde::Serialize;
 use rocket::serde::json::Json;
@@ -12,11 +13,26 @@ pub struct HealthStatus {
     status: &'static str,
 }
 
+/// Returns the health status of the application.
+///
+/// This endpoint provides a simple health check that indicates whether
+/// the application is running and responsive. It always returns a "running"
+/// status if the application is operational.
+///
+/// # Returns
+/// A JSON response containing the application's health status
 #[rocket::get("/1/status")]
 pub fn health_status() -> Json<HealthStatus> {
     Json(HealthStatus { status: "running" })
 }
 
+/// Returns a vector of all routes defined in this module.
+///
+/// This function collects all the route handlers defined in this module
+/// and returns them as a vector for registration with the Rocket framework.
+///
+/// # Returns
+/// A vector containing all route handlers for status endpoints
 pub fn routes() -> Vec<Route> {
     routes![health_status]
 }
