@@ -11,6 +11,7 @@ use diesel::prelude::*;
 use chrono::Utc;
 use diesel::result::{Error, DatabaseErrorKind};
 
+
 // Helper to create test institution
 fn create_test_institution(conn: &mut SqliteConnection, name: &str) -> Result<Institution, diesel::result::Error> {
     let now = Some(Utc::now().naive_utc());
@@ -102,6 +103,9 @@ fn create_test_user(
     Ok(user)
 }
 
+/// Ensures that institutions with dependent sites cannot be deleted.
+/// This test protects the integrity of the relationship between institutions and sites.
+/// If this fails, deleting an institution could leave orphaned site records or lose associated site data.
 #[test]
 fn test_institution_restrict_delete_with_existing_sites() {
     let mut conn = setup_test_db();
@@ -112,6 +116,8 @@ fn test_institution_restrict_delete_with_existing_sites() {
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
+/// Ensures that institutions with dependent users cannot be deleted.
+/// Prevents accidental deletion of entire business structures if users still exist, maintaining referential integrity.
 #[test]
 fn test_institution_restrict_delete_with_existing_users() {
     let mut conn = setup_test_db();
@@ -122,6 +128,8 @@ fn test_institution_restrict_delete_with_existing_users() {
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
+/// Asserts that no two institutions may share the same name (database-level uniqueness constraint).
+/// Avoids ambiguity when institutions are referenced by name. This catches accidental duplicate creation and ensures business entities are globally unique.
 #[test]
 fn test_institution_name_uniqueness() {
     let mut conn = setup_test_db();
@@ -138,6 +146,8 @@ fn test_institution_name_uniqueness() {
     ));
 }
 
+/// Asserts enforcement of user email uniqueness at the database level.
+/// Essential to guarantee account identity and prevent confusion or login security errors.
 #[test]
 fn test_email_uniqueness_constraints() {
     let mut conn = setup_test_db();
@@ -170,6 +180,8 @@ fn test_email_uniqueness_constraints() {
     ));
 }
 
+/// Verifies that the one-to-many relationship between institutions and users is enforced.
+/// Tests proper linkage, and verifies that users cannot exist for missing/invalid institutions, ensuring data consistency.
 #[test]
 fn test_institution_to_users_relationship() {
     let mut conn = setup_test_db();
@@ -204,6 +216,8 @@ fn test_institution_to_users_relationship() {
     ));
 }
 
+/// Asserts that the one-to-many relationship between institutions and sites is enforced at the DB level.
+/// Prevents sites from being orphaned and confirms only valid parents may have sites.
 #[test]
 fn test_institution_to_sites_relationship() {
     let mut conn = setup_test_db();
@@ -229,6 +243,8 @@ fn test_institution_to_sites_relationship() {
     assert_eq!(sites.len(), 1);
 }
 
+/// Asserts that sites are only unique within an institution—site names can be reused across institutions but not within one.
+/// Prevents ambiguous location naming within an organization.
 #[test]
 fn test_site_name_uniqueness_per_institution() {
     let mut conn = setup_test_db();
@@ -272,6 +288,8 @@ fn test_site_name_uniqueness_per_institution() {
     assert!(matches!(result, Err(Error::DatabaseError(_, _))));
 }
 
+/// Verifies that `revoked` on sessions defaults to false/0 when not explicitly provided.
+/// Prevents accidental enables of revoked state by default, ensuring session validity on creation.
 #[test]
 fn test_sessions_revoked_defaults_to_false() {
     let mut conn = setup_test_db();
@@ -292,6 +310,8 @@ fn test_sessions_revoked_defaults_to_false() {
     assert_eq!(session.revoked, false);
 }
 
+/// Ensures that users with active user_roles associations cannot be deleted.
+/// Guarantees that role assignments are never left dangling, protecting authorization integrity.
 #[test]
 fn test_user_restrict_delete_with_existing_roles() {
     let mut conn = setup_test_db();
@@ -304,6 +324,8 @@ fn test_user_restrict_delete_with_existing_roles() {
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
+/// Ensures that users with dependent sessions cannot be deleted.
+/// Maintains correct referential connection between users and their sessions, preventing orphaned sessions which could misrepresent security state.
 #[test]
 fn test_user_restrict_delete_with_existing_sessions() {
     let mut conn = setup_test_db();
@@ -322,6 +344,8 @@ fn test_user_restrict_delete_with_existing_sessions() {
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
+/// Verifies that the users.email column is NOT NULL, providing a DB-level guarantee that all user records are addressable by email.
+/// Avoids breaking authentication flows or business logic that assumes every user has a valid email.
 #[test]
 fn test_user_email_not_null_constraint() {
     let mut conn = setup_test_db();
@@ -347,6 +371,8 @@ fn test_user_email_not_null_constraint() {
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::NotNullViolation, _))));
 }
 
+/// Asserts AUTOINCREMENT behavior for user primary key for integrity and predictability.
+/// Failing this could indicate a disruptive change in primary key management, risking duplicate or reused user IDs.
 #[test]
 fn test_user_id_autoincrements() {
     let mut conn = setup_test_db();
@@ -358,6 +384,8 @@ fn test_user_id_autoincrements() {
     assert!(user2.id.unwrap() > user1.id.unwrap());
 }
 
+/// Asserts that user-role many-to-many mapping functions as expected, and verifies both sides of the relation.
+/// Maintaining this mapping guarantees correctness for permission checks and role membership logic.
 #[test]
 fn test_user_roles_many_to_many() {
     use diesel::prelude::*;
@@ -428,6 +456,8 @@ fn test_user_roles_many_to_many() {
     assert_eq!(role1_users.len(), 2);
 }
 
+/// Ensures that roles in active use by any user cannot be deleted.
+/// Prevents breaking permission assignments, thereby maintaining consistent authorization data.
 #[test]
 fn test_role_restrict_delete_in_use_by_user() {
     let mut conn = setup_test_db();
@@ -440,6 +470,8 @@ fn test_role_restrict_delete_in_use_by_user() {
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
+/// Ensures that role names remain globally unique in the database.
+/// Prevents ambiguity when assigning or referencing roles by name, protecting authorization correctness.
 #[test]
 fn test_role_name_uniqueness_constraint() {
     let mut conn = setup_test_db();
@@ -456,6 +488,8 @@ fn test_role_name_uniqueness_constraint() {
     );
 }
 
+/// Verifies that the composite primary key on user_roles enforces uniqueness, preventing duplicate user-role assignments.
+/// Ensures correctness of role membership calculations and avoids accidental privilege escalations.
 #[test]
 fn test_user_roles_composite_primary_key_uniqueness() {
     let mut conn = setup_test_db();
