@@ -15,10 +15,25 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 #[database("sqlite_db")]
 pub struct DbConn(diesel::SqliteConnection);
 
+/// Enables foreign key support for SQLite connections.
+///
+/// This executes the `PRAGMA foreign_keys = ON` command on the provided connection.
+/// Foreign keys are disabled by default in SQLite for backwards compatibility.
+///
+/// # Arguments
+/// * `conn` - A mutable reference to a SQLite database connection
+///
+/// # Panics
+/// Panics if the PRAGMA command fails to execute
 fn set_foreign_keys(conn: &mut diesel::SqliteConnection) {
     conn.batch_execute("PRAGMA foreign_keys = ON")
-	.expect("Failed to enable foreign keys");
+        .expect("Failed to enable foreign keys");
 }
+
+/// Creates a Rocket fairing that enables foreign key support for SQLite connections.
+///
+/// This fairing will execute when the Rocket application ignites, ensuring foreign keys
+/// are enabled for all database connections in the pool.
 pub fn set_foreign_keys_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         let conn = DbConn::get_one(&rocket).await
@@ -30,6 +45,19 @@ pub fn set_foreign_keys_fairing() -> AdHoc {
     })
 }
 
+/// Configures SQLite with performance-optimized settings for testing.
+///
+/// Sets the following PRAGMAs:
+/// - `synchronous = OFF`: Disables synchronous writes for faster performance
+/// - `journal_mode = OFF`: Disables rollback journal
+///
+/// These settings make SQLite faster but less durable - only use for testing.
+///
+/// # Arguments
+/// * `conn` - A mutable reference to a SQLite database connection
+///
+/// # Panics
+/// Panics if the PRAGMA commands fail to execute
 fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
     conn.batch_execute(
         r#"
@@ -38,33 +66,60 @@ fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
         "#
     ).expect("Failed to set SQLite PRAGMAs");
 }
+
+/// Creates a Rocket fairing that sets SQLite testing pragmas.
+///
+/// This fairing configures SQLite for faster but less durable operation,
+/// suitable only for testing environments.
 fn set_sqlite_test_pragmas_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
-	let conn = DbConn::get_one(&rocket).await
-	    .expect("database connection for migration");
-	conn.run(|c| {
-	    set_sqlite_test_pragmas(c);
-	}).await;
-	rocket
+        let conn = DbConn::get_one(&rocket).await
+            .expect("database connection for migration");
+        conn.run(|c| {
+            set_sqlite_test_pragmas(c);
+        }).await;
+        rocket
     })
 }
 
+/// Runs all pending database migrations on the provided connection.
+///
+/// # Arguments
+/// * `conn` - A mutable reference to a SQLite database connection
+///
+/// # Panics
+/// Panics if any migration fails to run
 fn run_pending_migrations(conn: &mut diesel::SqliteConnection) {
     conn.run_pending_migrations(MIGRATIONS)
-	.expect("Failed to run pending migrations");
+        .expect("Failed to run pending migrations");
 }
+
+/// Creates a Rocket fairing that runs database migrations on ignition.
+///
+/// This fairing ensures all pending Diesel migrations are run when the
+/// Rocket application starts up.
 pub fn run_migrations_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         // Get a database connection from Rocket's pool
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
         conn.run(|c| {
-	    run_pending_migrations(c);
+            run_pending_migrations(c);
         }).await;
         rocket
     })
 }
 
+/// Creates and configures a Rocket instance for testing with an in-memory SQLite database.
+///
+/// The returned Rocket instance will have:
+/// - An in-memory SQLite database configured
+/// - Database connection pool attached
+/// - Foreign keys enabled
+/// - Testing pragmas set
+/// - All migrations run
+/// - Admin initialization completed
+/// - API routes mounted
 pub fn test_rocket() -> Rocket<Build> {
     // Configure the in-memory SQLite database
     let db_config: Map<_, Value> = map! {
@@ -80,13 +135,12 @@ pub fn test_rocket() -> Rocket<Build> {
     // Build the Rocket instance with the DB fairing attached
     let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
-	.attach(set_foreign_keys_fairing())
-	.attach(set_sqlite_test_pragmas_fairing())
-	.attach(run_migrations_fairing())
-	.attach(admin_init_fairing());
+        .attach(set_foreign_keys_fairing())
+        .attach(set_sqlite_test_pragmas_fairing())
+        .attach(run_migrations_fairing())
+        .attach(admin_init_fairing());
     crate::mount_api_routes(rocket)
 }
-
 
 /// Creates a synchronous in-memory SQLite database connection for unit tests.
 ///
@@ -116,18 +170,20 @@ pub fn setup_test_db() -> SqliteConnection {
 ///
 /// Both use the same in-memory database if you only call `setup_test_db()` once and wrap the result.
 /// Each call to `setup_test_dbconn()` creates a new, independent in-memory database.
-///
-/// # Example
-/// ```
-/// use neems_core::orm::setup_test_db;
-/// use neems_core::orm::setup_test_dbconn;
-/// let mut conn = setup_test_db();
-/// let fake_db = setup_test_dbconn(&mut conn);
-/// // Now you can use fake_db.run(|c| ...).await in async tests.
-/// ```
 pub struct FakeDbConn<'a>(pub &'a mut diesel::SqliteConnection);
 
 impl<'a> FakeDbConn<'a> {
+    /// Executes a closure with a mutable reference to the underlying SQLite connection.
+    ///
+    /// This method mimics the async `.run()` interface used by Rocket's database connections,
+    /// but operates synchronously for testing purposes.
+    ///
+    /// # Arguments
+    /// * `f` - A closure that takes a mutable reference to the SQLite connection
+    ///
+    /// # Safety
+    /// This uses unsafe code to convert an immutable reference to mutable, which is safe
+    /// in this controlled test environment where we know we have exclusive access.
     pub async fn run<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut diesel::SqliteConnection) -> R + Send + 'static,
@@ -147,22 +203,11 @@ impl<'a> FakeDbConn<'a> {
 /// This is useful for testing code that expects a Rocket-style `.run()` interface,
 /// but you want to use your in-memory test database.
 ///
-/// This function uses the same in-memory database as
-/// `setup_test_db()` because it wraps the same connection:
-///
-/// # Example
-/// ```
-/// use neems_core::orm::setup_test_db;
-/// use neems_core::orm::setup_test_dbconn;
-/// let mut conn = setup_test_db();
-/// let fake_db = setup_test_dbconn(&mut conn);
-/// ```
-///
 /// # Arguments
-/// * `conn` - A mutable reference to a `diesel::SqliteConnection` (from `setup_test_db()`).
+/// * `conn` - A mutable reference to a `diesel::SqliteConnection` (typically from `setup_test_db()`)
 ///
 /// # Returns
-/// A `FakeDbConn` wrapping the provided connection.
+/// A `FakeDbConn` wrapping the provided connection
 pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbConn<'a> {
     FakeDbConn(conn)
 }
