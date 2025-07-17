@@ -8,7 +8,7 @@ use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::Route;
 
-use crate::auth::session_guard::AuthenticatedUser;
+use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::role::{insert_role, get_all_roles};
 use crate::models::{Role, NewRole};

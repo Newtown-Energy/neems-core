@@ -8,7 +8,7 @@ use rocket::{post, get, Route, http::{CookieJar, Status}, serde::json::Json};
 use rocket::response;
 use rocket::serde::{Serialize, Deserialize};
 
-use crate::auth::session_guard::AuthenticatedUser;
+use crate::session_guards::AuthenticatedUser;
 use crate::DbConn;
 use crate::orm::login::process_login;
 
