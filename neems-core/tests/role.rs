@@ -28,49 +28,6 @@ async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static>
 #[rocket::async_test]
 async fn test_create_role() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
-
-    let new_role = json!({
-        "name": "test_role",
-        "description": "A test role"
-    });
-
-    let response = client.post("/api/1/roles")
-        .header(ContentType::JSON)
-        .body(new_role.to_string())
-        .dispatch()
-        .await;
-
-    assert_eq!(response.status(), Status::Ok);
-
-    let returned: Role = response.into_json().await.expect("valid JSON response");
-    assert_eq!(returned.name, "test_role");
-    assert_eq!(returned.description.as_deref(), Some("A test role"));
-    assert!(returned.id.is_some());
-}
-
-#[rocket::async_test]
-async fn test_list_roles() {
-    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
-
-    // Optionally, create a role first
-    let new_role = json!({ "name": "list_test_role", "description": "For listing" });
-    client.post("/api/1/roles")
-        .header(ContentType::JSON)
-        .body(new_role.to_string())
-        .dispatch()
-        .await;
-
-    let response = client.get("/api/1/roles").dispatch().await;
-    assert_eq!(response.status(), Status::Ok);
-
-    let list: Vec<Role> = response.into_json().await.expect("valid JSON response");
-    assert!(!list.is_empty());
-    assert!(list.iter().any(|r| r.name == "list_test_role"));
-}
-
-#[rocket::async_test]
-async fn test_create_role_requires_auth() {
-    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     
     // Test unauthenticated request fails
     let new_role = json!({
@@ -103,7 +60,7 @@ async fn test_create_role_requires_auth() {
 }
 
 #[rocket::async_test]
-async fn test_list_roles_requires_auth() {
+async fn test_list_roles() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     
     // Test unauthenticated request fails
