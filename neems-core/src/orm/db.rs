@@ -211,3 +211,17 @@ impl<'a> FakeDbConn<'a> {
 pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbConn<'a> {
     FakeDbConn(conn)
 }
+
+/// Creates a minimal Rocket instance for testing APIs that don't require a database.
+///
+/// This is useful for testing endpoints that don't need database access, avoiding
+/// potential database conflicts and improving test performance.
+///
+/// The returned Rocket instance will have:
+/// - Only fixphrase API routes mounted
+/// - No database connection
+/// - No database-related fairings
+pub fn test_rocket_no_db() -> Rocket<Build> {
+    rocket::build()
+        .mount("/api", crate::api::fixphrase::routes())
+}
