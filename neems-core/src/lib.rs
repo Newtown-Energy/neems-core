@@ -16,7 +16,6 @@ pub use orm::DbConn;
 pub mod institution; 
 pub mod models; 
 pub mod schema;  
-pub mod user;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 

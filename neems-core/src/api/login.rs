@@ -62,27 +62,24 @@ pub async fn login(
 /// Secure hello endpoint that requires authentication.
 ///
 /// This endpoint demonstrates authenticated API access by returning a
-/// personalized greeting for authenticated users. It validates the session
-/// cookie and returns the user's email in the response.
+/// personalized greeting for authenticated users. The `AuthenticatedUser`
+/// guard automatically validates the session cookie and returns a 401
+/// Unauthorized status if authentication fails.
 ///
 /// # Arguments
-/// * `db` - Database connection for session validation
-/// * `cookies` - Cookie jar containing the session cookie
+/// * `auth_user` - Authenticated user (automatically validated by guard)
 ///
 /// # Returns
-/// * `Ok(String)` - Personalized greeting with user's email
-/// * `Err(Status::Unauthorized)` - No valid session found
+/// * `String` - Personalized greeting with user's email
 ///
 /// # Authentication
-/// Uses the `AuthenticatedUser` guard to verify the session token
-/// against the database and ensure the session is valid and not expired.
+/// Uses the `AuthenticatedUser` request guard which automatically:
+/// - Validates the session cookie
+/// - Checks session expiration and revocation status
+/// - Returns 401 Unauthorized if authentication fails
 #[get("/1/hello")]
-pub async fn secure_hello(db: DbConn, cookies: &CookieJar<'_>) -> Result<String, Status> {
-    if let Some(user) = AuthenticatedUser::from_cookies_and_db(cookies, &db).await {
-        Ok(format!("Hello, {}!", user.email))
-    } else {
-        Err(Status::Unauthorized)
-    }
+pub async fn secure_hello(auth_user: AuthenticatedUser) -> String {
+    format!("Hello, {}!", auth_user.user.email)
 }
 
 /// Returns all login-related API routes.
