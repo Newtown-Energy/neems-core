@@ -1,10 +1,14 @@
+use diesel::prelude::*;
 use rocket::http::{ContentType};
 use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
+use rocket::tokio;
 
 use neems_core::orm::test_rocket;
-use neems_core::models::{Institution, User};
-
+use neems_core::models::{Institution, Role, User};
+use neems_core::schema::users::dsl::*;
+use neems_core::schema::roles;
+use neems_core::schema::user_roles;
 
 /// Helper to seed the test DB with "Newtown Energy" and return its ID.
 async fn seed_institution(client: &Client) -> i32 {
@@ -28,13 +32,13 @@ async fn test_create_user() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     // 2. Create institution via API (ensures it exists in the same database)
-    let institution_id = seed_institution(&client).await;
+    let inst_id = seed_institution(&client).await;
 
     // 3. Create a user using that institution_id
     let new_user = json!({
         "email": "testuser@example.com",
         "password_hash": "hashed_pw",
-        "institution_id": institution_id,
+        "institution_id": inst_id,
         "totp_secret": "SECRET123"
     });
 
@@ -48,7 +52,7 @@ async fn test_create_user() {
 
     let returned: User = response.into_json().await.expect("valid JSON response");
     assert_eq!(returned.email, "testuser@example.com");
-    assert_eq!(returned.institution_id, institution_id);
+    assert_eq!(returned.institution_id, inst_id);
 }
 
 
@@ -58,13 +62,13 @@ async fn test_list_users() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
 
     // Seed institution and create a user
-    let institution_id = seed_institution(&client).await;
+    let inst_id = seed_institution(&client).await;
 
     let new_user = json!({
         "username": "listuser",
         "email": "listuser@example.com",
         "password_hash": "hashed_pw2",
-        "institution_id": institution_id,
+        "institution_id": inst_id,
         "totp_secret": "SECRET456"
     });
     client.post("/api/1/users")
@@ -79,4 +83,50 @@ async fn test_list_users() {
     let list: Vec<User> = response.into_json().await.expect("valid JSON response");
     assert!(!list.is_empty());
     assert!(list.iter().any(|u| u.email == "listuser@example.com"));
+}
+
+
+
+#[tokio::test]
+async fn test_admin_user_is_created() {
+
+    // Start Rocket with the admin fairing attached
+    let rocket = test_rocket();
+    let client = Client::tracked(rocket).await.expect("valid rocket instance");
+
+    // Get a DB connection from the pool
+    let conn = neems_core::orm::DbConn::get_one(client.rocket()).await
+        .expect("get db connection");
+
+    // Use the default admin email (from env or fallback)
+    let admin_email = std::env::var("NEEMS_DEFAULT_USER").unwrap_or_else(|_| "admin@example.com".to_string());
+
+    // Query for the admin user and verify it has the newtown-admin role
+    let (found_user, has_admin_role) = conn.run(move |c| {
+        // Find the admin user
+        let user = users.filter(email.eq(admin_email))
+            .first::<User>(c)
+            .optional()
+            .expect("user query should not fail");
+
+        let has_role = if let Some(ref u) = user {
+            // Check if the user has the newtown-admin role
+            let role_exists = user_roles::table
+                .inner_join(roles::table)
+                .filter(user_roles::user_id.eq(u.id.expect("user should have id")))
+                .filter(roles::name.eq("newtown-admin"))
+                .first::<(neems_core::models::UserRole, Role)>(c)
+                .optional()
+                .expect("role query should not fail");
+            
+            role_exists.is_some()
+        } else {
+            false
+        };
+
+        (user, has_role)
+    }).await;
+
+    assert!(found_user.is_some(), "Admin user should exist after fairing runs");
+    assert!(has_admin_role, "Admin user should have the newtown-admin role");
 }

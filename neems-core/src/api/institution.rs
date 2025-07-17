@@ -4,7 +4,6 @@
 //! in the system. Institutions represent organizations or entities that can
 //! be associated with users and roles.
 
-use diesel::prelude::*;
 use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status;
@@ -13,6 +12,7 @@ use rocket::Route;
 use crate::orm::DbConn;
 use crate::models::{Institution, InstitutionName};
 use crate::institution::insert_institution;
+use crate::orm::institution::get_all_institutions;
 
 /// Creates a new institution in the system.
 ///
@@ -57,10 +57,7 @@ pub async fn list_institutions(
     db: DbConn
 ) -> Result<Json<Vec<Institution>>, Status> {
     db.run(|conn| {
-        use crate::schema::institutions::dsl::*;
-        institutions
-            .order(id.asc())
-            .load::<Institution>(conn)
+        get_all_institutions(conn)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
     }).await
