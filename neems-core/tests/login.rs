@@ -10,7 +10,7 @@ use neems_core::models::{InstitutionNoTime, UserNoTime};
 mod institution;
 use institution::create_institution_by_api;
 use neems_core::institution::{random_energy_company_names};
-use neems_core::user::{create_user_by_api};
+use neems_core::api::user::{create_user_by_api};
 
 pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
     let name = random_energy_company_names(1)[0];

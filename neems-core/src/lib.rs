@@ -15,7 +15,6 @@ pub mod orm;
 pub use orm::DbConn;
 pub mod institution; 
 pub mod models; 
-pub mod role;
 pub mod schema;  
 pub mod user;
 
@@ -35,9 +34,6 @@ pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
         .mount("/api", api::routes())
         .mount("/api", auth::login::routes())
         .mount("/api", auth::logout::routes())
-        .mount("/api", institution::routes())
-        .mount("/api", role::routes())
-        .mount("/api", user::routes())
 }
 
 fn log_rocket_info(rocket: &Rocket<Build>) {

@@ -1,6 +1,6 @@
 use rocket::local::blocking::Client;
 use rocket::http::{Status};
-use neems_core::api::{FixPhraseResponse, FixPhraseError}; 
+use neems_core::api::general::{FixPhraseResponse, FixPhraseError}; 
 use neems_core::orm::test_rocket;
 
 #[test]

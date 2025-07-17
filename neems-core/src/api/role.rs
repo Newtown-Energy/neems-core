@@ -33,4 +33,3 @@ pub async fn list_roles(
 pub fn routes() -> Vec<Route> {
     routes![create_role, list_roles]
 }
-
