@@ -55,6 +55,11 @@ migrate() {
     diesel migration run
 }
 
+push() {
+    # We only need to send the binary, not the entire project
+    rsync target/release/neems-core root@newtown.energy:/opt/neems/core
+}
+
 test() {
     # Create temp file for test output
     tmpfile=$(mktemp)
