@@ -1,5 +1,5 @@
 /.env
-/.claude
+.claude
 /sqlite:neems-core.db
 Rocket.toml
 secret_key.txt
