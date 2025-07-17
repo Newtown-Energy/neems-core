@@ -9,7 +9,6 @@ use neems_core::models::{Institution, Role, User};
 use neems_core::schema::users::dsl::*;
 use neems_core::schema::roles;
 use neems_core::schema::user_roles;
-use neems_core::orm::login::hash_password;
 
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {
@@ -65,21 +64,6 @@ async fn seed_institution(client: &Client) -> i32 {
 
     let institution: Institution = response.into_json().await.expect("valid JSON");
     institution.id.expect("Institution should have an ID")
-}
-
-/// Helper to create dummy data for authentication tests
-async fn create_dummy_data(client: &Client) {
-    // Create an admin user that can authenticate
-    let test_password_hash = hash_password("testpassword");
-    
-    // First create an institution (this will fail with auth now, but admin user should exist)
-    // Let's create a basic user through direct DB access for testing
-    let rocket = client.rocket();
-    let conn = neems_core::orm::DbConn::get_one(rocket).await
-        .expect("get db connection");
-    
-    // The admin user should already exist from the fairing
-    // We just need to ensure it has the right password for testing
 }
 
 #[rocket::async_test]
