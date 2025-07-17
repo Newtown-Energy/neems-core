@@ -82,5 +82,6 @@ pub fn rocket() -> Rocket<Build> {
 
     log_rocket_info(&rocket);
 
-    mount_api_routes(rocket).mount("/", FileServer::from("static").rank(10))
+    let static_dir = std::env::var("NEEMS_STATIC_DIR").unwrap_or_else(|_| "static".to_string());
+    mount_api_routes(rocket).mount("/", FileServer::from(static_dir).rank(10))
 }
