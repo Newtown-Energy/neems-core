@@ -21,7 +21,7 @@ CREATE TABLE users (
 -- Create roles table
 CREATE TABLE roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     description TEXT
 );
 
