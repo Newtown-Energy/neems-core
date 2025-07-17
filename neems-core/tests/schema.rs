@@ -103,6 +103,26 @@ fn create_test_user(
 }
 
 #[test]
+fn test_institution_restrict_delete_with_existing_sites() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Site Parent").unwrap();
+    create_test_site(&mut conn, inst.id.unwrap(), "Main", "1 Any St", 1.0, 2.0).unwrap();
+    let res = diesel::delete(institutions::table.filter(institutions::id.eq(inst.id.unwrap())))
+        .execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+}
+
+#[test]
+fn test_institution_restrict_delete_with_existing_users() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Restrict Co").unwrap();
+    let _u = create_test_user(&mut conn, inst.id.unwrap(), "restrict@test.com").unwrap();
+    let res = diesel::delete(institutions::table.filter(institutions::id.eq(inst.id.unwrap())))
+        .execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+}
+
+#[test]
 fn test_institution_name_uniqueness() {
     let mut conn = setup_test_db();
 
@@ -253,6 +273,92 @@ fn test_site_name_uniqueness_per_institution() {
 }
 
 #[test]
+fn test_sessions_revoked_defaults_to_false() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "DefaultTest").unwrap();
+    let user = create_test_user(&mut conn, inst.id.unwrap(), "default@test.com").unwrap();
+
+    diesel::insert_into(sessions::table)
+        .values((
+            sessions::id.eq("defsession"),
+            sessions::user_id.eq(user.id.unwrap()),
+            sessions::created_at.eq(Utc::now().naive_utc()),
+            sessions::expires_at.eq::<Option<chrono::NaiveDateTime>>(None),
+        ))
+        .execute(&mut conn)
+        .unwrap();
+
+    let session: Session = sessions::table.filter(sessions::id.eq("defsession")).first(&mut conn).unwrap();
+    assert_eq!(session.revoked, false);
+}
+
+#[test]
+fn test_user_restrict_delete_with_existing_roles() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Role Parent").unwrap();
+    let user = create_test_user(&mut conn, inst.id.unwrap(), "roleuser@test.com").unwrap();
+    let role = create_test_role(&mut conn, "deletetestrole", Some("A role")).unwrap();
+    let assoc = NewUserRole { user_id: user.id.unwrap(), role_id: role.id.unwrap() };
+    diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
+    let res = diesel::delete(users::table.filter(users::id.eq(user.id.unwrap()))).execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+}
+
+#[test]
+fn test_user_restrict_delete_with_existing_sessions() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Session Parent").unwrap();
+    let user = create_test_user(&mut conn, inst.id.unwrap(), "session@test.com").unwrap();
+    // Insert a session for this user
+    diesel::insert_into(sessions::table)
+        .values((
+            sessions::id.eq("sessionid"),
+            sessions::user_id.eq(user.id.unwrap()),
+            sessions::created_at.eq(Utc::now().naive_utc()),
+        ))
+        .execute(&mut conn)
+        .unwrap();
+    let res = diesel::delete(users::table.filter(users::id.eq(user.id.unwrap()))).execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+}
+
+#[test]
+fn test_user_email_not_null_constraint() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Nullable U").unwrap();
+    let new_user = NewUser {
+        email: "".to_string(), // Simulate NULL with empty for Rust struct, real NULL can't be constructed directly
+        password_hash: "pw".to_string(),
+        institution_id: inst.id.unwrap(),
+        created_at: Utc::now().naive_utc(),
+        updated_at: Utc::now().naive_utc(),
+        totp_secret: "secret".to_string(),
+    };
+    // Intentionally using raw Diesel to try to insert None for email (Rust won't let us send Option::None to required field)
+    let res = diesel::insert_into(users::table)
+        .values((
+            users::institution_id.eq(new_user.institution_id),
+            users::password_hash.eq(new_user.password_hash),
+            users::totp_secret.eq(new_user.totp_secret),
+            users::created_at.eq(new_user.created_at),
+            users::updated_at.eq(new_user.updated_at),
+        ))
+        .execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::NotNullViolation, _))));
+}
+
+#[test]
+fn test_user_id_autoincrements() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "PK Inc").unwrap();
+
+    let user1 = create_test_user(&mut conn, inst.id.unwrap(), "pk1@test.com").unwrap();
+    let user2 = create_test_user(&mut conn, inst.id.unwrap(), "pk2@test.com").unwrap();
+
+    assert!(user2.id.unwrap() > user1.id.unwrap());
+}
+
+#[test]
 fn test_user_roles_many_to_many() {
     use diesel::prelude::*;
 
@@ -320,4 +426,45 @@ fn test_user_roles_many_to_many() {
         .load::<User>(&mut conn)
         .expect("Failed to load users");
     assert_eq!(role1_users.len(), 2);
+}
+
+#[test]
+fn test_role_restrict_delete_in_use_by_user() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Role RESTRICT Institution").unwrap();
+    let user = create_test_user(&mut conn, inst.id.unwrap(), "restrictrole@test.com").unwrap();
+    let role = create_test_role(&mut conn, "restrictrole", Some("A role")).unwrap();
+    let assoc = NewUserRole { user_id: user.id.unwrap(), role_id: role.id.unwrap() };
+    diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
+    let res = diesel::delete(roles::table.filter(roles::id.eq(role.id.unwrap()))).execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+}
+
+#[test]
+fn test_role_name_uniqueness_constraint() {
+    let mut conn = setup_test_db();
+
+    // First role creation should succeed
+    create_test_role(&mut conn, "unique-role", Some("Testing role"))
+        .expect("First role insert should succeed");
+
+    // Second role with the same name should fail due to unique constraint
+    let result = create_test_role(&mut conn, "unique-role", Some("Should fail"));
+    assert!(
+        matches!(result, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))),
+        "Expected UNIQUE violation when inserting duplicate role name"
+    );
+}
+
+#[test]
+fn test_user_roles_composite_primary_key_uniqueness() {
+    let mut conn = setup_test_db();
+    let inst = create_test_institution(&mut conn, "Composite PK Test").unwrap();
+    let user = create_test_user(&mut conn, inst.id.unwrap(), "m2m@test.com").unwrap();
+    let role = create_test_role(&mut conn, "user_roles_pk", None).unwrap();
+    let assoc = NewUserRole { user_id: user.id.unwrap(), role_id: role.id.unwrap() };
+    diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
+    // Attempt to re-insert the same association
+    let res = diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn);
+    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))));
 }
