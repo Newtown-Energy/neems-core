@@ -35,7 +35,7 @@ fn set_foreign_keys(conn: &mut diesel::SqliteConnection) {
 /// This fairing will execute when the Rocket application ignites, ensuring foreign keys
 /// are enabled for all database connections in the pool.
 pub fn set_foreign_keys_fairing() -> AdHoc {
-    AdHoc::on_ignite("Diesel Migrations", |rocket| async {
+    AdHoc::on_ignite("Set Foreign Keys", |rocket| async {
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
         conn.run(|c| {
@@ -72,7 +72,7 @@ fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
 /// This fairing configures SQLite for faster but less durable operation,
 /// suitable only for testing environments.
 fn set_sqlite_test_pragmas_fairing() -> AdHoc {
-    AdHoc::on_ignite("Diesel Migrations", |rocket| async {
+    AdHoc::on_ignite("Set SQLite Test Pragmas", |rocket| async {
         let conn = DbConn::get_one(&rocket).await
             .expect("database connection for migration");
         conn.run(|c| {
@@ -123,8 +123,8 @@ pub fn run_migrations_fairing() -> AdHoc {
 pub fn test_rocket() -> Rocket<Build> {
     // Configure the in-memory SQLite database
     let db_config: Map<_, Value> = map! {
-        "url" => ":memory:".into(),
-        "pool_size" => 10.into(),
+        "url" => "file:test_db?mode=memory&cache=shared".into(),  // Shared in-memory DB
+        "pool_size" => 5.into(),
         "timeout" => 5.into(),
     };
 

@@ -115,7 +115,11 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
 
         let session = match session_result {
             Ok(Some(sess)) => sess,
-            _ => return Outcome::Error((Status::Unauthorized, ())),
+            Ok(None) => return Outcome::Error((Status::Unauthorized, ())),
+            Err(e) => {
+                error!("Database error finding session: {:?}", e);
+                return Outcome::Error((Status::Unauthorized, ()));
+            },
         };
 
         // Query the users table for the user associated with the session
@@ -128,7 +132,11 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
 
         let user = match user_result {
             Ok(Some(u)) => u,
-            _ => return Outcome::Error((Status::Unauthorized, ())),
+            Ok(None) => return Outcome::Error((Status::Unauthorized, ())),
+            Err(e) => {
+                error!("Database error finding user: {:?}", e);
+                return Outcome::Error((Status::Unauthorized, ()));
+            },
         };
 
         Outcome::Success(AuthenticatedUser { user })
