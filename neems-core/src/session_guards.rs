@@ -165,3 +165,110 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
         Outcome::Success(AuthenticatedUser { user, roles })
     }
 }
+
+impl AuthenticatedUser {
+    /// Helper method to check if the user has any of the specified roles
+    pub fn has_any_role(&self, role_names: &[&str]) -> bool {
+        let user_role_names: Vec<&str> = self.roles.iter().map(|r| r.name.as_str()).collect();
+        role_names.iter().any(|required| user_role_names.contains(required))
+    }
+
+    /// Helper method to check if the user has all of the specified roles
+    pub fn has_all_roles(&self, role_names: &[&str]) -> bool {
+        let user_role_names: Vec<&str> = self.roles.iter().map(|r| r.name.as_str()).collect();
+        role_names.iter().all(|required| user_role_names.contains(required))
+    }
+
+    /// Helper method to check if the user has none of the specified roles
+    pub fn has_no_roles(&self, role_names: &[&str]) -> bool {
+        let user_role_names: Vec<&str> = self.roles.iter().map(|r| r.name.as_str()).collect();
+        !role_names.iter().any(|forbidden| user_role_names.contains(forbidden))
+    }
+
+    /// Helper method to check if the user has a specific role
+    pub fn has_role(&self, role_name: &str) -> bool {
+        self.roles.iter().any(|r| r.name == role_name)
+    }
+}
+
+/// Macro to create role-specific request guards
+macro_rules! create_role_guard {
+    ($name:ident, $role:expr) => {
+        #[derive(Debug)]
+        pub struct $name {
+            pub user: User,
+            pub roles: Vec<Role>,
+        }
+
+        #[rocket::async_trait]
+        impl<'r> FromRequest<'r> for $name {
+            type Error = ();
+
+            async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
+                let auth_user = match AuthenticatedUser::from_request(request).await {
+                    Outcome::Success(user) => user,
+                    Outcome::Error(e) => return Outcome::Error(e),
+                    Outcome::Forward(f) => return Outcome::Forward(f),
+                };
+
+                if auth_user.has_role($role) {
+                    Outcome::Success($name {
+                        user: auth_user.user,
+                        roles: auth_user.roles,
+                    })
+                } else {
+                    Outcome::Error((Status::Forbidden, ()))
+                }
+            }
+        }
+    };
+}
+
+// Create guards for common roles
+create_role_guard!(AdminUser, "admin");
+create_role_guard!(NewtownAdminUser, "newtown-admin");
+create_role_guard!(NewtownStaffUser, "newtown-staff");
+create_role_guard!(StaffUser, "staff");
+
+/// A more flexible role guard that can be configured at runtime
+#[derive(Debug)]
+pub struct RoleGuard {
+    pub user: User,
+    pub roles: Vec<Role>,
+    pub required_roles: Vec<String>,
+}
+
+impl RoleGuard {
+    pub fn new(required_roles: Vec<String>) -> Self {
+        Self {
+            user: User {
+                id: 0,
+                email: String::new(),
+                password_hash: String::new(),
+                created_at: chrono::Utc::now().naive_utc(),
+                updated_at: chrono::Utc::now().naive_utc(),
+                institution_id: 0,
+                totp_secret: String::new(),
+            },
+            roles: Vec::new(),
+            required_roles,
+        }
+    }
+
+    pub async fn check_request<'r>(
+        request: &'r Request<'_>,
+        required_roles: &[String],
+    ) -> request::Outcome<AuthenticatedUser, ()> {
+        let auth_user = match AuthenticatedUser::from_request(request).await {
+            Outcome::Success(user) => user,
+            Outcome::Error(e) => return Outcome::Error(e),
+            Outcome::Forward(f) => return Outcome::Forward(f),
+        };
+
+        if required_roles.is_empty() || auth_user.has_any_role(&required_roles.iter().map(|s| s.as_str()).collect::<Vec<_>>()) {
+            Outcome::Success(auth_user)
+        } else {
+            Outcome::Error((Status::Forbidden, ()))
+        }
+    }
+}
