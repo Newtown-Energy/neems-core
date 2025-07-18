@@ -7,7 +7,7 @@ BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
 
 _install_cranelift() {
-    echo "➡️ Setting up Cranelift build environment..."
+    echo "➡️ Ensuring we have a Cranelift build environment..."
 
     # Check for rustup
     if ! command -v rustup >/dev/null 2>&1; then
@@ -37,6 +37,9 @@ _install_cranelift() {
 }
 
 build() {
+    # Install Cranelift if not already installed
+    _install_cranelift
+
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build "$@"
