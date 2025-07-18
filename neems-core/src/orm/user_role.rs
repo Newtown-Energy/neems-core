@@ -177,12 +177,39 @@ mod tests {
             totp_secret: "secret".to_string(),
         }).unwrap();
 
-        // Assign a role
+        // Assign multiple roles so we can safely remove one
+        assign_user_role_by_name(&mut conn, user.id, "newtown-admin").unwrap();
+        assign_user_role_by_name(&mut conn, user.id, "newtown-staff").unwrap();
+        assert!(user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
+        assert!(user_has_role(&mut conn, user.id, "newtown-staff").unwrap());
+
+        // Remove one role (user still has another)
+        remove_user_role_by_name(&mut conn, user.id, "newtown-admin").unwrap();
+        assert!(!user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
+        assert!(user_has_role(&mut conn, user.id, "newtown-staff").unwrap());
+    }
+
+    #[test]
+    fn test_cannot_remove_last_role() {
+        let mut conn = setup_test_db();
+        
+        // Create a test user
+        let user = insert_user(&mut conn, UserNoTime {
+            email: "test4@example.com".to_string(),
+            password_hash: hash_password("password"),
+            institution_id: 1,
+            totp_secret: "secret".to_string(),
+        }).unwrap();
+
+        // Assign only one role
         assign_user_role_by_name(&mut conn, user.id, "newtown-admin").unwrap();
         assert!(user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
 
-        // Remove the role
-        remove_user_role_by_name(&mut conn, user.id, "newtown-admin").unwrap();
-        assert!(!user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
+        // Try to remove the last role - this should fail due to our constraint
+        let result = remove_user_role_by_name(&mut conn, user.id, "newtown-admin");
+        assert!(result.is_err());
+        
+        // User should still have the role
+        assert!(user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
     }
 }

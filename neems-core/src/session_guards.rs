@@ -1,10 +1,10 @@
-//! Session-based authentication guard for Rocket routes.
+//! Session-based authentication and authorization guards for Rocket routes.
 //! 
-//! This module provides a request guard that automatically validates user sessions
-//! by checking session cookies against the database. It ensures that only authenticated
-//! users can access protected routes.
+//! This module provides request guards that automatically validate user sessions
+//! and enforce role-based access control. It ensures that only authenticated
+//! users with appropriate roles can access protected routes.
 //!
-//! # Example
+//! # Basic Authentication
 //! 
 //! ```rust
 //! use rocket::get;
@@ -14,6 +14,59 @@
 //! fn get_profile(user: AuthenticatedUser) -> String {
 //!     let role_names: Vec<&str> = user.roles.iter().map(|r| r.name.as_str()).collect();
 //!     format!("Welcome, {}! Roles: {:?}", user.user.email, role_names)
+//! }
+//! ```
+//!
+//! # Role-Based Authorization
+//!
+//! ## Using Role-Specific Guards
+//!
+//! ```rust
+//! use rocket::get;
+//! use neems_core::session_guards::{AdminUser, NewtownAdminUser, StaffUser};
+//! 
+//! #[get("/admin")]
+//! fn admin_only(user: AdminUser) -> String {
+//!     format!("Admin access granted to {}", user.user.email)
+//! }
+//!
+//! #[get("/newtown-admin")]
+//! fn newtown_admin_only(user: NewtownAdminUser) -> String {
+//!     format!("Newtown admin access granted to {}", user.user.email)
+//! }
+//! ```
+//!
+//! ## Using Role Helper Methods
+//!
+//! ```rust
+//! use rocket::get;
+//! use neems_core::session_guards::AuthenticatedUser;
+//! 
+//! #[get("/flexible")]
+//! fn flexible_roles(user: AuthenticatedUser) -> String {
+//!     if user.has_any_role(&["admin", "newtown-admin"]) {
+//!         format!("Admin access for {}", user.user.email)
+//!     } else if user.has_role("staff") {
+//!         format!("Staff access for {}", user.user.email)
+//!     } else {
+//!         format!("Regular user access for {}", user.user.email)
+//!     }
+//! }
+//! ```
+//!
+//! ## Manual Role Checking
+//!
+//! ```rust
+//! use rocket::{get, http::Status};
+//! use neems_core::session_guards::AuthenticatedUser;
+//! 
+//! #[get("/conditional")]
+//! fn conditional_access(user: AuthenticatedUser) -> Result<String, Status> {
+//!     if user.has_all_roles(&["admin", "staff"]) {
+//!         Ok(format!("Special access for {}", user.user.email))
+//!     } else {
+//!         Err(Status::Forbidden)
+//!     }
 //! }
 //! ```
 
@@ -39,11 +92,13 @@ use crate::DbConn;
 /// 3. Checks that the session is not revoked
 /// 4. Verifies the session has not expired
 /// 5. Retrieves the associated user from the database
+/// 6. Loads all roles assigned to the user
+/// 7. Ensures the user has at least one role (database constraint)
 /// 
 /// # Returns
 /// 
 /// - `Outcome::Success(AuthenticatedUser)` if authentication succeeds
-/// - `Outcome::Error(Status::Unauthorized)` if authentication fails
+/// - `Outcome::Error(Status::Unauthorized)` if authentication fails or user has no roles
 /// - `Outcome::Error(Status::InternalServerError)` if database connection fails
 /// 
 /// # Usage
@@ -59,6 +114,15 @@ use crate::DbConn;
 ///     format!("Hello, {}! You have {} roles.", user.user.email, user.roles.len())
 /// }
 /// ```
+/// 
+/// # Role-Based Access Control
+/// 
+/// The `AuthenticatedUser` struct provides several helper methods for role checking:
+/// 
+/// - `has_role(&self, role_name: &str) -> bool` - Check if user has a specific role
+/// - `has_any_role(&self, role_names: &[&str]) -> bool` - Check if user has any of the specified roles
+/// - `has_all_roles(&self, role_names: &[&str]) -> bool` - Check if user has all of the specified roles
+/// - `has_no_roles(&self, role_names: &[&str]) -> bool` - Check if user has none of the specified roles
 #[derive(Debug)]
 pub struct AuthenticatedUser {
     /// The authenticated user from the database
@@ -225,9 +289,38 @@ macro_rules! create_role_guard {
 }
 
 // Create guards for common roles
+
+// A request guard that requires the user to have the "admin" role.
+// 
+// This guard automatically validates both authentication and authorization,
+// ensuring the user is logged in and has the "admin" role.
+// 
+// # Returns
+// 
+// - `Outcome::Success(AdminUser)` if user is authenticated and has "admin" role
+// - `Outcome::Error(Status::Forbidden)` if user is authenticated but lacks "admin" role
+// - `Outcome::Error(Status::Unauthorized)` if user is not authenticated
+// 
+// # Usage
+// 
+// ```rust
+// use rocket::get;
+// use neems_core::session_guards::AdminUser;
+// 
+// #[get("/admin-panel")]
+// fn admin_panel(user: AdminUser) -> String {
+//     format!("Admin panel access for {}", user.user.email)
+// }
+// ```
 create_role_guard!(AdminUser, "admin");
+
+// A request guard that requires the user to have the "newtown-admin" role.
 create_role_guard!(NewtownAdminUser, "newtown-admin");
+
+// A request guard that requires the user to have the "newtown-staff" role.
 create_role_guard!(NewtownStaffUser, "newtown-staff");
+
+// A request guard that requires the user to have the "staff" role.
 create_role_guard!(StaffUser, "staff");
 
 /// A more flexible role guard that can be configured at runtime
