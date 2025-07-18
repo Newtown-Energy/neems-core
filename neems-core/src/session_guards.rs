@@ -12,7 +12,8 @@
 //! 
 //! #[get("/profile")]
 //! fn get_profile(user: AuthenticatedUser) -> String {
-//!     format!("Welcome, {}!", user.user.email)
+//!     let role_names: Vec<&str> = user.roles.iter().map(|r| r.name.as_str()).collect();
+//!     format!("Welcome, {}! Roles: {:?}", user.user.email, role_names)
 //! }
 //! ```
 
@@ -22,8 +23,9 @@ use rocket::outcome::Outcome;
 use diesel::prelude::*;
 use chrono::Utc;
 
-use crate::models::{User, Session};
+use crate::models::{User, Session, Role};
 use crate::schema::{sessions, users};
+use crate::orm::user_role::get_user_roles;
 use crate::DbConn;
 
 /// A request guard for routes that require an authenticated user.
@@ -54,13 +56,15 @@ use crate::DbConn;
 /// use neems_core::session_guards::AuthenticatedUser;
 /// #[get("/protected")]
 /// fn protected_route(user: AuthenticatedUser) -> String {
-///     format!("Hello, {}!", user.user.email)
+///     format!("Hello, {}! You have {} roles.", user.user.email, user.roles.len())
 /// }
 /// ```
 #[derive(Debug)]
 pub struct AuthenticatedUser {
     /// The authenticated user from the database
     pub user: User,
+    /// All roles assigned to the user
+    pub roles: Vec<Role>,
 }
 
 #[rocket::async_trait]
@@ -139,6 +143,25 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
             },
         };
 
-        Outcome::Success(AuthenticatedUser { user })
+        // Query all roles for the user
+        let user_id = user.id;
+        let roles_result = db.run(move |conn| {
+            get_user_roles(conn, user_id)
+        }).await;
+
+        let roles = match roles_result {
+            Ok(r) => {
+                if r.is_empty() {
+                    return Outcome::Error((Status::Unauthorized, ()));
+                }
+                r
+            },
+            Err(e) => {
+                error!("Database error finding user roles: {:?}", e);
+                return Outcome::Error((Status::Unauthorized, ()));
+            },
+        };
+
+        Outcome::Success(AuthenticatedUser { user, roles })
     }
 }

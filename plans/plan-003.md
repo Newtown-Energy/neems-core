@@ -88,8 +88,12 @@ Make session guards aware of roles.
 
 # PROGRESS
 ## 1. Create user-role assignment ORM functions
+DONE
+
 ## 2. Create migration with constraint
+
 ## 3. Update AuthenticatedUser to handle Vec
+DONE
 ## 4. Create role-based authorization guards
 ## 5. Update test setup
 ## 6. Add comprehensive tests
