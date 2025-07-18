@@ -7,7 +7,7 @@ BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
 
 _install_cranelift() {
-    echo "➡️ Setting up Cranelift build environment..."
+    echo "➡️ Ensuring we have a Cranelift build environment..."
 
     # Check for rustup
     if ! command -v rustup >/dev/null 2>&1; then
@@ -37,6 +37,9 @@ _install_cranelift() {
 }
 
 build() {
+    # Install Cranelift if not already installed
+    _install_cranelift
+
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build "$@"
@@ -60,46 +63,20 @@ push() {
     rsync target/release/neems-core root@newtown.energy:/opt/neems/core
 }
 
-test() {
-    # Create temp file for test output
-    tmpfile=$(mktemp)
-
-    # Build first with cranelift
-    build || {
-	echo "❌ Build failed. Skipping tests."
-	return 1
-    }
-
-    # Build and run command line
-    cmd=(RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly test --color=always "$@")
-    # cmd=(cargo test --color always "$@")
-    script -q -e -c "$(printf "%q " "${cmd[@]}")" /dev/null \
-      | tee "$tmpfile" \
-      | grep -v 'Building' \
-      | sed -E $'s/\x1b\\]8;[^\\]*\\\\//g;
-      	s/\x1b\\\\//g; 
-        s/\x1b\\(B//g;' \
-      | perl -pe 's/(?<!\r)\n/\r\n/g' \
-      | perl -pe 's/^M/\r\n/g' \
-      | perl -pe 's/^M/\r\n/g' 
-    
-    # Remove ANSI color codes and OSC 8 hyperlinks from the tmpfile
-    sed -i -E $'
-      s/\x1b\\]8;[^\\]*\\\\//g;      # Remove OSC 8 hyperlink start
-      s/\x1b\\\\//g;                 # Remove OSC 8 hyperlink end
-      s/\x1b\\[[0-9;]*m//g;          # Remove ANSI color codes
-      s/\x1b\\(B//g;                 # Remove ESC ( B
-    ' "$tmpfile"
-
-    
-    summarize-tests "$tmpfile"
-
-    # Copy the test output to the clipboard, minus color and hyperlink codes
-    wl-files -q "$tmpfile" 
-
-    # Cleanup
-    rm "$tmpfile"
+nextest() {
+    # You can get ansi2txt in the Debian colorized-logs package
+    local flags="--color=always"
+    local cmd="nextest run $flags"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
+
+test() {
+    # You can get ansi2txt in the Debian colorized-logs package
+    local flags="--color=always"
+    local cmd="test $flags"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+}
+
 
 watch() {
     echo "Running Neems Core for development purposes..."

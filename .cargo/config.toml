@@ -1,0 +1,9 @@
+[alias]
+# Make 'cargo test' use nextest by default
+test = "nextest run"
+# Keep the original test command available as 'cargo test-builtin'
+test-builtin = "test"
+
+[env]
+# Set environment variables for tests
+RUST_BACKTRACE = "1"

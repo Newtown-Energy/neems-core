@@ -1,0 +1,30 @@
+[store]
+# Store test results and timing data
+dir = "target/nextest"
+
+[profile.default]
+# Number of tests to run simultaneously
+test-threads = 4
+
+# Retry failed tests once
+retries = 1
+
+# Show output for failing tests
+failure-output = "immediate"
+
+# Show output for passing tests (useful for debugging)
+success-output = "never"
+
+# Timeout for individual tests (30 seconds)
+slow-timeout = { period = "30s", terminate-after = 2 }
+
+[profile.ci]
+# Profile optimized for CI environments
+test-threads = 2
+retries = 2
+failure-output = "immediate-final"
+success-output = "never"
+slow-timeout = { period = "60s", terminate-after = 1 }
+
+# Cancel the test run on the first failure
+fail-fast = true
