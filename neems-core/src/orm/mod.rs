@@ -5,5 +5,6 @@ pub mod logout;
 pub mod role;
 pub mod testing;
 pub mod user;
+pub mod user_role;
 
 pub use db::*;
