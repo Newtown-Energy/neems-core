@@ -9,6 +9,7 @@ use neems_core::orm::{DbConn};
 use neems_core::orm::testing::test_rocket;
 use neems_core::orm::institution::insert_institution;
 use neems_core::orm::user::insert_user;
+use neems_core::orm::user_role::assign_user_role_by_name;
 use neems_core::models::{UserNoTime};
 mod institution;
 use neems_core::institution::{random_energy_company_names};
@@ -26,12 +27,16 @@ pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &ro
             .expect("Failed to insert institution");
 
         // Create test user directly using ORM
-        insert_user(conn, UserNoTime {
+        let user = insert_user(conn, UserNoTime {
             email: "testuser@example.com".to_string(),
             password_hash: hash_password("testpassword"),
             institution_id: inst.id,
             totp_secret: "dummy_secret".to_string(),
         }).expect("Failed to insert user");
+
+        // Assign a default role to the test user
+        assign_user_role_by_name(conn, user.id, "user")
+            .expect("Failed to assign role to test user");
     }).await;
     
     client
