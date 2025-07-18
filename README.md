@@ -46,23 +46,10 @@ openssl rand -base64 32`.
 Rust ORM.
 
 There are a variety of workflows we might use with Diesel.  The one we
-use is to make changes to this schema right here in the file.  We try
-to keep this code as neutral as possible, so we can use it with any
-database backend that Diesel supports.
-
-We then run the `diesel` CLI tool to generate the necessary migrations
-and Rust code to work with the database.  To generate a migration we
-run:
-
-```bash
-diesel migration generate --diff-schema <migration_name>
-```
-
-Then, migrate the database with `dosh migrate` or `diesel migration run`.
-
-If you don't migrate the database, it will mess up future `diesel
-mirgration generate` commands.  They will diff against the un-migrated
-database instead of the current schema.rs file.
+use is to add sql migrations to the migrations directory, then
+generate `schema.rs` with `diesel migration run`.  We try to keep this
+code as neutral as possible, so we can use it with any database
+backend that Diesel supports.
 
 ## Testing
 
