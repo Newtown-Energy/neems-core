@@ -18,6 +18,9 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 
+[features]
+test-staging = []
+
 [dev-dependencies]
 argon2 = { workspace = true }
 chrono = { workspace = true }

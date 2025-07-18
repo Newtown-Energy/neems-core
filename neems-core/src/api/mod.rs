@@ -9,6 +9,7 @@ pub mod institution;
 pub mod login;
 pub mod logout;
 pub mod role;
+pub mod secure_test;
 pub mod status;
 pub mod user;
 
@@ -17,7 +18,7 @@ use rocket::Route;
 /// Collects all routes from all API submodules.
 ///
 /// This function gathers route handlers from all API submodules (fixphrase,
-/// institution, login, logout, role, status, and user) and returns them as a single vector
+/// institution, login, logout, role, secure_test, status, and user) and returns them as a single vector
 /// for registration with the Rocket framework.
 ///
 /// # Returns
@@ -29,6 +30,7 @@ pub fn routes() -> Vec<Route> {
     routes.extend(login::routes());
     routes.extend(logout::routes());
     routes.extend(role::routes());
+    routes.extend(secure_test::routes());
     routes.extend(status::routes());
     routes.extend(user::routes());
     routes

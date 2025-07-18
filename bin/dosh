@@ -6,6 +6,9 @@ SCRIPTNAME=`basename "$0"`
 BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
 
+
+DEV_FLAGS="--features test-staging --color=always"
+
 _install_cranelift() {
     echo "➡️ Ensuring we have a Cranelift build environment..."
 
@@ -42,12 +45,14 @@ build() {
 
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build "$@"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build $DEV_FLAGS "$@" || {
+	echo "❌ Build failed. Please check the output above."
+	return 1
+    }
 }
 
 check() {
-    local flags="--color=always"
-    local cmd="check $flags"
+    local cmd="check $DEV_FLAGS"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
@@ -64,22 +69,24 @@ migrate() {
     diesel migration run
 }
 
+nextest() {
+    # You can get ansi2txt in the Debian colorized-logs package
+    local cmd="nextest run $DEV_FLAGS"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+}
+
 push() {
     # We only need to send the binary, not the entire project
     rsync target/release/neems-core root@newtown.energy:/opt/neems/core
 }
 
-nextest() {
-    # You can get ansi2txt in the Debian colorized-logs package
-    local flags="--color=always"
-    local cmd="nextest run $flags"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+release() {
+    cargo build --release "$@"
 }
 
 test() {
     # You can get ansi2txt in the Debian colorized-logs package
-    local flags="--color=always"
-    local cmd="test $flags"
+    local cmd="test $DEV_FLAGS"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
