@@ -53,7 +53,8 @@ backend that Diesel supports.
 
 ## Testing
 
-There is a test suite for the backend.  Run it with `dosh test`.
+There is a test suite for the backend.  Run it with `dosh test` or
+`dosh nextest` if you prefer.
 
 To run unit and integration tests that contain the name role:
 
