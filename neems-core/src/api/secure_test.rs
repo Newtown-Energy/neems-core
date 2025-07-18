@@ -159,6 +159,6 @@ pub fn routes() -> Vec<Route> {
 /// This ensures the module can be safely included in builds without
 /// the test-staging feature enabled.
 #[cfg(not(feature = "test-staging"))]
-pub fn routes() -> Vec<Route> {
+pub fn routes() -> Vec<rocket::Route> {
     vec![]
 }
