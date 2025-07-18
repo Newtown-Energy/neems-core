@@ -5,7 +5,8 @@ use rocket::tokio;
 use serde_json::json;
 
 use neems_core::orm::login::hash_password;
-use neems_core::orm::{test_rocket, DbConn};
+use neems_core::orm::{DbConn};
+use neems_core::orm::testing::test_rocket;
 use neems_core::orm::institution::insert_institution;
 use neems_core::orm::user::insert_user;
 use neems_core::models::{UserNoTime};
@@ -28,7 +29,7 @@ pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &ro
         insert_user(conn, UserNoTime {
             email: "testuser@example.com".to_string(),
             password_hash: hash_password("testpassword"),
-            institution_id: inst.id.expect("Institution must have an ID"),
+            institution_id: inst.id,
             totp_secret: "dummy_secret".to_string(),
         }).expect("Failed to insert user");
     }).await;

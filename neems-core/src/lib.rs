@@ -10,11 +10,11 @@ use rocket::request::Request;
 
 pub mod admin_init_fairing;
 pub mod api;
-pub mod auth;
-pub mod orm;
-pub use orm::DbConn;
 pub mod institution; 
 pub mod models; 
+pub mod orm;
+pub use orm::DbConn;
+pub mod session_guards;
 pub mod schema;  
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");

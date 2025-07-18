@@ -9,7 +9,7 @@ use rocket::http::Status;
 use rocket::response::status;
 use rocket::Route;
 
-use crate::auth::session_guard::AuthenticatedUser;
+use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::{Institution, InstitutionName};
 use crate::institution::insert_institution;

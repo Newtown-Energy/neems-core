@@ -63,7 +63,7 @@ pub fn get_all_institutions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::setup_test_db; 
+    use crate::orm::testing::setup_test_db; 
 
     #[test]
     fn test_insert_institution() {

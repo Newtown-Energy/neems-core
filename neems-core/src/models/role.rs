@@ -4,7 +4,7 @@ use crate::schema::roles;
 
 #[derive(Queryable, Identifiable, Debug, Serialize, Deserialize)]
 pub struct Role {
-    pub id: Option<i32>,  // Nullable in schema
+    pub id: i32,
     pub name: String,
     pub description: Option<String>,
 }

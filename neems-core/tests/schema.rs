@@ -4,7 +4,7 @@
 // Do not use it to test the actual application logic.
 //
 
-use neems_core::orm::setup_test_db;
+use neems_core::orm::testing::setup_test_db;
 use neems_core::models::*;
 use neems_core::schema::*;
 use diesel::prelude::*;
@@ -12,7 +12,6 @@ use chrono::Utc;
 use diesel::result::{Error, DatabaseErrorKind};
 
 
-// Helper to create test institution
 fn create_test_institution(conn: &mut SqliteConnection, name: &str) -> Result<Institution, diesel::result::Error> {
     let now = Some(Utc::now().naive_utc());
     let new_institution = NewInstitution {
@@ -110,8 +109,8 @@ fn create_test_user(
 fn test_institution_restrict_delete_with_existing_sites() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Site Parent").unwrap();
-    create_test_site(&mut conn, inst.id.unwrap(), "Main", "1 Any St", 1.0, 2.0).unwrap();
-    let res = diesel::delete(institutions::table.filter(institutions::id.eq(inst.id.unwrap())))
+    create_test_site(&mut conn, inst.id, "Main", "1 Any St", 1.0, 2.0).unwrap();
+    let res = diesel::delete(institutions::table.filter(institutions::id.eq(inst.id)))
         .execute(&mut conn);
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
@@ -122,8 +121,8 @@ fn test_institution_restrict_delete_with_existing_sites() {
 fn test_institution_restrict_delete_with_existing_users() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Restrict Co").unwrap();
-    let _u = create_test_user(&mut conn, inst.id.unwrap(), "restrict@test.com").unwrap();
-    let res = diesel::delete(institutions::table.filter(institutions::id.eq(inst.id.unwrap())))
+    let _u = create_test_user(&mut conn, inst.id, "restrict@test.com").unwrap();
+    let res = diesel::delete(institutions::table.filter(institutions::id.eq(inst.id)))
         .execute(&mut conn);
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
@@ -157,21 +156,21 @@ fn test_email_uniqueness_constraints() {
     // First user should succeed
     create_test_user(
         &mut conn,
-        inst.id.expect("Institution ID should be set"),
+        inst.id,
         "user1@test.com"
     ).expect("First user insert should succeed");
 
     // Second user with different email should succeed
     create_test_user(
         &mut conn,
-        inst.id.expect("Institution ID should be set"),
+        inst.id,
         "user2@test.com"
     ).expect("Second user insert should succeed");
 
     // Third user with duplicate email should fail
     let result = create_test_user(
         &mut conn,
-        inst.id.expect("Institution ID should be set"),
+        inst.id,
         "user1@test.com" // duplicate email
     );
     assert!(matches!(
@@ -189,14 +188,14 @@ fn test_institution_to_users_relationship() {
         .expect("First institution insert should succeed");
 
     // Create users for this institution
-    let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user1@test.com")
+    let user1 = create_test_user(&mut conn, inst.id, "user1@test.com")
         .expect("user1 should be created");
-    let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "user2@test.com")
+    let user2 = create_test_user(&mut conn, inst.id, "user2@test.com")
         .expect("user2 should be created");
 
     // Verify relationship
     let users = users::table
-        .filter(users::institution_id.eq(inst.id.expect("Must have inst id")))
+        .filter(users::institution_id.eq(inst.id))
         .load::<User>(&mut conn)
         .expect("Failed to load users");
 
@@ -227,7 +226,7 @@ fn test_institution_to_sites_relationship() {
     // Create sites for this institution
     create_test_site(
         &mut conn,
-        inst.id.expect("Must have inst id"),
+        inst.id,
         "Site A",
         "123 Main St",
         40.7128,
@@ -236,7 +235,7 @@ fn test_institution_to_sites_relationship() {
 
     // Verify relationship
     let sites = sites::table
-        .filter(sites::institution_id.eq(inst.id.expect("Must have inst id")))
+        .filter(sites::institution_id.eq(inst.id))
         .load::<Site>(&mut conn)
         .expect("Failed to load sites");
 
@@ -256,7 +255,7 @@ fn test_site_name_uniqueness_per_institution() {
     // Create site for first institution
     create_test_site(
         &mut conn,
-        inst1.id.expect("Must have inst1 id"),
+        inst1.id,
         "Main Site",
         "123 Main St",
         40.7128,
@@ -267,7 +266,7 @@ fn test_site_name_uniqueness_per_institution() {
     // Same name in different institution should work
     create_test_site(
         &mut conn,
-        inst2.id.expect("Must have inst2 id"),
+        inst2.id,
         "Main Site",
         "456 Other St",
         34.0522,
@@ -278,7 +277,7 @@ fn test_site_name_uniqueness_per_institution() {
     // Same name in same institution should fail
     let result = create_test_site(
         &mut conn,
-        inst1.id.expect("Must have inst1 id"),
+        inst1.id,
         "Main Site",
         "789 Third St",
         41.8781,
@@ -294,12 +293,12 @@ fn test_site_name_uniqueness_per_institution() {
 fn test_sessions_revoked_defaults_to_false() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "DefaultTest").unwrap();
-    let user = create_test_user(&mut conn, inst.id.unwrap(), "default@test.com").unwrap();
+    let user = create_test_user(&mut conn, inst.id, "default@test.com").unwrap();
 
     diesel::insert_into(sessions::table)
         .values((
             sessions::id.eq("defsession"),
-            sessions::user_id.eq(user.id.unwrap()),
+            sessions::user_id.eq(user.id),
             sessions::created_at.eq(Utc::now().naive_utc()),
             sessions::expires_at.eq::<Option<chrono::NaiveDateTime>>(None),
         ))
@@ -316,11 +315,11 @@ fn test_sessions_revoked_defaults_to_false() {
 fn test_user_restrict_delete_with_existing_roles() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Role Parent").unwrap();
-    let user = create_test_user(&mut conn, inst.id.unwrap(), "roleuser@test.com").unwrap();
+    let user = create_test_user(&mut conn, inst.id, "roleuser@test.com").unwrap();
     let role = create_test_role(&mut conn, "deletetestrole", Some("A role")).unwrap();
-    let assoc = NewUserRole { user_id: user.id.unwrap(), role_id: role.id.unwrap() };
+    let assoc = NewUserRole { user_id: user.id, role_id: role.id };
     diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
-    let res = diesel::delete(users::table.filter(users::id.eq(user.id.unwrap()))).execute(&mut conn);
+    let res = diesel::delete(users::table.filter(users::id.eq(user.id))).execute(&mut conn);
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
@@ -330,17 +329,17 @@ fn test_user_restrict_delete_with_existing_roles() {
 fn test_user_restrict_delete_with_existing_sessions() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Session Parent").unwrap();
-    let user = create_test_user(&mut conn, inst.id.unwrap(), "session@test.com").unwrap();
+    let user = create_test_user(&mut conn, inst.id, "session@test.com").unwrap();
     // Insert a session for this user
     diesel::insert_into(sessions::table)
         .values((
             sessions::id.eq("sessionid"),
-            sessions::user_id.eq(user.id.unwrap()),
+            sessions::user_id.eq(user.id),
             sessions::created_at.eq(Utc::now().naive_utc()),
         ))
         .execute(&mut conn)
         .unwrap();
-    let res = diesel::delete(users::table.filter(users::id.eq(user.id.unwrap()))).execute(&mut conn);
+    let res = diesel::delete(users::table.filter(users::id.eq(user.id))).execute(&mut conn);
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
@@ -353,7 +352,7 @@ fn test_user_email_not_null_constraint() {
     let new_user = NewUser {
         email: "".to_string(), // Simulate NULL with empty for Rust struct, real NULL can't be constructed directly
         password_hash: "pw".to_string(),
-        institution_id: inst.id.unwrap(),
+        institution_id: inst.id,
         created_at: Utc::now().naive_utc(),
         updated_at: Utc::now().naive_utc(),
         totp_secret: "secret".to_string(),
@@ -378,10 +377,10 @@ fn test_user_id_autoincrements() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "PK Inc").unwrap();
 
-    let user1 = create_test_user(&mut conn, inst.id.unwrap(), "pk1@test.com").unwrap();
-    let user2 = create_test_user(&mut conn, inst.id.unwrap(), "pk2@test.com").unwrap();
+    let user1 = create_test_user(&mut conn, inst.id, "pk1@test.com").unwrap();
+    let user2 = create_test_user(&mut conn, inst.id, "pk2@test.com").unwrap();
 
-    assert!(user2.id.unwrap() > user1.id.unwrap());
+    assert!(user2.id > user1.id);
 }
 
 /// Asserts that user-role many-to-many mapping functions as expected, and verifies both sides of the relation.
@@ -393,9 +392,9 @@ fn test_user_roles_many_to_many() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Roles Institution")
         .expect("Roles institution insert should succeed");
-    let user1 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser1@test.com")
+    let user1 = create_test_user(&mut conn, inst.id, "roleuser1@test.com")
         .expect("user1 should be created");
-    let user2 = create_test_user(&mut conn, inst.id.expect("Must have inst id"), "roleuser2@test.com")
+    let user2 = create_test_user(&mut conn, inst.id, "roleuser2@test.com")
         .expect("user2 should be created");
 
     // Create roles
@@ -407,24 +406,24 @@ fn test_user_roles_many_to_many() {
     // Create associations
     diesel::insert_into(user_roles::table)
         .values(&NewUserRole {
-            user_id: user1.id.expect("Must have user1 id"),
-            role_id: role1.id.expect("Must have role1 id"),
+            user_id: user1.id,
+            role_id: role1.id,
         })
         .execute(&mut conn)
         .expect("Failed to create user role");
 
     diesel::insert_into(user_roles::table)
         .values(&NewUserRole {
-            user_id: user1.id.expect("Must have user1 id"),
-            role_id: role2.id.expect("Must have role2 id"),
+            user_id: user1.id,
+            role_id: role2.id,
         })
         .execute(&mut conn)
         .expect("Failed to create user role");
 
     diesel::insert_into(user_roles::table)
         .values(&NewUserRole {
-            user_id: user2.id.expect("Must have user2 id"),
-            role_id: role1.id.expect("Must have role1 id"),
+            user_id: user2.id,
+            role_id: role1.id,
         })
         .execute(&mut conn)
         .expect("Failed to create user role");
@@ -433,7 +432,7 @@ fn test_user_roles_many_to_many() {
 
     // 1. All roles for user1
     let user1_user_roles = user_roles::table
-        .filter(user_roles::user_id.eq(user1.id.expect("Must have user1 id")))
+        .filter(user_roles::user_id.eq(user1.id))
         .load::<UserRole>(&mut conn)
         .expect("Failed to load user_roles for user1");
     let user1_role_ids: Vec<i32> = user1_user_roles.iter().map(|ur| ur.role_id).collect();
@@ -445,7 +444,7 @@ fn test_user_roles_many_to_many() {
 
     // 2. All users for role1
     let role1_user_roles = user_roles::table
-        .filter(user_roles::role_id.eq(role1.id.expect("Must have role1 id")))
+        .filter(user_roles::role_id.eq(role1.id))
         .load::<UserRole>(&mut conn)
         .expect("Failed to load user_roles for role1");
     let role1_user_ids: Vec<i32> = role1_user_roles.iter().map(|ur| ur.user_id).collect();
@@ -462,11 +461,11 @@ fn test_user_roles_many_to_many() {
 fn test_role_restrict_delete_in_use_by_user() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Role RESTRICT Institution").unwrap();
-    let user = create_test_user(&mut conn, inst.id.unwrap(), "restrictrole@test.com").unwrap();
+    let user = create_test_user(&mut conn, inst.id, "restrictrole@test.com").unwrap();
     let role = create_test_role(&mut conn, "restrictrole", Some("A role")).unwrap();
-    let assoc = NewUserRole { user_id: user.id.unwrap(), role_id: role.id.unwrap() };
+    let assoc = NewUserRole { user_id: user.id, role_id: role.id };
     diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
-    let res = diesel::delete(roles::table.filter(roles::id.eq(role.id.unwrap()))).execute(&mut conn);
+    let res = diesel::delete(roles::table.filter(roles::id.eq(role.id))).execute(&mut conn);
     assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
 }
 
@@ -494,9 +493,9 @@ fn test_role_name_uniqueness_constraint() {
 fn test_user_roles_composite_primary_key_uniqueness() {
     let mut conn = setup_test_db();
     let inst = create_test_institution(&mut conn, "Composite PK Test").unwrap();
-    let user = create_test_user(&mut conn, inst.id.unwrap(), "m2m@test.com").unwrap();
+    let user = create_test_user(&mut conn, inst.id, "m2m@test.com").unwrap();
     let role = create_test_role(&mut conn, "user_roles_pk", None).unwrap();
-    let assoc = NewUserRole { user_id: user.id.unwrap(), role_id: role.id.unwrap() };
+    let assoc = NewUserRole { user_id: user.id, role_id: role.id };
     diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
     // Attempt to re-insert the same association
     let res = diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn);

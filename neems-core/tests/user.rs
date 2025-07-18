@@ -4,7 +4,7 @@ use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
 use rocket::tokio;
 
-use neems_core::orm::test_rocket;
+use neems_core::orm::testing::test_rocket;
 use neems_core::models::{Institution, Role, User};
 use neems_core::schema::users::dsl::*;
 use neems_core::schema::roles;
@@ -45,25 +45,9 @@ async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie
     
     assert!(response.status().code < 400, "Institution creation failed");
     let institution: Institution = response.into_json().await.expect("valid JSON");
-    let inst_id = institution.id.expect("Institution should have an ID");
+    let inst_id = institution.id;
     
     (inst_id, login_cookie)
-}
-
-/// Helper to seed the test DB with "Newtown Energy" and return its ID.
-async fn seed_institution(client: &Client) -> i32 {
-    let new_inst = json!({ "name": "A Bogus Company" });
-
-    let response = client.post("/api/1/institutions")
-        .header(ContentType::JSON)
-        .body(new_inst.to_string())
-        .dispatch()
-        .await;
-
-    assert!(response.status().code < 400, "Institution creation failed");
-
-    let institution: Institution = response.into_json().await.expect("valid JSON");
-    institution.id.expect("Institution should have an ID")
 }
 
 
@@ -94,7 +78,7 @@ async fn test_admin_user_is_created() {
             // Check if the user has the newtown-admin role
             let role_exists = user_roles::table
                 .inner_join(roles::table)
-                .filter(user_roles::user_id.eq(u.id.expect("user should have id")))
+                .filter(user_roles::user_id.eq(u.id))
                 .filter(roles::name.eq("newtown-admin"))
                 .first::<(neems_core::models::UserRole, Role)>(c)
                 .optional()

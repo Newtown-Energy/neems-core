@@ -12,7 +12,7 @@ use rocket::response::status;
 use rocket::Route;
 use rocket::serde::json::{json, Json};
 
-use crate::auth::session_guard::AuthenticatedUser;
+use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::user::{insert_user, list_all_users};
 use crate::models::{User, UserNoTime};

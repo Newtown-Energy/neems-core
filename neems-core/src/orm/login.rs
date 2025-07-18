@@ -14,7 +14,7 @@ use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use uuid::Uuid;
 
 use crate::DbConn;
-use crate::orm::FakeDbConn;
+use crate::orm::testing::FakeDbConn;
 use crate::models::{User, NewSession};
 use crate::schema::{users, sessions};
 
@@ -207,7 +207,7 @@ pub async fn process_login<D: DbRunner>(
         return Err(Status::Unauthorized);
     }
 
-    let session_token = create_and_store_session(db, user.id.unwrap()).await?;
+    let session_token = create_and_store_session(db, user.id).await?;
     set_session_cookie(cookies, &session_token);
 
     Ok(Status::Ok)
@@ -241,7 +241,7 @@ pub fn hash_password(password: &str) -> String {
 mod tests {
     use rocket::http::Cookie;
     use diesel::prelude::*;
-    use crate::orm::{setup_test_db, setup_test_dbconn};
+    use crate::orm::testing::{setup_test_db, setup_test_dbconn};
     use crate::models::User;
     use crate::orm::institution::insert_institution;
     use crate::models::UserNoTime;
@@ -256,7 +256,7 @@ mod tests {
         
         let now = Utc::now().naive_utc();
         let user = User {
-            id: Some(1),
+            id: 1,
             email: "test@example.com".to_string(),
             password_hash: hash,
             institution_id: 1,
@@ -282,7 +282,7 @@ mod tests {
         let dummy_user = UserNoTime {
             email: "legofkarl@ots.com".to_string(),
             password_hash: hash,
-            institution_id: institution.id.unwrap(),
+            institution_id: institution.id,
             totp_secret: "dummysecret".to_string(),
         };
         insert_user(conn, dummy_user).expect("insert dummy user")
@@ -321,7 +321,7 @@ mod tests {
         let fake_db = setup_test_dbconn(&mut conn);
 
         // Use the function under test
-        let session_token = create_and_store_session(&fake_db, inserted_user.id.unwrap())
+        let session_token = create_and_store_session(&fake_db, inserted_user.id)
             .await
             .expect("session creation should succeed");
 
@@ -343,7 +343,7 @@ mod tests {
 
         // Verify session properties
         assert_eq!(session.id, session_token_clone);
-        assert_eq!(session.user_id, inserted_user.id.unwrap());
+        assert_eq!(session.user_id, inserted_user.id);
         assert!(!session.revoked);
         assert!(session.expires_at.is_none());
 

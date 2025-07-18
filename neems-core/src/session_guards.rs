@@ -8,7 +8,7 @@
 //! 
 //! ```rust
 //! use rocket::get;
-//! use neems_core::auth::session_guard::AuthenticatedUser;
+//! use neems_core::session_guards::AuthenticatedUser;
 //! 
 //! #[get("/profile")]
 //! fn get_profile(user: AuthenticatedUser) -> String {
@@ -51,7 +51,7 @@ use crate::DbConn;
 /// 
 /// ```rust
 /// use rocket::get;
-/// use neems_core::auth::session_guard::AuthenticatedUser;
+/// use neems_core::session_guards::AuthenticatedUser;
 /// #[get("/protected")]
 /// fn protected_route(user: AuthenticatedUser) -> String {
 ///     format!("Hello, {}!", user.user.email)

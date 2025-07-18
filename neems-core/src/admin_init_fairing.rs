@@ -127,7 +127,7 @@ fn create_admin_user(c: &mut SqliteConnection, admin_email: &str, institution: &
     let admin_user = UserNoTime {
         email: admin_email.to_string(),
         password_hash: passhash,
-        institution_id: institution.id.expect("must have institution id"),
+        institution_id: institution.id,
         totp_secret: "".to_string(),
     };
     
@@ -181,8 +181,8 @@ fn find_or_create_admin_role(c: &mut SqliteConnection, role_name: &str) -> Resul
 
 fn create_user_role_association(c: &mut SqliteConnection, user: &crate::models::User, role: &Role, role_name: &str, admin_email: &str) -> Result<(), diesel::result::Error> {
     let new_user_role = NewUserRole {
-        user_id: user.id.expect("user must have id"),
-        role_id: role.id.expect("role must have id"),
+        user_id: user.id,
+        role_id: role.id,
     };
     
     match diesel::insert_into(user_roles::table)

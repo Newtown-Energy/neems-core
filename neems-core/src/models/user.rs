@@ -5,7 +5,7 @@ use chrono::NaiveDateTime;
 
 #[derive(Deserialize, Queryable, Identifiable, Debug, Serialize)]
 pub struct User {
-    pub id: Option<i32>,  // Nullable in schema
+    pub id: i32,
     pub email: String,     // Will be unique
     pub password_hash: String,
     pub created_at: NaiveDateTime,

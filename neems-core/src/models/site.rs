@@ -6,7 +6,7 @@ use crate::schema::sites;
 #[derive(Queryable, Identifiable, Associations, Debug, Serialize)]
 #[diesel(belongs_to(crate::models::institution::Institution))]
 pub struct Site {
-    pub id: Option<i32>,  // Nullable in schema
+    pub id: i32,
     pub name: String,
     pub address: String,
     pub latitude: f64,

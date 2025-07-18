@@ -39,7 +39,7 @@ pub fn get_all_roles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::setup_test_db;
+    use crate::orm::testing::setup_test_db;
 
     #[test]
     fn test_insert_role() {
@@ -55,9 +55,8 @@ mod tests {
         let role = result.unwrap();
         assert_eq!(role.name, "Test Role");
         assert_eq!(role.description, Some("A role for testing".to_string()));
-        // id should be Some and > 0
-        assert!(role.id.is_some());
-        assert!(role.id.unwrap() > 0);
+        // id should be > 0
+        assert!(role.id > 0);
     }
 
     #[test]
@@ -74,8 +73,8 @@ mod tests {
 	assert_eq!(roles[1].description, Some("Staff member for Newtown".to_string()));
 
 	// IDs should be present and ascending
-	assert!(roles[0].id.is_some());
-	assert!(roles[1].id.is_some());
+	assert!(roles[0].id > 0);
+	assert!(roles[1].id > 0);
 	assert!(roles[0].id < roles[1].id);
     }
 }
