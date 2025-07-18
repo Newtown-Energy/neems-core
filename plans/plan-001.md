@@ -235,3 +235,9 @@ HALF DONE:
      making login and logout endpoints, so I appear to have partially
      done step 3.  Still to come: rate limiting and lockouts.
 
+4. **Implement Rocket request guards for user and role-based auth.**
+DONE
+
+5. **Add dummy secure endpoints.**
+6. **Set up CORS using Rocket’s CORS fairing.**
+7. **Write tests for login, session validation, and protected endpoints.**
