@@ -45,6 +45,12 @@ build() {
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build "$@"
 }
 
+check() {
+    local flags="--color=always"
+    local cmd="check $flags"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+}
+
 migrate() {
     # Install diesel command line tool
     which diesel > /dev/null || cargo binstall diesel_cli
