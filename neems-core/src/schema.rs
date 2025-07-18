@@ -2,7 +2,7 @@
 
 diesel::table! {
     institutions (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         name -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -11,7 +11,7 @@ diesel::table! {
 
 diesel::table! {
     roles (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         name -> Text,
         description -> Nullable<Text>,
     }
@@ -29,7 +29,7 @@ diesel::table! {
 
 diesel::table! {
     sites (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         name -> Text,
         address -> Text,
         latitude -> Double,
@@ -49,7 +49,7 @@ diesel::table! {
 
 diesel::table! {
     users (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         email -> Text,
         password_hash -> Text,
         created_at -> Timestamp,

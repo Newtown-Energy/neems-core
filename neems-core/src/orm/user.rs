@@ -64,7 +64,7 @@ mod tests {
         let new_user = UserNoTime {
             email: "test@example.com".to_string(),
             password_hash: "hashedpassword".to_string(),
-            institution_id: institution.id.unwrap(),    // Use a valid institution id for your test db
+            institution_id: institution.id,    // Use a valid institution id for your test db
             totp_secret: "secret".to_string(),
         };
 
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(user.password_hash, "hashedpassword");
         assert_eq!(user.institution_id, 2); // one more than our existing institution, Newtown
         assert_eq!(user.totp_secret, "secret");
-        assert!(user.id.is_some());
+        assert!(user.id > 0);
 
         let now = chrono::Utc::now().naive_utc();
         let diff_created = (user.created_at - now).num_seconds().abs();
@@ -95,13 +95,13 @@ mod tests {
         let user1 = UserNoTime {
             email: "user1@example.com".to_string(),
             password_hash: "pw1".to_string(),
-            institution_id: institution.id.unwrap(),
+            institution_id: institution.id,
             totp_secret: "secret1".to_string(),
         };
         let user2 = UserNoTime {
             email: "user2@example.com".to_string(),
             password_hash: "pw2".to_string(),
-            institution_id: institution.id.unwrap(),
+            institution_id: institution.id,
             totp_secret: "secret2".to_string(),
         };
 

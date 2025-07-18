@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Deserialize, Queryable, Identifiable, Debug, Serialize)]
 #[diesel(table_name = crate::schema::institutions)]
 pub struct Institution {
-    pub id: Option<i32>,  // Nullable in schema
+    pub id: i32,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,

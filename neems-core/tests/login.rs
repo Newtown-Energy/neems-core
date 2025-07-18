@@ -29,7 +29,7 @@ pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &ro
         insert_user(conn, UserNoTime {
             email: "testuser@example.com".to_string(),
             password_hash: hash_password("testpassword"),
-            institution_id: inst.id.expect("Institution must have an ID"),
+            institution_id: inst.id,
             totp_secret: "dummy_secret".to_string(),
         }).expect("Failed to insert user");
     }).await;

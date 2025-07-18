@@ -45,7 +45,7 @@ async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie
     
     assert!(response.status().code < 400, "Institution creation failed");
     let institution: Institution = response.into_json().await.expect("valid JSON");
-    let inst_id = institution.id.expect("Institution should have an ID");
+    let inst_id = institution.id;
     
     (inst_id, login_cookie)
 }
@@ -78,7 +78,7 @@ async fn test_admin_user_is_created() {
             // Check if the user has the newtown-admin role
             let role_exists = user_roles::table
                 .inner_join(roles::table)
-                .filter(user_roles::user_id.eq(u.id.expect("user should have id")))
+                .filter(user_roles::user_id.eq(u.id))
                 .filter(roles::name.eq("newtown-admin"))
                 .first::<(neems_core::models::UserRole, Role)>(c)
                 .optional()
