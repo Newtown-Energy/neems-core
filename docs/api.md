@@ -25,6 +25,24 @@ Most endpoints require authentication via session cookies. Use the
 login endpoint to obtain a session cookie, then include `credentials:
 'include'` in all subsequent requests.
 
+### Default Admin Credentials
+
+The system automatically creates a default admin user on first startup
+**only if no admin user already exists** in the database. The default
+credentials are:
+
+- **Email:** `admin@example.com` (configurable via `NEEMS_DEFAULT_EMAIL` environment variable)
+- **Password:** `admin` (configurable via `NEEMS_DEFAULT_PASSWORD` environment variable)
+- **Role:** `newtown-admin`
+- **Institution:** `Newtown Energy`
+
+**Note:** The environment variables (`NEEMS_DEFAULT_EMAIL` and
+`NEEMS_DEFAULT_PASSWORD`) are only read during the initial admin user
+creation. If an admin user already exists in the database, these
+environment variables are ignored.
+
+**Security Note:** Change these default credentials immediately in production environments.
+
 ## Authentication Endpoints
 
 ### Login
