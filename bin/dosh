@@ -64,14 +64,14 @@ nextest() {
     # You can get ansi2txt in the Debian colorized-logs package
     local flags="--color=always"
     local cmd="nextest run $flags"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee /dev/tty | ansi2txt | wl-copy
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
 test() {
     # You can get ansi2txt in the Debian colorized-logs package
     local flags="--color=always"
     local cmd="test $flags"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee /dev/tty | ansi2txt | wl-copy
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
 
