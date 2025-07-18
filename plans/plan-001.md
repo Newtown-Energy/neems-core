@@ -240,5 +240,6 @@ DONE
 
 5. **Add dummy secure endpoints.**
 DONE
+
 6. **Set up CORS using Rocket’s CORS fairing.**
 7. **Write tests for login, session validation, and protected endpoints.**

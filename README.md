@@ -25,7 +25,7 @@ necessary, we want to be able to replace with postgres in production.
    from the documentation.  This should get you a usable key:
 
 ```bash
-openssl rand -base64 32`.
+openssl rand -base64 32
 ```
 
 ## Running
