@@ -1,6 +1,6 @@
 -- Create institutions table with unique name constraint
 CREATE TABLE institutions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL UNIQUE,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
@@ -8,7 +8,7 @@ CREATE TABLE institutions (
 
 -- Create users table with unique username and email constraints
 CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY NOT NULL,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL,
@@ -19,14 +19,14 @@ CREATE TABLE users (
 
 -- Create roles table
 CREATE TABLE roles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL UNIQUE,
     description TEXT
 );
 
 -- Create sites table with unique name per institution constraint
 CREATE TABLE sites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     address TEXT NOT NULL,
     latitude DOUBLE PRECISION NOT NULL,
