@@ -203,6 +203,149 @@ Database error or validation failure
 ]
 ```
 
+### Get User Roles
+
+- **URL:** `/api/1/users/<user_id>/roles`
+- **Method:** `GET`
+- **Purpose:** Retrieves all roles assigned to a specific user
+- **Authentication:** Required (users can view their own roles, or users with admin privileges can view any user's roles)
+
+#### Parameters
+
+- `user_id` - The ID of the user whose roles to retrieve
+
+#### Response
+
+**Success (HTTP 200 OK):**
+```json
+[
+  {
+    "id": 1,
+    "name": "admin",
+    "description": "Administrator role",
+    "created_at": "2023-01-01T00:00:00Z",
+    "updated_at": "2023-01-01T00:00:00Z"
+  },
+  {
+    "id": 2,
+    "name": "staff",
+    "description": "Staff role",
+    "created_at": "2023-01-01T00:00:00Z",
+    "updated_at": "2023-01-01T00:00:00Z"
+  }
+]
+```
+
+**Failure (HTTP 403 Forbidden):**
+User doesn't have permission to view the specified user's roles
+
+#### Example
+
+```js
+const response = await fetch('/api/1/users/123/roles', {
+  method: 'GET',
+  credentials: 'include'
+});
+```
+
+### Add User Role
+
+- **URL:** `/api/1/users/roles`
+- **Method:** `POST`
+- **Purpose:** Assigns a role to a user with authorization checks
+- **Authentication:** Required (admin privileges with specific business rules)
+
+#### Authorization Rules
+
+1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy institution
+2. `newtown-admin` can set any user's role to anything
+3. `newtown-staff` can set any user's role except `newtown-admin`
+4. `admin` can set another user's role to `admin` if target user is at same institution
+5. Users must have at least one role (validated elsewhere)
+
+#### Request Format
+
+```json
+{
+  "user_id": 123,
+  "role_name": "staff"
+}
+```
+
+#### Response
+
+**Success (HTTP 200 OK):**
+No response body - role successfully assigned
+
+**Failure (HTTP 403 Forbidden):**
+User doesn't have permission to assign the specified role
+
+**Failure (HTTP 500 Internal Server Error):**
+Database error or validation failure
+
+#### Example
+
+```js
+const response = await fetch('/api/1/users/roles', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    user_id: 123,
+    role_name: 'staff'
+  }),
+  credentials: 'include'
+});
+```
+
+### Remove User Role
+
+- **URL:** `/api/1/users/roles`
+- **Method:** `DELETE`
+- **Purpose:** Removes a role from a user with authorization checks
+- **Authentication:** Required (same authorization rules as adding roles)
+
+#### Authorization Rules
+
+Same authorization rules as adding roles, plus:
+- Users must retain at least one role after removal
+
+#### Request Format
+
+```json
+{
+  "user_id": 123,
+  "role_name": "staff"
+}
+```
+
+#### Response
+
+**Success (HTTP 200 OK):**
+No response body - role successfully removed
+
+**Failure (HTTP 400 Bad Request):**
+User would have no roles remaining after removal
+
+**Failure (HTTP 403 Forbidden):**
+User doesn't have permission to remove the specified role
+
+**Failure (HTTP 500 Internal Server Error):**
+Database error or validation failure
+
+#### Example
+
+```js
+const response = await fetch('/api/1/users/roles', {
+  method: 'DELETE',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    user_id: 123,
+    role_name: 'staff'
+  }),
+  credentials: 'include'
+});
+```
+
 ## Role Management
 
 ### Create Role
