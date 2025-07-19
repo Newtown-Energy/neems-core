@@ -2,8 +2,8 @@
 //!
 //! This module tests the user role management API endpoints:
 //! - GET /api/1/users/{id}/roles - Retrieve user's roles
-//! - POST /api/1/users/roles - Add role to user
-//! - DELETE /api/1/users/roles - Remove role from user
+//! - POST /api/1/users/{id}/roles - Add role to user
+//! - DELETE /api/1/users/{id}/roles - Remove role from user
 //!
 //! Tests cover all authorization rules:
 //! 1. newtown-staff and newtown-admin roles are reserved for Newtown Energy institution
@@ -235,11 +235,11 @@ async fn test_add_user_role_requires_authentication() {
     let (users, _) = setup_test_data(&client).await;
     
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .json(&request_body)
         .dispatch()
         .await;
@@ -257,11 +257,11 @@ async fn test_newtown_admin_can_assign_any_role() {
     
     // Newtown admin can assign any role to any user
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -291,11 +291,11 @@ async fn test_newtown_staff_can_assign_non_admin_roles() {
     
     // Newtown staff can assign non-admin roles
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()

@@ -179,7 +179,7 @@ fn set_session_cookie(cookies: &CookieJar<'_>, session_token: &str) {
 /// * `login` - Login request containing email and password
 ///
 /// # Returns
-/// * `Ok(Status::Ok)` - Login successful, session created and cookie set
+/// * `Ok((Status::Ok, User))` - Login successful, session created and cookie set, returns user data
 /// * `Err(Status::BadRequest)` - Empty email or password provided
 /// * `Err(Status::Unauthorized)` - Invalid credentials or user not found
 /// * `Err(Status::InternalServerError)` - Database operation failed
@@ -192,7 +192,7 @@ pub async fn process_login<D: DbRunner>(
     db: &D,
     cookies: &CookieJar<'_>,
     login: &crate::api::login::LoginRequest,
-) -> Result<Status, Status> {
+) -> Result<(Status, User), Status> {
     // Check for empty fields
     if login.email.trim().is_empty() || login.password.trim().is_empty() {
         return Err(Status::BadRequest);
@@ -210,7 +210,7 @@ pub async fn process_login<D: DbRunner>(
     let session_token = create_and_store_session(db, user.id).await?;
     set_session_cookie(cookies, &session_token);
 
-    Ok(Status::Ok)
+    Ok((Status::Ok, user))
 }
 
 /// Hashes a password using Argon2 with a random salt.

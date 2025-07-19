@@ -59,6 +59,16 @@ async fn test_login_success() {
     
     assert_eq!(response.status(), Status::Ok);
     assert!(response.cookies().get("session").is_some());
+    
+    // Verify JSON response contains user information
+    let body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(body["email"], "testuser@example.com");
+    assert!(body["user_id"].is_number());
+    assert!(body["institution_name"].is_string());
+    assert!(body["roles"].is_array());
+    // Verify the test user has the "user" role that was assigned in add_dummy_data
+    let roles = body["roles"].as_array().unwrap();
+    assert!(roles.iter().any(|r| r.as_str() == Some("user")));
 }
 
 #[tokio::test]
@@ -167,9 +177,15 @@ async fn test_secure_hello_requires_auth() {
         .await;
     assert_eq!(response.status(), Status::Ok);
     
-    // Verify response contains user's email
-    let body = response.into_string().await.unwrap();
-    assert!(body.contains("Hello, testuser@example.com"));
+    // Verify JSON response contains user information
+    let body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(body["email"], "testuser@example.com");
+    assert!(body["user_id"].is_number());
+    assert!(body["institution_name"].is_string());
+    assert!(body["roles"].is_array());
+    // Verify the test user has the "user" role that was assigned in add_dummy_data
+    let roles = body["roles"].as_array().unwrap();
+    assert!(roles.iter().any(|r| r.as_str() == Some("user")));
 }
 
 /// Helper function to create a test user with specific roles
@@ -215,16 +231,32 @@ async fn test_authenticated_user_has_roles() {
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
-
+    
+    // Get session cookie before consuming response
     let session_cookie = response.cookies().get("session")
-        .expect("Session cookie should be set");
+        .expect("Session cookie should be set")
+        .clone();
+    
+    // Verify login response contains user info including multiple roles
+    let login_body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(login_body["email"], "multirole@example.com");
+    let login_roles = login_body["roles"].as_array().unwrap();
+    assert!(login_roles.iter().any(|r| r.as_str() == Some("admin")));
+    assert!(login_roles.iter().any(|r| r.as_str() == Some("newtown-staff")));
 
     // Test that we can access protected routes
     let response = client.get("/api/1/hello")
-        .cookie(session_cookie.clone())
+        .cookie(session_cookie)
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
+    
+    // Verify hello response also contains user info
+    let hello_body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(hello_body["email"], "multirole@example.com");
+    let hello_roles = hello_body["roles"].as_array().unwrap();
+    assert!(hello_roles.iter().any(|r| r.as_str() == Some("admin")));
+    assert!(hello_roles.iter().any(|r| r.as_str() == Some("newtown-staff")));
 
     // Test role checking methods (we'll do this by examining the session guard directly)
     // This is a bit complex since we need to test the guard logic

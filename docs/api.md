@@ -69,8 +69,15 @@ environment variables are ignored.
 #### Response
 
 **Success (HTTP 200 OK):**
-- No response body
-- Sets session cookie named `session` (HTTP-only, secure, SameSite=Lax)
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com",
+  "institution_name": "Example Corp",
+  "roles": ["user", "admin"]
+}
+```
+- Also sets session cookie named `session` (HTTP-only, secure, SameSite=Lax)
 
 **Failure (HTTP 401 Unauthorized):**
 ```json
@@ -121,8 +128,13 @@ const response = await fetch('/api/1/logout', {
 #### Response
 
 **Success (HTTP 200 OK):**
-```
-Hello, user@example.com!
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com", 
+  "institution_name": "Example Corp",
+  "roles": ["user", "admin"]
+}
 ```
 
 **Failure (HTTP 401 Unauthorized):**
