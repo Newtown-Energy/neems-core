@@ -1,4 +1,4 @@
-# User Roles
+# User Profile
 
 I need endpoints that let me get/set user profile information.  In the
 User struct in @neems-core/src/models/user.rs and
