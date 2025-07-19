@@ -14,8 +14,10 @@ use rocket::serde::json::{json, Json};
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::orm::user::{insert_user, list_all_users};
-use crate::models::{User, UserNoTime};
+use crate::orm::user::{insert_user, list_all_users, get_user};
+use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
+use crate::orm::institution::get_institution_by_name;
+use crate::models::{User, UserNoTime, Role, InstitutionNoTime};
 
 /// Generates a random selection of usernames for testing purposes.
 ///
@@ -174,6 +176,209 @@ pub async fn list_users(
     }).await
 }
 
+#[derive(serde::Deserialize)]
+pub struct SetUserRoleRequest {
+    pub user_id: i32,
+    pub role_name: String,
+}
+
+/// Gets the roles for a specific user.
+///
+/// This endpoint retrieves all roles assigned to a specific user.
+/// Users can view their own roles, or users with sufficient privileges
+/// can view any user's roles.
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `user_id` - The ID of the user whose roles to retrieve
+/// * `auth_user` - The authenticated user making the request
+///
+/// # Returns
+/// * `Ok(Json<Vec<Role>>)` - List of roles for the specified user
+/// * `Err(Status)` - Error status (Forbidden, InternalServerError, etc.)
+#[get("/1/users/<user_id>/roles")]
+pub async fn get_user_roles_endpoint(
+    db: DbConn,
+    user_id: i32,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Vec<Role>>, Status> {
+    // Users can view their own roles, admins can view any user's roles
+    if auth_user.user.id != user_id && 
+       !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
+        return Err(Status::Forbidden);
+    }
+
+    db.run(move |conn| {
+        get_user_roles(conn, user_id)
+            .map(Json)
+            .map_err(|e| {
+                eprintln!("Error getting user roles: {:?}", e);
+                Status::InternalServerError
+            })
+    }).await
+}
+
+/// Sets a user's role with authorization checks.
+///
+/// This endpoint allows authorized users to add roles to other users
+/// following the business rules:
+/// 1. newtown-staff and newtown-admin roles are reserved for Newtown Energy institution
+/// 2. newtown-admin can set any user's role to anything
+/// 3. newtown-staff can set any user's role except newtown-admin
+/// 4. admin can set another user's role to admin if target user is at same institution
+/// 5. Users must have at least one role (validated elsewhere)
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `request` - JSON payload containing user_id and role_name to add
+/// * `auth_user` - The authenticated user making the request
+///
+/// # Returns
+/// * `Ok(Status::Ok)` - Role successfully assigned
+/// * `Err(Status)` - Error status (Forbidden, InternalServerError, etc.)
+#[post("/1/users/roles", data = "<request>")]
+pub async fn add_user_role(
+    db: DbConn,
+    request: Json<SetUserRoleRequest>,
+    auth_user: AuthenticatedUser,
+) -> Result<Status, Status> {
+    let target_user_id = request.user_id;
+    let role_name = request.role_name.clone();
+
+    // Get target user's institution for validation
+    let target_user = db.run(move |conn| {
+        get_user(conn, target_user_id)
+    }).await.map_err(|e| {
+        eprintln!("Error getting target user: {:?}", e);
+        Status::InternalServerError
+    })?;
+
+    // Authorization check based on business rules
+    let can_assign = if auth_user.has_role("newtown-admin") {
+        // Rule 2: newtown-admin can set any user's role to anything
+        true
+    } else if auth_user.has_role("newtown-staff") {
+        // Rule 3: newtown-staff can set any user's role except newtown-admin
+        role_name != "newtown-admin"
+    } else if auth_user.has_role("admin") {
+        // Rule 4: admin can set another user's role to admin if same institution
+        role_name == "admin" && auth_user.user.institution_id == target_user.institution_id
+    } else {
+        false
+    };
+
+    if !can_assign {
+        return Err(Status::Forbidden);
+    }
+
+    // Rule 1: newtown-staff and newtown-admin roles are reserved for Newtown Energy
+    if role_name == "newtown-staff" || role_name == "newtown-admin" {
+        let newtown_institution_search = InstitutionNoTime {
+            name: "Newtown Energy".to_string(),
+        };
+        let newtown_institution = db.run(move |conn| {
+            get_institution_by_name(conn, &newtown_institution_search)
+        }).await.map_err(|e| {
+            eprintln!("Error getting Newtown Energy institution: {:?}", e);
+            Status::InternalServerError
+        })?;
+
+        let newtown_institution = match newtown_institution {
+            Some(inst) => inst,
+            None => {
+                eprintln!("Newtown Energy institution not found");
+                return Err(Status::InternalServerError);
+            }
+        };
+
+        if target_user.institution_id != newtown_institution.id {
+            return Err(Status::Forbidden);
+        }
+    }
+
+    // Assign the role
+    db.run(move |conn| {
+        assign_user_role_by_name(conn, target_user_id, &role_name)
+            .map_err(|e| {
+                eprintln!("Error assigning user role: {:?}", e);
+                Status::InternalServerError
+            })
+    }).await?;
+
+    Ok(Status::Ok)
+}
+
+/// Removes a role from a user with authorization checks.
+///
+/// This endpoint allows authorized users to remove roles from other users
+/// following the same authorization rules as adding roles. Additionally,
+/// it ensures users always retain at least one role.
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `request` - JSON payload containing user_id and role_name to remove
+/// * `auth_user` - The authenticated user making the request
+///
+/// # Returns
+/// * `Ok(Status::Ok)` - Role successfully removed
+/// * `Err(Status)` - Error status (Forbidden, BadRequest, InternalServerError, etc.)
+#[delete("/1/users/roles", data = "<request>")]
+pub async fn remove_user_role(
+    db: DbConn,
+    request: Json<SetUserRoleRequest>,
+    auth_user: AuthenticatedUser,
+) -> Result<Status, Status> {
+    let target_user_id = request.user_id;
+    let role_name = request.role_name.clone();
+
+    // Get target user's institution for validation
+    let target_user = db.run(move |conn| {
+        get_user(conn, target_user_id)
+    }).await.map_err(|e| {
+        eprintln!("Error getting target user: {:?}", e);
+        Status::InternalServerError
+    })?;
+
+    // Check if user would have any roles left after removal
+    let current_roles = db.run(move |conn| {
+        get_user_roles(conn, target_user_id)
+    }).await.map_err(|e| {
+        eprintln!("Error getting current user roles: {:?}", e);
+        Status::InternalServerError
+    })?;
+
+    // Rule 5: Users must have at least one role
+    if current_roles.len() <= 1 {
+        return Err(Status::BadRequest);
+    }
+
+    // Authorization check - same rules as adding roles
+    let can_remove = if auth_user.has_role("newtown-admin") {
+        true
+    } else if auth_user.has_role("newtown-staff") {
+        role_name != "newtown-admin"
+    } else if auth_user.has_role("admin") {
+        role_name == "admin" && auth_user.user.institution_id == target_user.institution_id
+    } else {
+        false
+    };
+
+    if !can_remove {
+        return Err(Status::Forbidden);
+    }
+
+    // Remove the role
+    db.run(move |conn| {
+        remove_user_role_by_name(conn, target_user_id, &role_name)
+            .map_err(|e| {
+                eprintln!("Error removing user role: {:?}", e);
+                Status::InternalServerError
+            })
+    }).await?;
+
+    Ok(Status::Ok)
+}
+
 /// Returns a vector of all routes defined in this module.
 ///
 /// This function collects all the route handlers defined in this module
@@ -182,5 +387,5 @@ pub async fn list_users(
 /// # Returns
 /// A vector containing all route handlers for user endpoints
 pub fn routes() -> Vec<Route> {
-    routes![create_user, list_users]
+    routes![create_user, list_users, get_user_roles_endpoint, add_user_role, remove_user_role]
 }

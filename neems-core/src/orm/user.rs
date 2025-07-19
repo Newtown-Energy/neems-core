@@ -48,6 +48,15 @@ pub fn list_all_users(
     users.order(id.asc()).load::<User>(conn)
 }
 
+/// Gets a single user by ID.
+pub fn get_user(
+    conn: &mut SqliteConnection,
+    user_id: i32,
+) -> Result<User, diesel::result::Error> {
+    use crate::schema::users::dsl::*;
+    users.filter(id.eq(user_id)).first::<User>(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
