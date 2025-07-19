@@ -13,10 +13,37 @@ use crate::orm::DbConn;
 use crate::orm::role::{insert_role, get_all_roles};
 use crate::models::{Role, NewRole};
 
-/// Creates a new role in the system.
+/// Create Role endpoint.
+///
+/// - **URL:** `/api/1/roles`
+/// - **Method:** `POST`
+/// - **Purpose:** Creates a new role in the system
+/// - **Authentication:** Required
 ///
 /// This endpoint accepts a JSON payload containing the role information and
 /// creates a new role record in the database.
+///
+/// # Request Format
+///
+/// ```json
+/// {
+///   "name": "Administrator",
+///   "description": "Full system access"
+/// }
+/// ```
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "id": 1,
+///   "name": "Administrator",
+///   "description": "Full system access",
+///   "created_at": "2023-01-01T00:00:00Z",
+///   "updated_at": "2023-01-01T00:00:00Z"
+/// }
+/// ```
 ///
 /// # Arguments
 /// * `db` - Database connection pool
@@ -38,10 +65,37 @@ pub async fn create_role(
     }).await
 }
 
-/// Lists all roles in the system.
+/// List Roles endpoint.
+///
+/// - **URL:** `/api/1/roles`
+/// - **Method:** `GET`
+/// - **Purpose:** Retrieves all roles in the system
+/// - **Authentication:** Required
 ///
 /// This endpoint retrieves all roles from the database and returns them
 /// as a JSON array.
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// [
+///   {
+///     "id": 1,
+///     "name": "Administrator",
+///     "description": "Full system access",
+///     "created_at": "2023-01-01T00:00:00Z",
+///     "updated_at": "2023-01-01T00:00:00Z"
+///   },
+///   {
+///     "id": 2,
+///     "name": "User",
+///     "description": "Basic user access",
+///     "created_at": "2023-01-01T00:00:00Z",
+///     "updated_at": "2023-01-01T00:00:00Z"
+///   }
+/// ]
+/// ```
 ///
 /// # Arguments
 /// * `db` - Database connection pool

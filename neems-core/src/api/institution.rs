@@ -15,10 +15,35 @@ use crate::models::{Institution, InstitutionName};
 use crate::institution::insert_institution;
 use crate::orm::institution::get_all_institutions;
 
-/// Creates a new institution in the system.
+/// Create Institution endpoint.
+///
+/// - **URL:** `/api/1/institutions`
+/// - **Method:** `POST`
+/// - **Purpose:** Creates a new institution in the system
+/// - **Authentication:** Required
 ///
 /// This endpoint accepts a JSON payload containing the institution name and
 /// creates a new institution record in the database.
+///
+/// # Request Format
+///
+/// ```json
+/// {
+///   "name": "Example University"
+/// }
+/// ```
+///
+/// # Response
+///
+/// **Success (HTTP 201 Created):**
+/// ```json
+/// {
+///   "id": 1,
+///   "name": "Example University",
+///   "created_at": "2023-01-01T00:00:00Z",
+///   "updated_at": "2023-01-01T00:00:00Z"
+/// }
+/// ```
 ///
 /// # Arguments
 /// * `db` - Database connection pool
@@ -43,10 +68,35 @@ pub async fn create_institution(
     }).await
 }
 
-/// Lists all institutions in the system.
+/// List Institutions endpoint.
+///
+/// - **URL:** `/api/1/institutions`
+/// - **Method:** `GET`
+/// - **Purpose:** Retrieves all institutions in the system (ordered by ID)
+/// - **Authentication:** Required
 ///
 /// This endpoint retrieves all institutions from the database and returns them
 /// as a JSON array, ordered by ID in ascending order.
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// [
+///   {
+///     "id": 1,
+///     "name": "Example University",
+///     "created_at": "2023-01-01T00:00:00Z",
+///     "updated_at": "2023-01-01T00:00:00Z"
+///   },
+///   {
+///     "id": 2,
+///     "name": "Another Institution",
+///     "created_at": "2023-01-01T00:00:00Z",
+///     "updated_at": "2023-01-01T00:00:00Z"
+///   }
+/// ]
+/// ```
 ///
 /// # Arguments
 /// * `db` - Database connection pool

@@ -9,9 +9,18 @@ use crate::orm::logout::revoke_session;
 
 /// Logout endpoint that terminates user sessions.
 ///
+/// - **URL:** `/api/1/logout`
+/// - **Method:** `POST`
+/// - **Purpose:** Terminates the current session and removes the session cookie
+/// - **Authentication:** None required (works with or without valid session)
+///
 /// This endpoint handles user logout by revoking the current session in the database
 /// and removing the session cookie from the client. It safely handles cases where
 /// no session cookie is present.
+///
+/// # Response
+///
+/// **Always returns HTTP 200 OK** - Success regardless of session state
 ///
 /// # Arguments
 /// * `db` - Database connection for session revocation
@@ -30,6 +39,15 @@ use crate::orm::logout::revoke_session;
 /// - Safely handles missing or invalid session cookies
 /// - Ensures session is properly revoked in the database
 /// - Removes client-side session cookie to prevent reuse
+///
+/// # Example
+///
+/// ```js
+/// const response = await fetch('/api/1/logout', {
+///   method: 'POST',
+///   credentials: 'include'
+/// });
+/// ```
 #[post("/1/logout")]
 pub async fn logout(
     db: DbConn,

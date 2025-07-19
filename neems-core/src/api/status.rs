@@ -13,11 +13,25 @@ pub struct HealthStatus {
     status: &'static str,
 }
 
-/// Returns the health status of the application.
+/// Health Status endpoint.
+///
+/// - **URL:** `/api/1/status`
+/// - **Method:** `GET`
+/// - **Purpose:** Returns the health status of the application
+/// - **Authentication:** None required
 ///
 /// This endpoint provides a simple health check that indicates whether
 /// the application is running and responsive. It always returns a "running"
 /// status if the application is operational.
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "status": "running"
+/// }
+/// ```
 ///
 /// # Returns
 /// A JSON response containing the application's health status

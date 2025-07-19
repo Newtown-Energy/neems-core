@@ -21,10 +21,39 @@ pub struct FixPhraseResponse {
     pub accuracy: f64,
 }
 
-/// Encodes latitude and longitude coordinates into a FixPhrase string.
+/// FixPhrase Encoding endpoint.
+///
+/// - **URL:** `/api/1/fixphrase/encode/<lat>/<lon>`
+/// - **Method:** `GET`
+/// - **Purpose:** Encodes latitude/longitude coordinates into a FixPhrase string
+/// - **Authentication:** None required
 ///
 /// This endpoint takes latitude and longitude coordinates and returns a FixPhrase
 /// representation along with the decoded coordinates and accuracy information.
+///
+/// # Parameters
+///
+/// - `lat` - Latitude coordinate (between -90 and 90)
+/// - `lon` - Longitude coordinate (between -180 and 180)
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "phrase": "example.fixphrase.string",
+///   "latitude": 40.7128,
+///   "longitude": -74.0060,
+///   "accuracy": 10.0
+/// }
+/// ```
+///
+/// **Failure (HTTP 400 Bad Request):**
+/// ```json
+/// {
+///   "error": "Invalid coordinates"
+/// }
+/// ```
 ///
 /// # Arguments
 /// * `lat` - The latitude coordinate (must be between -90 and 90)
@@ -33,6 +62,12 @@ pub struct FixPhraseResponse {
 /// # Returns
 /// * `Ok(Json<FixPhraseResponse>)` - Successfully encoded FixPhrase with decoded verification
 /// * `Err(rocket_status::Custom<Json<FixPhraseError>>)` - Error during encoding or decoding
+///
+/// # Example
+///
+/// ```js
+/// const response = await fetch('/api/1/fixphrase/encode/40.7128/-74.0060');
+/// ```
 #[rocket::get("/1/fixphrase/encode/<lat>/<lon>")]
 pub fn encode_fixphrase(
     lat: f64, 

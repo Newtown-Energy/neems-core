@@ -27,9 +27,34 @@ pub struct LoginRequest {
 
 /// Login endpoint that authenticates users and creates sessions.
 ///
+/// - **URL:** `/api/1/login`
+/// - **Method:** `POST`
+/// - **Purpose:** Authenticates a user by email and password, and sets a secure session cookie
+/// - **Authentication:** None required
+///
 /// This endpoint accepts user credentials via JSON, validates them against
 /// the database, and if successful, creates a session token and sets a
 /// secure HTTP-only cookie.
+///
+/// # Request Format
+///
+/// ```json
+/// {
+///   "email": "user@example.com",
+///   "password": "userpassword"
+/// }
+/// ```
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// - No response body
+/// - Sets session cookie named `session` (HTTP-only, secure, SameSite=Lax)
+///
+/// **Failure (HTTP 401 Unauthorized):**
+/// ```json
+/// { "error": "Invalid credentials" }
+/// ```
 ///
 /// # Arguments
 /// * `db` - Database connection for user validation and session storage
@@ -44,6 +69,20 @@ pub struct LoginRequest {
 /// - Session cookies are HTTP-only, secure, and use SameSite=Lax
 /// - Passwords are verified using Argon2 hashing
 /// - Invalid credentials return generic error messages to prevent enumeration
+///
+/// # Example
+///
+/// ```js
+/// const response = await fetch('/api/1/login', {
+///   method: 'POST',
+///   headers: { 'Content-Type': 'application/json' },
+///   body: JSON.stringify({
+///     email: 'testuser@example.com',
+///     password: 'testpassword'
+///   }),
+///   credentials: 'include'
+/// });
+/// ```
 #[post("/1/login", data = "<login>")]
 pub async fn login(
     db: DbConn,
@@ -59,12 +98,27 @@ pub async fn login(
     }
 }
 
-/// Secure hello endpoint that requires authentication.
+/// Hello (Authentication Check) endpoint.
+///
+/// - **URL:** `/api/1/hello`
+/// - **Method:** `GET`
+/// - **Purpose:** Returns a greeting for authenticated users; useful for checking authentication status
+/// - **Authentication:** Required
 ///
 /// This endpoint demonstrates authenticated API access by returning a
 /// personalized greeting for authenticated users. The `AuthenticatedUser`
 /// guard automatically validates the session cookie and returns a 401
 /// Unauthorized status if authentication fails.
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```text
+/// Hello, user@example.com!
+/// ```
+///
+/// **Failure (HTTP 401 Unauthorized):**
+/// Session invalid or expired
 ///
 /// # Arguments
 /// * `auth_user` - Authenticated user (automatically validated by guard)
@@ -77,6 +131,15 @@ pub async fn login(
 /// - Validates the session cookie
 /// - Checks session expiration and revocation status
 /// - Returns 401 Unauthorized if authentication fails
+///
+/// # Example
+///
+/// ```js
+/// const response = await fetch('/api/1/hello', {
+///   method: 'GET',
+///   credentials: 'include'
+/// });
+/// ```
 #[get("/1/hello")]
 pub async fn secure_hello(auth_user: AuthenticatedUser) -> String {
     format!("Hello, {}!", auth_user.user.email)
