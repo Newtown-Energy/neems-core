@@ -29,6 +29,49 @@ pub struct LoginSuccessResponse {
     pub roles: Vec<String>,
 }
 
+/// Creates a standardized user response structure for login and hello endpoints.
+///
+/// This function ensures both login and hello endpoints return exactly the same
+/// data structure for a given user, including user_id, email, institution_name, and roles.
+///
+/// # Arguments
+/// * `db` - Database connection for fetching user roles and institution information
+/// * `user` - The user object to build the response for
+///
+/// # Returns
+/// * `Ok(LoginSuccessResponse)` - Standardized user response structure
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Database error
+async fn build_user_response(
+    db: &DbConn,
+    user: crate::models::User,
+) -> Result<LoginSuccessResponse, response::status::Custom<Json<ErrorResponse>>> {
+    // Get user roles
+    let user_id = user.id;
+    let roles = match db.run(move |conn| {
+        get_user_roles(conn, user_id)
+    }).await {
+        Ok(user_roles) => user_roles.into_iter().map(|role| role.name).collect(),
+        Err(_) => vec![], // Return empty roles on error rather than failing
+    };
+
+    // Get institution name
+    let institution_id = user.institution_id;
+    let institution_name = match db.run(move |conn| {
+        get_institution_by_id(conn, institution_id)
+    }).await {
+        Ok(Some(institution)) => institution.name,
+        Ok(None) => "Unknown Institution".to_string(),
+        Err(_) => "Unknown Institution".to_string(),
+    };
+
+    Ok(LoginSuccessResponse {
+        user_id: user.id,
+        email: user.email,
+        institution_name,
+        roles,
+    })
+}
+
 /// Login request structure containing user credentials.
 #[derive(Clone, Deserialize)]
 pub struct LoginRequest {
@@ -102,31 +145,10 @@ pub async fn login(
 ) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
     match process_login(&db, cookies, &login).await {
         Ok((_status, user)) => {
-            // Get user roles
-            let roles = match db.run(move |conn| {
-                get_user_roles(conn, user.id)
-            }).await {
-                Ok(user_roles) => user_roles.into_iter().map(|role| role.name).collect(),
-                Err(_) => vec![], // Return empty roles on error rather than failing login
-            };
-
-            // Get institution name
-            let institution_name = match db.run(move |conn| {
-                get_institution_by_id(conn, user.institution_id)
-            }).await {
-                Ok(Some(institution)) => institution.name,
-                Ok(None) => "Unknown Institution".to_string(),
-                Err(_) => "Unknown Institution".to_string(),
-            };
-
-            let response = LoginSuccessResponse {
-                user_id: user.id,
-                email: user.email,
-                institution_name,
-                roles,
-            };
-
-            Ok(Json(response))
+            match build_user_response(&db, user).await {
+                Ok(response) => Ok(Json(response)),
+                Err(err_response) => Err(err_response),
+            }
         }
         Err(status) => {
             let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
@@ -179,33 +201,7 @@ pub async fn login(
 /// ```
 #[get("/1/hello")]
 pub async fn secure_hello(auth_user: AuthenticatedUser, db: DbConn) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
-    let user = auth_user.user;
-    
-    // Get user roles
-    let roles = match db.run(move |conn| {
-        get_user_roles(conn, user.id)
-    }).await {
-        Ok(user_roles) => user_roles.into_iter().map(|role| role.name).collect(),
-        Err(_) => vec![], // Return empty roles on error
-    };
-
-    // Get institution name
-    let institution_name = match db.run(move |conn| {
-        get_institution_by_id(conn, user.institution_id)
-    }).await {
-        Ok(Some(institution)) => institution.name,
-        Ok(None) => "Unknown Institution".to_string(),
-        Err(_) => "Unknown Institution".to_string(),
-    };
-
-    let response = LoginSuccessResponse {
-        user_id: user.id,
-        email: user.email,
-        institution_name,
-        roles,
-    };
-
-    Ok(Json(response))
+    build_user_response(&db, auth_user.user).await.map(Json)
 }
 
 /// Returns all login-related API routes.

@@ -50,6 +50,8 @@ environment variables are ignored.
 
 ## Authentication Endpoints
 
+**Important:** The login and hello endpoints return identical data structures for the same user to ensure API consistency. Both endpoints return the same JSON object containing `user_id`, `email`, `institution_name`, and `roles` fields.
+
 ### Login
 
 - **URL:** `/api/1/login`
@@ -122,8 +124,10 @@ const response = await fetch('/api/1/logout', {
 
 - **URL:** `/api/1/hello`
 - **Method:** `GET`
-- **Purpose:** Returns a greeting for authenticated users; useful for checking authentication status
+- **Purpose:** Returns user information for authenticated users; useful for checking authentication status
 - **Authentication:** Required
+
+**Note:** This endpoint returns exactly the same data structure as the login endpoint for consistency.
 
 #### Response
 

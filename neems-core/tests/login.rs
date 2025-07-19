@@ -288,6 +288,60 @@ async fn test_role_helper_methods() {
     // The authentication itself working proves the basic functionality
 }
 
+/// Test that login and hello endpoints return the same data structure for the same user.
+/// 
+/// This test ensures consistency between the authentication endpoints by verifying that
+/// both login and hello return exactly the same JSON structure with identical field values
+/// for a given user. On test failure, developers should note that these endpoints must
+/// return the same structure for a given user to maintain API consistency.
+#[tokio::test]
+async fn test_login_hello_data_consistency() {
+    let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+    time_test!("test_login_hello_data_consistency");
+    add_dummy_data(&client).await;
+
+    // Login with test user
+    let login_response = client.post("/api/1/login")
+        .json(&json!({
+            "email": "testuser@example.com",
+            "password": "testpassword"
+        }))
+        .dispatch()
+        .await;
+    
+    assert_eq!(login_response.status(), Status::Ok);
+    
+    // Get session cookie
+    let session_cookie = login_response.cookies().get("session")
+        .expect("Session cookie should be set")
+        .clone();
+    
+    // Get login response data
+    let login_body: serde_json::Value = login_response.into_json().await.unwrap();
+    
+    // Call hello endpoint with same session
+    let hello_response = client.get("/api/1/hello")
+        .cookie(session_cookie)
+        .dispatch()
+        .await;
+    
+    assert_eq!(hello_response.status(), Status::Ok);
+    
+    // Get hello response data
+    let hello_body: serde_json::Value = hello_response.into_json().await.unwrap();
+    
+    // Verify that both responses have identical structure and data
+    assert_eq!(login_body, hello_body, 
+        "Login and hello endpoints must return the same structure for a given user. \
+         This test ensures API consistency between authentication endpoints.");
+    
+    // Verify specific fields exist and match
+    assert_eq!(login_body["user_id"], hello_body["user_id"]);
+    assert_eq!(login_body["email"], hello_body["email"]);
+    assert_eq!(login_body["institution_name"], hello_body["institution_name"]);
+    assert_eq!(login_body["roles"], hello_body["roles"]);
+}
+
 #[tokio::test]
 async fn test_user_without_roles_fails() {
     let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
