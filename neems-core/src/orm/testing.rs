@@ -160,9 +160,10 @@ pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbCo
 /// potential database conflicts and improving test performance.
 ///
 /// The returned Rocket instance will have:
-/// - Only fixphrase API routes mounted
+/// - Only fixphrase API routes mounted (if fixphrase feature is enabled)
 /// - No database connection
 /// - No database-related fairings
+#[cfg(feature = "fixphrase")]
 pub fn test_rocket_no_db() -> Rocket<Build> {
     rocket::build()
         .mount("/api", crate::api::fixphrase::routes())

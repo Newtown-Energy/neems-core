@@ -4,6 +4,7 @@
 //! and provides a unified interface for collecting all routes for registration
 //! with the Rocket web framework.
 
+#[cfg(feature = "fixphrase")]
 pub mod fixphrase;
 pub mod institution;
 pub mod login;
@@ -25,6 +26,7 @@ use rocket::Route;
 /// A vector containing all route handlers from all API submodules
 pub fn routes() -> Vec<Route> {
     let mut routes = Vec::new();
+    #[cfg(feature = "fixphrase")]
     routes.extend(fixphrase::routes());
     routes.extend(institution::routes());
     routes.extend(login::routes());

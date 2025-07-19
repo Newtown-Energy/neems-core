@@ -1,8 +1,13 @@
+#[cfg(feature = "fixphrase")]
 use rocket::local::asynchronous::Client;
+#[cfg(feature = "fixphrase")]
 use rocket::http::{Status};
+#[cfg(feature = "fixphrase")]
 use neems_core::api::fixphrase::{FixPhraseResponse, FixPhraseError};
+#[cfg(feature = "fixphrase")]
 use neems_core::orm::testing::test_rocket_no_db;
 
+#[cfg(feature = "fixphrase")]
 #[rocket::async_test]
 async fn test_encode_fixphrase_success() {
     // 1. Set up test client
@@ -26,6 +31,7 @@ async fn test_encode_fixphrase_success() {
     assert!(!body.phrase.is_empty());
 }
 
+#[cfg(feature = "fixphrase")]
 #[rocket::async_test]
 async fn test_encode_fixphrase_invalid_coords() {
     let client = Client::tracked(test_rocket_no_db()).await.expect("valid rocket instance");
@@ -48,6 +54,7 @@ async fn test_encode_fixphrase_invalid_coords() {
     assert!(matches!(error, FixPhraseError::InvalidLongitude));
 }
 
+#[cfg(feature = "fixphrase")]
 #[rocket::async_test]
 async fn test_api_response_structure() {
     let client = Client::tracked(test_rocket_no_db()).await.expect("valid rocket instance");

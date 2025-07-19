@@ -4,7 +4,7 @@ version = "0.1.2"
 edition = "2024"
 
 [dependencies]
-fixphrase = { path = "../crates/fixphrase" }  
+fixphrase = { path = "../crates/fixphrase", optional = true }  
 
 argon2 = { workspace = true }
 chrono = { workspace = true }
@@ -19,6 +19,8 @@ serde_json.workspace = true
 uuid.workspace = true
 
 [features]
+default = []
+fixphrase = ["dep:fixphrase"]
 test-staging = []
 
 [dev-dependencies]

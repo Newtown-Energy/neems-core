@@ -4,14 +4,20 @@
 //! FixPhrase is a location encoding system that converts latitude/longitude coordinates
 //! into human-readable phrases.
 
+#[cfg(feature = "fixphrase")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "fixphrase")]
 use rocket::http::Status as HttpStatus;
+#[cfg(feature = "fixphrase")]
 use rocket::serde::json::Json;
+#[cfg(feature = "fixphrase")]
 use rocket::response::status as rocket_status;
 use rocket::Route;
 
+#[cfg(feature = "fixphrase")]
 pub use fixphrase::{FixPhrase, FixPhraseError};
 
+#[cfg(feature = "fixphrase")]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct FixPhraseResponse {
@@ -68,6 +74,7 @@ pub struct FixPhraseResponse {
 /// ```js
 /// const response = await fetch('/api/1/fixphrase/encode/40.7128/-74.0060');
 /// ```
+#[cfg(feature = "fixphrase")]
 #[rocket::get("/1/fixphrase/encode/<lat>/<lon>")]
 pub fn encode_fixphrase(
     lat: f64, 
@@ -99,5 +106,12 @@ pub fn encode_fixphrase(
 /// # Returns
 /// A vector containing all route handlers for FixPhrase endpoints
 pub fn routes() -> Vec<Route> {
-    routes![encode_fixphrase]
+    #[cfg(feature = "fixphrase")]
+    {
+        routes![encode_fixphrase]
+    }
+    #[cfg(not(feature = "fixphrase"))]
+    {
+        vec![]
+    }
 }
