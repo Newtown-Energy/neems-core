@@ -81,7 +81,8 @@ push() {
 }
 
 release() {
-    cargo build --release "$@"
+    flags="--features fixphrase"
+    cargo build --release $flags "$@"
 }
 
 test() {
