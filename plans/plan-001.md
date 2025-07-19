@@ -214,26 +214,16 @@ Great, your answers clarify your requirements and constraints. Here’s a **tail
 - **Do you want a sample CORS configuration for Rocket?**
 - **Anything else you want to clarify or prioritize for today’s work?**
 
-QUERY:
-
-Let's do the first three steps of the Action Plan.
+STATUS:
 
 1. **Decide session token storage:**  
 DONE: We will use opaque session tokens and store them as cookies.
 
 2. **Add session table and session management endpoints.**
-HALF DONE:
-
-    Some subtasks remain:
-
-    * Configure CORS and cookie settings for your frontend domain.
+DONE
 
 3. **Implement login/logout endpoints with rate limiting and lockouts.**
-HALF DONE:
-
-     In implementing session management endpoints, you guided me to
-     making login and logout endpoints, so I appear to have partially
-     done step 3.  Still to come: rate limiting and lockouts.
+HALF DONE: need rate limiting and lockouts
 
 4. **Implement Rocket request guards for user and role-based auth.**
 DONE
@@ -242,4 +232,9 @@ DONE
 DONE
 
 6. **Set up CORS using Rocket’s CORS fairing.**
+IN PROGRESS
+
+I've started in the cors branch.
+
 7. **Write tests for login, session validation, and protected endpoints.**
+DONE
