@@ -406,11 +406,11 @@ async fn test_newtown_roles_reserved_for_newtown_energy_users() {
     
     // Cannot assign newtown role to user from different institution
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "newtown-staff"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
