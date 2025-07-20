@@ -470,11 +470,11 @@ async fn test_cannot_remove_last_role() {
     
     // Cannot remove the only role from a user
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "user"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
