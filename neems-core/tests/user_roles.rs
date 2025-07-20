@@ -537,11 +537,11 @@ async fn test_newtown_staff_cannot_remove_newtown_admin_role() {
     
     // Newtown staff cannot remove newtown-admin role
     let request_body = json!({
-        "user_id": users.newtown_admin.id,
         "role_name": "newtown-admin"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.newtown_admin.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
