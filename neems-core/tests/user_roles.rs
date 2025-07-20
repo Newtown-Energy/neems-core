@@ -448,11 +448,11 @@ async fn test_remove_user_role_requires_authentication() {
     let (users, _) = setup_test_data(&client).await;
     
     let request_body = json!({
-        "user_id": users.regular_admin.id,
         "role_name": "admin"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
+    let response = client.delete(&url)
         .json(&request_body)
         .dispatch()
         .await;
