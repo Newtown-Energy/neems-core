@@ -13,7 +13,7 @@ use neems_core::schema::user_roles;
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {
     let login_body = json!({
-        "email": "admin@example.com",
+        "email": "superadmin@example.com",
         "password": "admin"
     });
     
@@ -64,7 +64,7 @@ async fn test_admin_user_is_created() {
         .expect("get db connection");
 
     // Use the default admin email (from env or fallback)
-    let admin_email = std::env::var("NEEMS_DEFAULT_USER").unwrap_or_else(|_| "admin@example.com".to_string());
+    let admin_email = std::env::var("NEEMS_DEFAULT_USER").unwrap_or_else(|_| "superadmin@example.com".to_string());
 
     // Query for the admin user and verify it has the newtown-admin role
     let (found_user, has_admin_role) = conn.run(move |c| {

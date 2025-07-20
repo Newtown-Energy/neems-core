@@ -66,10 +66,10 @@ async fn setup_test_users(client: &Client) {
         // Create test users with different roles and correct institutions
         // Users with newtown roles must be at Newtown Energy institution
         let test_users = vec![
-            ("test_admin@example.com", "adminpass", vec!["admin"], regular_inst.id),
+            ("test_superadmin@example.com", "adminpass", vec!["admin"], regular_inst.id),
             ("staff@example.com", "staffpass", vec!["staff"], regular_inst.id),
             ("admin_staff@example.com", "adminstaff", vec!["admin", "staff"], regular_inst.id),
-            ("newtown_admin@example.com", "newtownpass", vec!["newtown-admin"], newtown_energy.id),
+            ("newtown_superadmin@example.com", "newtownpass", vec!["newtown-admin"], newtown_energy.id),
             ("newtown_staff@example.com", "newtownstaffpass", vec!["newtown-staff"], newtown_energy.id),
             ("regular@example.com", "regularpass", vec!["user"], regular_inst.id),
         ];
@@ -117,7 +117,7 @@ async fn test_admin_only_endpoint_with_admin_user() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     setup_test_users(&client).await;
     
-    let session_cookie = login_as_user(&client, "test_admin@example.com", "adminpass").await;
+    let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
     
     let response = client.get("/api/1/test/admin-only")
         .cookie(session_cookie)
@@ -130,7 +130,7 @@ async fn test_admin_only_endpoint_with_admin_user() {
         .expect("valid JSON response");
     
     assert_eq!(json_response["required_role"], "admin");
-    assert!(json_response["message"].as_str().unwrap().contains("test_admin@example.com"));
+    assert!(json_response["message"].as_str().unwrap().contains("test_superadmin@example.com"));
 }
 
 #[cfg(feature = "test-staging")]
@@ -215,7 +215,7 @@ async fn test_admin_and_staff_endpoint_with_only_admin() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     setup_test_users(&client).await;
     
-    let session_cookie = login_as_user(&client, "test_admin@example.com", "adminpass").await;
+    let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
     
     let response = client.get("/api/1/test/admin-and-staff")
         .cookie(session_cookie)
@@ -247,7 +247,7 @@ async fn test_no_admin_allowed_endpoint_with_admin() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     setup_test_users(&client).await;
     
-    let session_cookie = login_as_user(&client, "test_admin@example.com", "adminpass").await;
+    let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
     
     let response = client.get("/api/1/test/no-admin-allowed")
         .cookie(session_cookie)
@@ -285,7 +285,7 @@ async fn test_any_admin_or_staff_endpoint_with_admin() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     setup_test_users(&client).await;
     
-    let session_cookie = login_as_user(&client, "test_admin@example.com", "adminpass").await;
+    let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
     
     let response = client.get("/api/1/test/any-admin-or-staff")
         .cookie(session_cookie)
@@ -322,7 +322,7 @@ async fn test_any_admin_or_staff_endpoint_with_newtown_admin() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     setup_test_users(&client).await;
     
-    let session_cookie = login_as_user(&client, "newtown_admin@example.com", "newtownpass").await;
+    let session_cookie = login_as_user(&client, "newtown_superadmin@example.com", "newtownpass").await;
     
     let response = client.get("/api/1/test/any-admin-or-staff")
         .cookie(session_cookie)
@@ -354,7 +354,7 @@ async fn test_newtown_admin_only_endpoint() {
     let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
     setup_test_users(&client).await;
     
-    let session_cookie = login_as_user(&client, "newtown_admin@example.com", "newtownpass").await;
+    let session_cookie = login_as_user(&client, "newtown_superadmin@example.com", "newtownpass").await;
     
     let response = client.get("/api/1/test/newtown-admin-only")
         .cookie(session_cookie)
@@ -367,7 +367,7 @@ async fn test_newtown_admin_only_endpoint() {
         .expect("valid JSON response");
     
     assert_eq!(json_response["required_role"], "newtown-admin");
-    assert!(json_response["message"].as_str().unwrap().contains("newtown_admin@example.com"));
+    assert!(json_response["message"].as_str().unwrap().contains("newtown_superadmin@example.com"));
 }
 
 #[cfg(feature = "test-staging")]

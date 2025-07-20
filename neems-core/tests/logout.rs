@@ -10,7 +10,7 @@ async fn test_logout() {
 
     let response = client.post("/api/1/login")
         .json(&json!({
-            "email": "admin@example.com",
+            "email": "superadmin@example.com",
             "password": "admin"
         }))
         .dispatch()

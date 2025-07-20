@@ -8,7 +8,7 @@ use neems_core::orm::testing::test_rocket;
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {
     let login_body = json!({
-        "email": "admin@example.com",
+        "email": "superadmin@example.com",
         "password": "admin"
     });
     

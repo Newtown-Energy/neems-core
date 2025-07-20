@@ -97,7 +97,7 @@ async fn setup_admin_user(conn: &DbConn, institution: crate::models::Institution
 }
 
 fn get_admin_email() -> String {
-    std::env::var("NEEMS_DEFAULT_EMAIL").unwrap_or_else(|_| "admin@example.com".to_string())
+    std::env::var("NEEMS_DEFAULT_EMAIL").unwrap_or_else(|_| "superadmin@example.com".to_string())
 }
 
 fn create_admin_user_if_needed(c: &mut SqliteConnection, admin_email: &str, institution: &crate::models::Institution) -> Result<(), diesel::result::Error> {
