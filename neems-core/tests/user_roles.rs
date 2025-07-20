@@ -499,11 +499,11 @@ async fn test_remove_role_with_proper_authorization() {
     
     // Now remove one role (leaving the other)
     let request_body = json!({
-        "user_id": users.regular_admin.id,
         "role_name": "user"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
