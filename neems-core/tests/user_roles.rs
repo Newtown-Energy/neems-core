@@ -314,11 +314,11 @@ async fn test_newtown_staff_cannot_assign_newtown_admin_role() {
     
     // Newtown staff cannot assign newtown-admin role
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "newtown-admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
