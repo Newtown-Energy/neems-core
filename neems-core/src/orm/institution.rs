@@ -51,6 +51,20 @@ pub fn insert_institution(
 }
 
 /// Returns all institutions in ascending order by id.
+/// Try to find an institution by id.
+/// Returns Ok(Some(Institution)) if found, Ok(None) if not, Err on DB error.
+pub fn get_institution_by_id(
+    conn: &mut SqliteConnection,
+    institution_id: i32,
+) -> Result<Option<Institution>, diesel::result::Error> {
+    use crate::schema::institutions::dsl::*;
+    let result = institutions
+        .filter(id.eq(institution_id))
+        .first::<Institution>(conn)
+        .optional()?;
+    Ok(result)
+}
+
 pub fn get_all_institutions(
     conn: &mut SqliteConnection,
 ) -> Result<Vec<Institution>, diesel::result::Error> {

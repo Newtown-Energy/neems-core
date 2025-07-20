@@ -247,6 +247,18 @@ pub struct SetUserRoleRequest {
     pub role_name: String,
 }
 
+/// Request structure for adding a role to a user (user_id comes from URL path).
+#[derive(serde::Deserialize)]
+pub struct AddUserRoleRequest {
+    pub role_name: String,
+}
+
+/// Request structure for removing a role from a user (user_id comes from URL path).
+#[derive(serde::Deserialize)]
+pub struct RemoveUserRoleRequest {
+    pub role_name: String,
+}
+
 /// Get User Roles endpoint.
 ///
 /// - **URL:** `/api/1/users/<user_id>/roles`
@@ -328,7 +340,7 @@ pub async fn get_user_roles_endpoint(
 
 /// Add User Role endpoint.
 ///
-/// - **URL:** `/api/1/users/roles`
+/// - **URL:** `/api/1/users/<user_id>/roles`
 /// - **Method:** `POST`
 /// - **Purpose:** Assigns a role to a user with authorization checks
 /// - **Authentication:** Required (admin privileges with specific business rules)
@@ -353,7 +365,6 @@ pub async fn get_user_roles_endpoint(
 ///
 /// ```json
 /// {
-///   "user_id": 123,
 ///   "role_name": "staff"
 /// }
 /// ```
@@ -371,7 +382,8 @@ pub async fn get_user_roles_endpoint(
 ///
 /// # Arguments
 /// * `db` - Database connection pool
-/// * `request` - JSON payload containing user_id and role_name to add
+/// * `user_id` - User ID from URL path parameter
+/// * `request` - JSON payload containing role_name to add
 /// * `auth_user` - The authenticated user making the request
 ///
 /// # Returns
@@ -381,23 +393,23 @@ pub async fn get_user_roles_endpoint(
 /// # Example
 ///
 /// ```js
-/// const response = await fetch('/api/1/users/roles', {
+/// const response = await fetch('/api/1/users/123/roles', {
 ///   method: 'POST',
 ///   headers: { 'Content-Type': 'application/json' },
 ///   body: JSON.stringify({
-///     user_id: 123,
 ///     role_name: 'staff'
 ///   }),
 ///   credentials: 'include'
 /// });
 /// ```
-#[post("/1/users/roles", data = "<request>")]
+#[post("/1/users/<user_id>/roles", data = "<request>")]
 pub async fn add_user_role(
     db: DbConn,
-    request: Json<SetUserRoleRequest>,
+    user_id: i32,
+    request: Json<AddUserRoleRequest>,
     auth_user: AuthenticatedUser,
 ) -> Result<Status, Status> {
-    let target_user_id = request.user_id;
+    let target_user_id = user_id;
     let role_name = request.role_name.clone();
 
     // Get target user's institution for validation
@@ -465,7 +477,7 @@ pub async fn add_user_role(
 
 /// Remove User Role endpoint.
 ///
-/// - **URL:** `/api/1/users/roles`
+/// - **URL:** `/api/1/users/<user_id>/roles`
 /// - **Method:** `DELETE`
 /// - **Purpose:** Removes a role from a user with authorization checks
 /// - **Authentication:** Required (same authorization rules as adding roles)
@@ -483,7 +495,6 @@ pub async fn add_user_role(
 ///
 /// ```json
 /// {
-///   "user_id": 123,
 ///   "role_name": "staff"
 /// }
 /// ```
@@ -504,7 +515,8 @@ pub async fn add_user_role(
 ///
 /// # Arguments
 /// * `db` - Database connection pool
-/// * `request` - JSON payload containing user_id and role_name to remove
+/// * `user_id` - User ID from URL path parameter
+/// * `request` - JSON payload containing role_name to remove
 /// * `auth_user` - The authenticated user making the request
 ///
 /// # Returns
@@ -514,23 +526,23 @@ pub async fn add_user_role(
 /// # Example
 ///
 /// ```js
-/// const response = await fetch('/api/1/users/roles', {
+/// const response = await fetch('/api/1/users/123/roles', {
 ///   method: 'DELETE',
 ///   headers: { 'Content-Type': 'application/json' },
 ///   body: JSON.stringify({
-///     user_id: 123,
 ///     role_name: 'staff'
 ///   }),
 ///   credentials: 'include'
 /// });
 /// ```
-#[delete("/1/users/roles", data = "<request>")]
+#[delete("/1/users/<user_id>/roles", data = "<request>")]
 pub async fn remove_user_role(
     db: DbConn,
-    request: Json<SetUserRoleRequest>,
+    user_id: i32,
+    request: Json<RemoveUserRoleRequest>,
     auth_user: AuthenticatedUser,
 ) -> Result<Status, Status> {
-    let target_user_id = request.user_id;
+    let target_user_id = user_id;
     let role_name = request.role_name.clone();
 
     // Get target user's institution for validation

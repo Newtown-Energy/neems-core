@@ -59,6 +59,16 @@ async fn test_login_success() {
     
     assert_eq!(response.status(), Status::Ok);
     assert!(response.cookies().get("session").is_some());
+    
+    // Verify JSON response contains user information
+    let body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(body["email"], "testuser@example.com");
+    assert!(body["user_id"].is_number());
+    assert!(body["institution_name"].is_string());
+    assert!(body["roles"].is_array());
+    // Verify the test user has the "user" role that was assigned in add_dummy_data
+    let roles = body["roles"].as_array().unwrap();
+    assert!(roles.iter().any(|r| r.as_str() == Some("user")));
 }
 
 #[tokio::test]
@@ -167,9 +177,15 @@ async fn test_secure_hello_requires_auth() {
         .await;
     assert_eq!(response.status(), Status::Ok);
     
-    // Verify response contains user's email
-    let body = response.into_string().await.unwrap();
-    assert!(body.contains("Hello, testuser@example.com"));
+    // Verify JSON response contains user information
+    let body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(body["email"], "testuser@example.com");
+    assert!(body["user_id"].is_number());
+    assert!(body["institution_name"].is_string());
+    assert!(body["roles"].is_array());
+    // Verify the test user has the "user" role that was assigned in add_dummy_data
+    let roles = body["roles"].as_array().unwrap();
+    assert!(roles.iter().any(|r| r.as_str() == Some("user")));
 }
 
 /// Helper function to create a test user with specific roles
@@ -215,16 +231,32 @@ async fn test_authenticated_user_has_roles() {
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
-
+    
+    // Get session cookie before consuming response
     let session_cookie = response.cookies().get("session")
-        .expect("Session cookie should be set");
+        .expect("Session cookie should be set")
+        .clone();
+    
+    // Verify login response contains user info including multiple roles
+    let login_body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(login_body["email"], "multirole@example.com");
+    let login_roles = login_body["roles"].as_array().unwrap();
+    assert!(login_roles.iter().any(|r| r.as_str() == Some("admin")));
+    assert!(login_roles.iter().any(|r| r.as_str() == Some("newtown-staff")));
 
     // Test that we can access protected routes
     let response = client.get("/api/1/hello")
-        .cookie(session_cookie.clone())
+        .cookie(session_cookie)
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
+    
+    // Verify hello response also contains user info
+    let hello_body: serde_json::Value = response.into_json().await.unwrap();
+    assert_eq!(hello_body["email"], "multirole@example.com");
+    let hello_roles = hello_body["roles"].as_array().unwrap();
+    assert!(hello_roles.iter().any(|r| r.as_str() == Some("admin")));
+    assert!(hello_roles.iter().any(|r| r.as_str() == Some("newtown-staff")));
 
     // Test role checking methods (we'll do this by examining the session guard directly)
     // This is a bit complex since we need to test the guard logic
@@ -254,6 +286,60 @@ async fn test_role_helper_methods() {
     // For now, we can't directly test the helper methods without access to the AuthenticatedUser instance
     // This would require creating a test route that uses the methods and returns results
     // The authentication itself working proves the basic functionality
+}
+
+/// Test that login and hello endpoints return the same data structure for the same user.
+/// 
+/// This test ensures consistency between the authentication endpoints by verifying that
+/// both login and hello return exactly the same JSON structure with identical field values
+/// for a given user. On test failure, developers should note that these endpoints must
+/// return the same structure for a given user to maintain API consistency.
+#[tokio::test]
+async fn test_login_hello_data_consistency() {
+    let client = rocket::local::asynchronous::Client::tracked(test_rocket()).await.unwrap();
+    time_test!("test_login_hello_data_consistency");
+    add_dummy_data(&client).await;
+
+    // Login with test user
+    let login_response = client.post("/api/1/login")
+        .json(&json!({
+            "email": "testuser@example.com",
+            "password": "testpassword"
+        }))
+        .dispatch()
+        .await;
+    
+    assert_eq!(login_response.status(), Status::Ok);
+    
+    // Get session cookie
+    let session_cookie = login_response.cookies().get("session")
+        .expect("Session cookie should be set")
+        .clone();
+    
+    // Get login response data
+    let login_body: serde_json::Value = login_response.into_json().await.unwrap();
+    
+    // Call hello endpoint with same session
+    let hello_response = client.get("/api/1/hello")
+        .cookie(session_cookie)
+        .dispatch()
+        .await;
+    
+    assert_eq!(hello_response.status(), Status::Ok);
+    
+    // Get hello response data
+    let hello_body: serde_json::Value = hello_response.into_json().await.unwrap();
+    
+    // Verify that both responses have identical structure and data
+    assert_eq!(login_body, hello_body, 
+        "Login and hello endpoints must return the same structure for a given user. \
+         This test ensures API consistency between authentication endpoints.");
+    
+    // Verify specific fields exist and match
+    assert_eq!(login_body["user_id"], hello_body["user_id"]);
+    assert_eq!(login_body["email"], hello_body["email"]);
+    assert_eq!(login_body["institution_name"], hello_body["institution_name"]);
+    assert_eq!(login_body["roles"], hello_body["roles"]);
 }
 
 #[tokio::test]

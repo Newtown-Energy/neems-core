@@ -3,6 +3,8 @@
 // This file is for testing the schema and relationships in the database.
 // Do not use it to test the actual application logic.
 //
+#![cfg(run_schema_tests)]  // Entire file will be skipped if this cfg isn't set. See build.rs
+
 
 use neems_core::orm::testing::setup_test_db;
 use neems_core::models::*;

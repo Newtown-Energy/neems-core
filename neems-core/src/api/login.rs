@@ -4,18 +4,72 @@
 //! and secure API access. It handles user login requests, generates session tokens,
 //! and provides authenticated endpoints.
 
-use rocket::{post, get, Route, http::{CookieJar, Status}, serde::json::Json};
+use rocket::{post, get, Route, http::CookieJar, serde::json::Json};
 use rocket::response;
 use rocket::serde::{Serialize, Deserialize};
 
 use crate::session_guards::AuthenticatedUser;
 use crate::DbConn;
 use crate::orm::login::process_login;
+use crate::orm::user_role::get_user_roles;
+use crate::orm::institution::get_institution_by_id;
 
 /// Error response structure for authentication failures.
 #[derive(Serialize)]
 pub struct ErrorResponse {
     error: String,
+}
+
+/// Login success response structure containing user information.
+#[derive(Serialize)]
+pub struct LoginSuccessResponse {
+    pub user_id: i32,
+    pub email: String,
+    pub institution_name: String,
+    pub roles: Vec<String>,
+}
+
+/// Creates a standardized user response structure for login and hello endpoints.
+///
+/// This function ensures both login and hello endpoints return exactly the same
+/// data structure for a given user, including user_id, email, institution_name, and roles.
+///
+/// # Arguments
+/// * `db` - Database connection for fetching user roles and institution information
+/// * `user` - The user object to build the response for
+///
+/// # Returns
+/// * `Ok(LoginSuccessResponse)` - Standardized user response structure
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Database error
+async fn build_user_response(
+    db: &DbConn,
+    user: crate::models::User,
+) -> Result<LoginSuccessResponse, response::status::Custom<Json<ErrorResponse>>> {
+    // Get user roles
+    let user_id = user.id;
+    let roles = match db.run(move |conn| {
+        get_user_roles(conn, user_id)
+    }).await {
+        Ok(user_roles) => user_roles.into_iter().map(|role| role.name).collect(),
+        Err(_) => vec![], // Return empty roles on error rather than failing
+    };
+
+    // Get institution name
+    let institution_id = user.institution_id;
+    let institution_name = match db.run(move |conn| {
+        get_institution_by_id(conn, institution_id)
+    }).await {
+        Ok(Some(institution)) => institution.name,
+        Ok(None) => "Unknown Institution".to_string(),
+        Err(_) => "Unknown Institution".to_string(),
+    };
+
+    Ok(LoginSuccessResponse {
+        user_id: user.id,
+        email: user.email,
+        institution_name,
+        roles,
+    })
 }
 
 /// Login request structure containing user credentials.
@@ -88,9 +142,14 @@ pub async fn login(
     db: DbConn,
     cookies: &CookieJar<'_>,
     login: Json<LoginRequest>,
-) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
+) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
     match process_login(&db, cookies, &login).await {
-        Ok(status) => Ok(status),
+        Ok((_status, user)) => {
+            match build_user_response(&db, user).await {
+                Ok(response) => Ok(Json(response)),
+                Err(err_response) => Err(err_response),
+            }
+        }
         Err(status) => {
             let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
             Err(response::status::Custom(status, err_json))
@@ -141,8 +200,8 @@ pub async fn login(
 /// });
 /// ```
 #[get("/1/hello")]
-pub async fn secure_hello(auth_user: AuthenticatedUser) -> String {
-    format!("Hello, {}!", auth_user.user.email)
+pub async fn secure_hello(auth_user: AuthenticatedUser, db: DbConn) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
+    build_user_response(&db, auth_user.user).await.map(Json)
 }
 
 /// Returns all login-related API routes.

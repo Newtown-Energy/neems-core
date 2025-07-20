@@ -2,8 +2,8 @@
 //!
 //! This module tests the user role management API endpoints:
 //! - GET /api/1/users/{id}/roles - Retrieve user's roles
-//! - POST /api/1/users/roles - Add role to user
-//! - DELETE /api/1/users/roles - Remove role from user
+//! - POST /api/1/users/{id}/roles - Add role to user
+//! - DELETE /api/1/users/{id}/roles - Remove role from user
 //!
 //! Tests cover all authorization rules:
 //! 1. newtown-staff and newtown-admin roles are reserved for Newtown Energy institution
@@ -235,11 +235,11 @@ async fn test_add_user_role_requires_authentication() {
     let (users, _) = setup_test_data(&client).await;
     
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .json(&request_body)
         .dispatch()
         .await;
@@ -257,11 +257,11 @@ async fn test_newtown_admin_can_assign_any_role() {
     
     // Newtown admin can assign any role to any user
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -291,11 +291,11 @@ async fn test_newtown_staff_can_assign_non_admin_roles() {
     
     // Newtown staff can assign non-admin roles
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -314,11 +314,11 @@ async fn test_newtown_staff_cannot_assign_newtown_admin_role() {
     
     // Newtown staff cannot assign newtown-admin role
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "newtown-admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -337,11 +337,11 @@ async fn test_regular_admin_can_assign_admin_to_same_institution() {
     
     // Regular admin can assign admin role to user in same institution
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -360,11 +360,11 @@ async fn test_regular_admin_cannot_assign_admin_to_different_institution() {
     
     // Regular admin cannot assign admin role to user in different institution
     let request_body = json!({
-        "user_id": users.other_institution_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.other_institution_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -383,11 +383,11 @@ async fn test_regular_admin_cannot_assign_newtown_roles() {
     
     // Regular admin cannot assign newtown-specific roles
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "newtown-staff"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -406,11 +406,11 @@ async fn test_newtown_roles_reserved_for_newtown_energy_users() {
     
     // Cannot assign newtown role to user from different institution
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "newtown-staff"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -429,11 +429,11 @@ async fn test_regular_user_cannot_assign_roles() {
     
     // Regular user cannot assign roles
     let request_body = json!({
-        "user_id": users.other_institution_user.id,
         "role_name": "user"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.other_institution_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -448,11 +448,11 @@ async fn test_remove_user_role_requires_authentication() {
     let (users, _) = setup_test_data(&client).await;
     
     let request_body = json!({
-        "user_id": users.regular_admin.id,
         "role_name": "admin"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
+    let response = client.delete(&url)
         .json(&request_body)
         .dispatch()
         .await;
@@ -470,11 +470,11 @@ async fn test_cannot_remove_last_role() {
     
     // Cannot remove the only role from a user
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "user"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -499,11 +499,11 @@ async fn test_remove_role_with_proper_authorization() {
     
     // Now remove one role (leaving the other)
     let request_body = json!({
-        "user_id": users.regular_admin.id,
         "role_name": "user"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -537,11 +537,11 @@ async fn test_newtown_staff_cannot_remove_newtown_admin_role() {
     
     // Newtown staff cannot remove newtown-admin role
     let request_body = json!({
-        "user_id": users.newtown_admin.id,
         "role_name": "newtown-admin"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.newtown_admin.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
@@ -566,11 +566,11 @@ async fn test_regular_admin_authorization_for_role_removal() {
     
     // Admin from different institution cannot remove admin role
     let request_body = json!({
-        "user_id": users.regular_admin.id,
         "role_name": "admin"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()

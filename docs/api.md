@@ -50,6 +50,8 @@ environment variables are ignored.
 
 ## Authentication Endpoints
 
+**Important:** The login and hello endpoints return identical data structures for the same user to ensure API consistency. Both endpoints return the same JSON object containing `user_id`, `email`, `institution_name`, and `roles` fields.
+
 ### Login
 
 - **URL:** `/api/1/login`
@@ -69,8 +71,15 @@ environment variables are ignored.
 #### Response
 
 **Success (HTTP 200 OK):**
-- No response body
-- Sets session cookie named `session` (HTTP-only, secure, SameSite=Lax)
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com",
+  "institution_name": "Example Corp",
+  "roles": ["user", "admin"]
+}
+```
+- Also sets session cookie named `session` (HTTP-only, secure, SameSite=Lax)
 
 **Failure (HTTP 401 Unauthorized):**
 ```json
@@ -115,14 +124,21 @@ const response = await fetch('/api/1/logout', {
 
 - **URL:** `/api/1/hello`
 - **Method:** `GET`
-- **Purpose:** Returns a greeting for authenticated users; useful for checking authentication status
+- **Purpose:** Returns user information for authenticated users; useful for checking authentication status
 - **Authentication:** Required
+
+**Note:** This endpoint returns exactly the same data structure as the login endpoint for consistency.
 
 #### Response
 
 **Success (HTTP 200 OK):**
-```
-Hello, user@example.com!
+```json
+{
+  "user_id": 123,
+  "email": "user@example.com", 
+  "institution_name": "Example Corp",
+  "roles": ["user", "admin"]
+}
 ```
 
 **Failure (HTTP 401 Unauthorized):**
