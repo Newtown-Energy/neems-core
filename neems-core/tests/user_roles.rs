@@ -337,11 +337,11 @@ async fn test_regular_admin_can_assign_admin_to_same_institution() {
     
     // Regular admin can assign admin role to user in same institution
     let request_body = json!({
-        "user_id": users.regular_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
