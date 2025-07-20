@@ -429,11 +429,11 @@ async fn test_regular_user_cannot_assign_roles() {
     
     // Regular user cannot assign roles
     let request_body = json!({
-        "user_id": users.other_institution_user.id,
         "role_name": "user"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.other_institution_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
