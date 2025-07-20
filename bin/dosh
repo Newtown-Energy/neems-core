@@ -7,7 +7,7 @@ BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
 
 
-DEV_TEST_FLAGS="--color=always -p neems-core --quiet"
+DEV_TEST_FLAGS="--color=always -p neems-core"
 
 _install_cranelift() {
     echo "➡️ Ensuring we have a Cranelift build environment..."
@@ -86,8 +86,12 @@ release() {
 }
 
 test() {
+    nextest "$@"
+}
+
+test-trad() {
     # You can get ansi2txt in the Debian colorized-logs package
-    local cmd="test $DEV_FLAGS"
+    local cmd="test $DEV_TEST_FLAGS --quiet"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
