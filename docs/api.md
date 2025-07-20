@@ -427,6 +427,66 @@ const response = await fetch('/api/1/users/roles', {
 ]
 ```
 
+### List Company Sites
+
+- **URL:** `/api/1/company/<company_id>/sites`
+- **Method:** `GET`
+- **Purpose:** Retrieves all sites for a specific company
+- **Authentication:** Required
+- **Authorization:** Users can see sites if they work for the company OR have newtown-admin/newtown-staff roles
+
+#### Authorization Rules
+
+- Users can see sites for their own company (same company_id)
+- Users with 'newtown-admin' or 'newtown-staff' roles can see any company's sites
+
+#### Parameters
+
+- `company_id` - The ID of the company whose sites to retrieve
+
+#### Response
+
+**Success (HTTP 200 OK):**
+```json
+[
+  {
+    "id": 1,
+    "name": "Main Office",
+    "address": "123 Main St, City, State",
+    "latitude": 40.7128,
+    "longitude": -74.0060,
+    "company_id": 1,
+    "created_at": "2023-01-01T00:00:00Z",
+    "updated_at": "2023-01-01T00:00:00Z"
+  },
+  {
+    "id": 2,
+    "name": "Branch Office",
+    "address": "456 Oak Ave, City, State",
+    "latitude": 40.7589,
+    "longitude": -73.9851,
+    "company_id": 1,
+    "created_at": "2023-01-01T00:00:00Z",
+    "updated_at": "2023-01-01T00:00:00Z"
+  }
+]
+```
+
+**Failure (HTTP 403 Forbidden):**
+User doesn't have permission to view sites for this company
+
+**Failure (HTTP 500 Internal Server Error):**
+Database error during retrieval
+
+#### Example
+
+```js
+const response = await fetch('/api/1/company/123/sites', {
+  method: 'GET',
+  credentials: 'include'
+});
+```
+
 ## Institution Management
 
 ### Create Institution

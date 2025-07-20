@@ -1,9 +1,9 @@
 use diesel::{Queryable, Identifiable, Insertable, Associations};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use chrono::NaiveDateTime;
 use crate::schema::sites;
 
-#[derive(Queryable, Identifiable, Associations, Debug, Serialize)]
+#[derive(Queryable, Identifiable, Associations, Debug, Serialize, Deserialize)]
 #[diesel(belongs_to(crate::models::company::Company))]
 pub struct Site {
     pub id: i32,
