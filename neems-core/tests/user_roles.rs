@@ -360,11 +360,11 @@ async fn test_regular_admin_cannot_assign_admin_to_different_institution() {
     
     // Regular admin cannot assign admin role to user in different institution
     let request_body = json!({
-        "user_id": users.other_institution_user.id,
         "role_name": "admin"
     });
     
-    let response = client.post("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.other_institution_user.id);
+    let response = client.post(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
