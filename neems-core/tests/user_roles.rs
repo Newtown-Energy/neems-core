@@ -566,11 +566,11 @@ async fn test_regular_admin_authorization_for_role_removal() {
     
     // Admin from different institution cannot remove admin role
     let request_body = json!({
-        "user_id": users.regular_admin.id,
         "role_name": "admin"
     });
     
-    let response = client.delete("/api/1/users/roles")
+    let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
+    let response = client.delete(&url)
         .cookie(session_cookie)
         .json(&request_body)
         .dispatch()
