@@ -243,7 +243,7 @@ mod tests {
     use diesel::prelude::*;
     use crate::orm::testing::{setup_test_db, setup_test_dbconn};
     use crate::models::User;
-    use crate::orm::institution::insert_institution;
+    use crate::orm::company::insert_company;
     use crate::models::UserNoTime;
     use crate::orm::user::insert_user;
     use super::*;
@@ -259,7 +259,7 @@ mod tests {
             id: 1,
             email: "test@example.com".to_string(),
             password_hash: hash,
-            institution_id: 1,
+            company_id: 1,
             created_at: now,
             updated_at: now,
             totp_secret: "dummysecret".to_string(),
@@ -272,17 +272,17 @@ mod tests {
         assert!(!verify_password(wrong_password, &user.password_hash));
     }
 
-    /// Inserts a dummy institution and a dummy user, returning the inserted user.
+    /// Inserts a dummy company and a dummy user, returning the inserted user.
     fn insert_dummy_user(conn: &mut diesel::SqliteConnection) -> User {
-        let institution = insert_institution(conn, "Open Tech Strategies".to_string())
-            .expect("insert dummy institution");
+        let company = insert_company(conn, "Open Tech Strategies".to_string())
+            .expect("insert dummy company");
 
         let hash = hash_password("dummy password");
 
         let dummy_user = UserNoTime {
             email: "legofkarl@ots.com".to_string(),
             password_hash: hash,
-            institution_id: institution.id,
+            company_id: company.id,
             totp_secret: "dummysecret".to_string(),
         };
         insert_user(conn, dummy_user).expect("insert dummy user")
@@ -307,7 +307,7 @@ mod tests {
         let found_user = found.unwrap();
         assert_eq!(found_user.email, inserted_user.email);
         assert_eq!(found_user.password_hash, inserted_user.password_hash);
-        assert_eq!(found_user.institution_id, inserted_user.institution_id);
+        assert_eq!(found_user.company_id, inserted_user.company_id);
     }
 
     #[tokio::test]

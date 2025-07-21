@@ -6,7 +6,7 @@
 
 #[cfg(feature = "fixphrase")]
 pub mod fixphrase;
-pub mod institution;
+pub mod company;
 pub mod login;
 pub mod logout;
 pub mod role;
@@ -19,7 +19,7 @@ use rocket::Route;
 /// Collects all routes from all API submodules.
 ///
 /// This function gathers route handlers from all API submodules (fixphrase,
-/// institution, login, logout, role, secure_test, status, and user) and returns them as a single vector
+/// company, login, logout, role, secure_test, status, and user) and returns them as a single vector
 /// for registration with the Rocket framework.
 ///
 /// # Returns
@@ -28,7 +28,7 @@ pub fn routes() -> Vec<Route> {
     let mut routes = Vec::new();
     #[cfg(feature = "fixphrase")]
     routes.extend(fixphrase::routes());
-    routes.extend(institution::routes());
+    routes.extend(company::routes());
     routes.extend(login::routes());
     routes.extend(logout::routes());
     routes.extend(role::routes());

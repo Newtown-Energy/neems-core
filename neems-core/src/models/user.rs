@@ -10,7 +10,7 @@ pub struct User {
     pub password_hash: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub institution_id: i32,
+    pub company_id: i32,
     pub totp_secret: String,
 }
 
@@ -21,7 +21,7 @@ pub struct NewUser {
     pub password_hash: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub institution_id: i32,
+    pub company_id: i32,
     pub totp_secret: String,
 }
 
@@ -29,6 +29,6 @@ pub struct NewUser {
 pub struct UserNoTime {
     pub email: String,
     pub password_hash: String,
-    pub institution_id: i32,
+    pub company_id: i32,
     pub totp_secret: String,
 }

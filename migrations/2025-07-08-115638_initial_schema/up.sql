@@ -1,5 +1,5 @@
--- Create institutions table with unique name constraint
-CREATE TABLE institutions (
+-- Create companies table with unique name constraint
+CREATE TABLE companies (
     id INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL UNIQUE,
     created_at TIMESTAMP NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    institution_id INTEGER NOT NULL REFERENCES institutions(id),
+    company_id INTEGER NOT NULL REFERENCES companies(id),
     totp_secret TEXT NOT NULL
 );
 
@@ -24,17 +24,17 @@ CREATE TABLE roles (
     description TEXT
 );
 
--- Create sites table with unique name per institution constraint
+-- Create sites table with unique name per company constraint
 CREATE TABLE sites (
     id INTEGER PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     address TEXT NOT NULL,
     latitude DOUBLE PRECISION NOT NULL,
     longitude DOUBLE PRECISION NOT NULL,
-    institution_id INTEGER NOT NULL REFERENCES institutions(id),
+    company_id INTEGER NOT NULL REFERENCES companies(id),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    UNIQUE (institution_id, name)
+    UNIQUE (company_id, name)
 );
 
 -- Create junction table for many-to-many relationship between users and roles

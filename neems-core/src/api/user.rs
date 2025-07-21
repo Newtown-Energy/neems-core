@@ -16,8 +16,8 @@ use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::user::{insert_user, list_all_users, get_user};
 use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
-use crate::orm::institution::get_institution_by_name;
-use crate::models::{User, UserNoTime, Role, InstitutionNoTime};
+use crate::orm::company::get_company_by_name;
+use crate::models::{User, UserNoTime, Role, CompanyNoTime};
 
 /// Generates a random selection of usernames for testing purposes.
 ///
@@ -102,7 +102,7 @@ pub async fn create_user_by_api(
     let body = json!({
         "email": &user.email,
         "password_hash": &user.password_hash,
-        "institution_id": user.institution_id,
+        "company_id": user.company_id,
         "totp_secret": &user.totp_secret
     }).to_string();
     let response = client
@@ -137,7 +137,7 @@ pub async fn create_user_by_api(
 /// {
 ///   "email": "newuser@example.com",
 ///   "password_hash": "hashed_password_string",
-///   "institution_id": 1,
+///   "company_id": 1,
 ///   "totp_secret": "optional_totp_secret"
 /// }
 /// ```
@@ -150,7 +150,7 @@ pub async fn create_user_by_api(
 ///   "id": 123,
 ///   "email": "newuser@example.com",
 ///   "password_hash": "hashed_password_string",
-///   "institution_id": 1,
+///   "company_id": 1,
 ///   "totp_secret": "optional_totp_secret",
 ///   "created_at": "2023-01-01T00:00:00Z",
 ///   "updated_at": "2023-01-01T00:00:00Z"
@@ -192,7 +192,7 @@ pub async fn create_user(
 ///
 /// This endpoint retrieves all users from the database and returns them
 /// as a JSON array. This includes all user information including timestamps
-/// and associated institution IDs.
+/// and associated company IDs.
 ///
 /// # Response
 ///
@@ -203,7 +203,7 @@ pub async fn create_user(
 ///     "id": 1,
 ///     "email": "user1@example.com",
 ///     "password_hash": "hashed_password",
-///     "institution_id": 1,
+///     "company_id": 1,
 ///     "totp_secret": null,
 ///     "created_at": "2023-01-01T00:00:00Z",
 ///     "updated_at": "2023-01-01T00:00:00Z"
@@ -212,7 +212,7 @@ pub async fn create_user(
 ///     "id": 2,
 ///     "email": "user2@example.com",
 ///     "password_hash": "hashed_password",
-///     "institution_id": 2,
+///     "company_id": 2,
 ///     "totp_secret": "secret",
 ///     "created_at": "2023-01-01T00:00:00Z",
 ///     "updated_at": "2023-01-01T00:00:00Z"
@@ -347,18 +347,18 @@ pub async fn get_user_roles_endpoint(
 ///
 /// This endpoint allows authorized users to add roles to other users
 /// following the business rules:
-/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy institution
+/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy company
 /// 2. `newtown-admin` can set any user's role to anything
 /// 3. `newtown-staff` can set any user's role except `newtown-admin`
-/// 4. `admin` can set another user's role to `admin` if target user is at same institution
+/// 4. `admin` can set another user's role to `admin` if target user is at same company
 /// 5. Users must have at least one role (validated elsewhere)
 ///
 /// # Authorization Rules
 ///
-/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy institution
+/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy company
 /// 2. `newtown-admin` can set any user's role to anything
 /// 3. `newtown-staff` can set any user's role except `newtown-admin`
-/// 4. `admin` can set another user's role to `admin` if target user is at same institution
+/// 4. `admin` can set another user's role to `admin` if target user is at same company
 /// 5. Users must have at least one role (validated elsewhere)
 ///
 /// # Request Format
@@ -412,7 +412,7 @@ pub async fn add_user_role(
     let target_user_id = user_id;
     let role_name = request.role_name.clone();
 
-    // Get target user's institution for validation
+    // Get target user's company for validation
     let target_user = db.run(move |conn| {
         get_user(conn, target_user_id)
     }).await.map_err(|e| {
@@ -428,8 +428,8 @@ pub async fn add_user_role(
         // Rule 3: newtown-staff can set any user's role except newtown-admin
         role_name != "newtown-admin"
     } else if auth_user.has_role("admin") {
-        // Rule 4: admin can set another user's role to admin if same institution
-        role_name == "admin" && auth_user.user.institution_id == target_user.institution_id
+        // Rule 4: admin can set another user's role to admin if same company
+        role_name == "admin" && auth_user.user.company_id == target_user.company_id
     } else {
         false
     };
@@ -440,25 +440,25 @@ pub async fn add_user_role(
 
     // Rule 1: newtown-staff and newtown-admin roles are reserved for Newtown Energy
     if role_name == "newtown-staff" || role_name == "newtown-admin" {
-        let newtown_institution_search = InstitutionNoTime {
+        let newtown_company_search = CompanyNoTime {
             name: "Newtown Energy".to_string(),
         };
-        let newtown_institution = db.run(move |conn| {
-            get_institution_by_name(conn, &newtown_institution_search)
+        let newtown_company = db.run(move |conn| {
+            get_company_by_name(conn, &newtown_company_search)
         }).await.map_err(|e| {
-            eprintln!("Error getting Newtown Energy institution: {:?}", e);
+            eprintln!("Error getting Newtown Energy company: {:?}", e);
             Status::InternalServerError
         })?;
 
-        let newtown_institution = match newtown_institution {
+        let newtown_company = match newtown_company {
             Some(inst) => inst,
             None => {
-                eprintln!("Newtown Energy institution not found");
+                eprintln!("Newtown Energy company not found");
                 return Err(Status::InternalServerError);
             }
         };
 
-        if target_user.institution_id != newtown_institution.id {
+        if target_user.company_id != newtown_company.id {
             return Err(Status::Forbidden);
         }
     }
@@ -545,7 +545,7 @@ pub async fn remove_user_role(
     let target_user_id = user_id;
     let role_name = request.role_name.clone();
 
-    // Get target user's institution for validation
+    // Get target user's company for validation
     let target_user = db.run(move |conn| {
         get_user(conn, target_user_id)
     }).await.map_err(|e| {
@@ -572,7 +572,7 @@ pub async fn remove_user_role(
     } else if auth_user.has_role("newtown-staff") {
         role_name != "newtown-admin"
     } else if auth_user.has_role("admin") {
-        role_name == "admin" && auth_user.user.institution_id == target_user.institution_id
+        role_name == "admin" && auth_user.user.company_id == target_user.company_id
     } else {
         false
     };

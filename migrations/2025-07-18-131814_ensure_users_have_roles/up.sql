@@ -21,7 +21,7 @@ END;
 
 -- Create a view to easily check users without roles (for monitoring)
 CREATE VIEW users_without_roles AS
-SELECT u.id, u.email, u.institution_id
+SELECT u.id, u.email, u.company_id
 FROM users u
 LEFT JOIN user_roles ur ON u.id = ur.user_id
 WHERE ur.user_id IS NULL;

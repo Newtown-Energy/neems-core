@@ -7,15 +7,15 @@ use serde_json::json;
 use neems_core::orm::login::hash_password;
 use neems_core::orm::{DbConn};
 use neems_core::orm::testing::test_rocket;
-use neems_core::orm::institution::insert_institution;
+use neems_core::orm::company::insert_company;
 use neems_core::orm::user::insert_user;
 use neems_core::orm::user_role::assign_user_role_by_name;
 use neems_core::models::{UserNoTime};
 // Role guards are tested through the authentication system
-mod institution;
-use neems_core::institution::{random_energy_company_names};
+mod company;
+use neems_core::company::{random_energy_company_names};
 
-/// Creates dummy data for testing by directly inserting test institution and user into the database.
+/// Creates dummy data for testing by directly inserting test company and user into the database.
 /// This function uses ORM functions directly instead of API endpoints.
 pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &rocket::local::asynchronous::Client {
     // Get database connection from the same pool that the client uses
@@ -23,15 +23,15 @@ pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &ro
         .expect("database connection for add_dummy_data");
     
     db_conn.run(|conn| {
-        // Create institution directly using ORM
-        let inst = insert_institution(conn, random_energy_company_names(1)[0].to_string())
-            .expect("Failed to insert institution");
+        // Create company directly using ORM
+        let comp = insert_company(conn, random_energy_company_names(1)[0].to_string())
+            .expect("Failed to insert company");
 
         // Create test user directly using ORM
         let user = insert_user(conn, UserNoTime {
             email: "testuser@example.com".to_string(),
             password_hash: hash_password("testpassword"),
-            institution_id: inst.id,
+            company_id: comp.id,
             totp_secret: "dummy_secret".to_string(),
         }).expect("Failed to insert user");
 
@@ -64,7 +64,7 @@ async fn test_login_success() {
     let body: serde_json::Value = response.into_json().await.unwrap();
     assert_eq!(body["email"], "testuser@example.com");
     assert!(body["user_id"].is_number());
-    assert!(body["institution_name"].is_string());
+    assert!(body["company_name"].is_string());
     assert!(body["roles"].is_array());
     // Verify the test user has the "user" role that was assigned in add_dummy_data
     let roles = body["roles"].as_array().unwrap();
@@ -181,7 +181,7 @@ async fn test_secure_hello_requires_auth() {
     let body: serde_json::Value = response.into_json().await.unwrap();
     assert_eq!(body["email"], "testuser@example.com");
     assert!(body["user_id"].is_number());
-    assert!(body["institution_name"].is_string());
+    assert!(body["company_name"].is_string());
     assert!(body["roles"].is_array());
     // Verify the test user has the "user" role that was assigned in add_dummy_data
     let roles = body["roles"].as_array().unwrap();
@@ -198,7 +198,7 @@ async fn create_test_user_with_roles(client: &rocket::local::asynchronous::Clien
         let user = insert_user(conn, UserNoTime {
             email: email.clone(),
             password_hash: hash_password("testpassword"),
-            institution_id: 1, // Assumes institution exists
+            company_id: 1, // Assumes company exists
             totp_secret: "dummy_secret".to_string(),
         }).expect("Failed to insert test user");
 
@@ -338,7 +338,7 @@ async fn test_login_hello_data_consistency() {
     // Verify specific fields exist and match
     assert_eq!(login_body["user_id"], hello_body["user_id"]);
     assert_eq!(login_body["email"], hello_body["email"]);
-    assert_eq!(login_body["institution_name"], hello_body["institution_name"]);
+    assert_eq!(login_body["company_name"], hello_body["company_name"]);
     assert_eq!(login_body["roles"], hello_body["roles"]);
 }
 

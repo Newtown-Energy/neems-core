@@ -340,7 +340,7 @@ impl RoleGuard {
                 password_hash: String::new(),
                 created_at: chrono::Utc::now().naive_utc(),
                 updated_at: chrono::Utc::now().naive_utc(),
-                institution_id: 0,
+                company_id: 0,
                 totp_secret: String::new(),
             },
             roles: Vec::new(),

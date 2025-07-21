@@ -16,7 +16,7 @@ use neems_core::orm::testing::test_rocket;
 #[cfg(feature = "test-staging")]
 use neems_core::orm::{DbConn};
 #[cfg(feature = "test-staging")]
-use neems_core::orm::institution::{insert_institution, get_institution_by_name};
+use neems_core::orm::company::{insert_company, get_company_by_name};
 #[cfg(feature = "test-staging")]
 use neems_core::orm::user::insert_user;
 #[cfg(feature = "test-staging")]
@@ -26,9 +26,9 @@ use neems_core::orm::role::insert_role;
 #[cfg(feature = "test-staging")]
 use neems_core::orm::login::hash_password;
 #[cfg(feature = "test-staging")]
-use neems_core::models::{UserNoTime, NewRole, InstitutionNoTime};
+use neems_core::models::{UserNoTime, NewRole, CompanyNoTime};
 #[cfg(feature = "test-staging")]
-use neems_core::institution::random_energy_company_names;
+use neems_core::company::random_energy_company_names;
 
 #[cfg(feature = "test-staging")]
 /// Helper function to create test users with specific roles.
@@ -37,15 +37,15 @@ async fn setup_test_users(client: &Client) {
         .expect("database connection for setup_test_users");
     
     db_conn.run(|conn| {
-        // Get Newtown Energy institution (should already exist)
-        let newtown_energy = get_institution_by_name(conn, &InstitutionNoTime {
+        // Get Newtown Energy company (should already exist)
+        let newtown_energy = get_company_by_name(conn, &CompanyNoTime {
             name: "Newtown Energy".to_string(),
         }).expect("Failed to query Newtown Energy")
           .expect("Newtown Energy should exist");
         
-        // Create a regular test institution
-        let regular_inst = insert_institution(conn, random_energy_company_names(1)[0].to_string())
-            .expect("Failed to insert institution");
+        // Create a regular test company
+        let regular_inst = insert_company(conn, random_energy_company_names(1)[0].to_string())
+            .expect("Failed to insert company");
 
         // Create additional roles that might not exist
         let roles_to_create = vec![
@@ -63,8 +63,8 @@ async fn setup_test_users(client: &Client) {
             });
         }
 
-        // Create test users with different roles and correct institutions
-        // Users with newtown roles must be at Newtown Energy institution
+        // Create test users with different roles and correct companys
+        // Users with newtown roles must be at Newtown Energy company
         let test_users = vec![
             ("test_superadmin@example.com", "adminpass", vec!["admin"], regular_inst.id),
             ("staff@example.com", "staffpass", vec!["staff"], regular_inst.id),
@@ -74,11 +74,11 @@ async fn setup_test_users(client: &Client) {
             ("regular@example.com", "regularpass", vec!["user"], regular_inst.id),
         ];
 
-        for (email, password, roles, institution_id) in test_users {
+        for (email, password, roles, company_id) in test_users {
             let user = insert_user(conn, UserNoTime {
                 email: email.to_string(),
                 password_hash: hash_password(password),
-                institution_id,
+                company_id,
                 totp_secret: "dummy_secret".to_string(),
             }).expect("Failed to insert user");
 

@@ -1,7 +1,7 @@
-//! API endpoints for managing institutions.
+//! API endpoints for managing companies.
 //!
-//! This module provides HTTP endpoints for creating and listing institutions
-//! in the system. Institutions represent organizations or entities that can
+//! This module provides HTTP endpoints for creating and listing companies
+//! in the system. Companies represent organizations or entities that can
 //! be associated with users and roles.
 
 use rocket::serde::json::Json;
@@ -11,19 +11,19 @@ use rocket::Route;
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::models::{Institution, InstitutionName};
-use crate::institution::insert_institution;
-use crate::orm::institution::get_all_institutions;
+use crate::models::{Company, CompanyName};
+use crate::company::insert_company;
+use crate::orm::company::get_all_companies;
 
-/// Create Institution endpoint.
+/// Create Company endpoint.
 ///
-/// - **URL:** `/api/1/institutions`
+/// - **URL:** `/api/1/companies`
 /// - **Method:** `POST`
-/// - **Purpose:** Creates a new institution in the system
+/// - **Purpose:** Creates a new company in the system
 /// - **Authentication:** Required
 ///
-/// This endpoint accepts a JSON payload containing the institution name and
-/// creates a new institution record in the database.
+/// This endpoint accepts a JSON payload containing the company name and
+/// creates a new company record in the database.
 ///
 /// # Request Format
 ///
@@ -47,35 +47,35 @@ use crate::orm::institution::get_all_institutions;
 ///
 /// # Arguments
 /// * `db` - Database connection pool
-/// * `new_institution` - JSON payload containing the institution name
+/// * `new_company` - JSON payload containing the company name
 ///
 /// # Returns
-/// * `Ok(status::Created<Json<Institution>>)` - Successfully created institution
+/// * `Ok(status::Created<Json<Company>>)` - Successfully created company
 /// * `Err(Status)` - Error during creation (typically InternalServerError)
-#[post("/1/institutions", data = "<new_institution>")]
-pub async fn create_institution(
+#[post("/1/companies", data = "<new_company>")]
+pub async fn create_company(
     db: DbConn,
-    new_institution: Json<InstitutionName>,
+    new_company: Json<CompanyName>,
     _auth_user: AuthenticatedUser
-) -> Result<status::Created<Json<Institution>>, Status> {
+) -> Result<status::Created<Json<Company>>, Status> {
     db.run(move |conn| {
-        insert_institution(conn, new_institution.name.clone())
-            .map(|inst| status::Created::new("/").body(Json(inst)))
+        insert_company(conn, new_company.name.clone())
+            .map(|comp| status::Created::new("/").body(Json(comp)))
             .map_err(|e| {
-                eprintln!("Error creating institution: {:?}", e);
+                eprintln!("Error creating company: {:?}", e);
                 Status::InternalServerError
             })
     }).await
 }
 
-/// List Institutions endpoint.
+/// List Companies endpoint.
 ///
-/// - **URL:** `/api/1/institutions`
+/// - **URL:** `/api/1/companies`
 /// - **Method:** `GET`
-/// - **Purpose:** Retrieves all institutions in the system (ordered by ID)
+/// - **Purpose:** Retrieves all companies in the system (ordered by ID)
 /// - **Authentication:** Required
 ///
-/// This endpoint retrieves all institutions from the database and returns them
+/// This endpoint retrieves all companies from the database and returns them
 /// as a JSON array, ordered by ID in ascending order.
 ///
 /// # Response
@@ -91,7 +91,7 @@ pub async fn create_institution(
 ///   },
 ///   {
 ///     "id": 2,
-///     "name": "Another Institution",
+///     "name": "Another Company",
 ///     "created_at": "2023-01-01T00:00:00Z",
 ///     "updated_at": "2023-01-01T00:00:00Z"
 ///   }
@@ -102,15 +102,15 @@ pub async fn create_institution(
 /// * `db` - Database connection pool
 ///
 /// # Returns
-/// * `Ok(Json<Vec<Institution>>)` - List of all institutions
+/// * `Ok(Json<Vec<Company>>)` - List of all companies
 /// * `Err(Status)` - Error during retrieval (typically InternalServerError)
-#[get("/1/institutions")]
-pub async fn list_institutions(
+#[get("/1/companies")]
+pub async fn list_companies(
     db: DbConn,
     _auth_user: AuthenticatedUser
-) -> Result<Json<Vec<Institution>>, Status> {
+) -> Result<Json<Vec<Company>>, Status> {
     db.run(|conn| {
-        get_all_institutions(conn)
+        get_all_companies(conn)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
     }).await
@@ -122,7 +122,7 @@ pub async fn list_institutions(
 /// and returns them as a vector for registration with the Rocket framework.
 ///
 /// # Returns
-/// A vector containing all route handlers for institution endpoints
+/// A vector containing all route handlers for company endpoints
 pub fn routes() -> Vec<Route> {
-    routes![create_institution, list_institutions]
+    routes![create_company, list_companies]
 }

@@ -1,7 +1,7 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    institutions (id) {
+    companies (id) {
         id -> Integer,
         name -> Text,
         created_at -> Timestamp,
@@ -34,7 +34,7 @@ diesel::table! {
         address -> Text,
         latitude -> Double,
         longitude -> Double,
-        institution_id -> Integer,
+        company_id -> Integer,
         created_at -> Timestamp,
         updated_at -> Timestamp,
     }
@@ -54,19 +54,19 @@ diesel::table! {
         password_hash -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
-        institution_id -> Integer,
+        company_id -> Integer,
         totp_secret -> Text,
     }
 }
 
 diesel::joinable!(sessions -> users (user_id));
-diesel::joinable!(sites -> institutions (institution_id));
+diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
 diesel::joinable!(user_roles -> users (user_id));
-diesel::joinable!(users -> institutions (institution_id));
+diesel::joinable!(users -> companies (company_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    institutions,
+    companies,
     roles,
     sessions,
     sites,

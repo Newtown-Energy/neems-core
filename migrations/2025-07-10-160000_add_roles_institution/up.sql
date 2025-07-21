@@ -6,6 +6,6 @@ INSERT INTO roles (name, description) VALUES
   ('admin', 'Administrator for Site Owner'),
   ('user', 'User');
 
-INSERT INTO institutions (name, created_at, updated_at)
+INSERT INTO companies (name, created_at, updated_at)
 VALUES ('Newtown Energy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 

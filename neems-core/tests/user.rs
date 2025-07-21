@@ -5,7 +5,7 @@ use rocket::serde::json::json;
 use rocket::tokio;
 
 use neems_core::orm::testing::test_rocket;
-use neems_core::models::{Institution, Role, User};
+use neems_core::models::{Company, Role, User};
 use neems_core::schema::users::dsl::*;
 use neems_core::schema::roles;
 use neems_core::schema::user_roles;
@@ -35,19 +35,19 @@ async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie
     // Create institution with authentication
     let login_cookie = login_and_get_session(client).await;
     
-    let new_inst = json!({ "name": "A Bogus Company" });
-    let response = client.post("/api/1/institutions")
+    let new_comp = json!({ "name": "A Bogus Company" });
+    let response = client.post("/api/1/companies")
         .header(ContentType::JSON)
         .cookie(login_cookie.clone())
-        .body(new_inst.to_string())
+        .body(new_comp.to_string())
         .dispatch()
         .await;
     
-    assert!(response.status().code < 400, "Institution creation failed");
-    let institution: Institution = response.into_json().await.expect("valid JSON");
-    let inst_id = institution.id;
+    assert!(response.status().code < 400, "Company creation failed");
+    let company: Company = response.into_json().await.expect("valid JSON");
+    let comp_id = company.id;
     
-    (inst_id, login_cookie)
+    (comp_id, login_cookie)
 }
 
 
@@ -104,7 +104,7 @@ async fn test_create_user_requires_auth() {
     let new_user = json!({
         "email": "testuser@example.com",
         "password_hash": "hashed_pw",
-        "institution_id": 1,
+        "company_id": 1,
         "totp_secret": "SECRET123"
     });
     
@@ -118,12 +118,12 @@ async fn test_create_user_requires_auth() {
     
     // Test authenticated request succeeds
     let session_cookie = login_and_get_session(&client).await;
-    let (inst_id, _) = setup_authenticated_user(&client).await;
+    let (comp_id, _) = setup_authenticated_user(&client).await;
     
     let new_user_auth = json!({
         "email": "newuser@example.com",
         "password_hash": "hashed_pw",
-        "institution_id": inst_id,
+        "company_id": comp_id,
         "totp_secret": "SECRET123"
     });
     

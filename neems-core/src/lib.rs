@@ -10,7 +10,7 @@ use rocket::request::Request;
 
 pub mod admin_init_fairing;
 pub mod api;
-pub mod institution; 
+pub mod company; 
 pub mod models; 
 pub mod orm;
 pub use orm::DbConn;

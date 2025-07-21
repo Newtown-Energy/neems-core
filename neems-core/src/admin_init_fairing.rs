@@ -4,8 +4,8 @@ use rocket::fairing::AdHoc;
 use rocket::Rocket;
 
 use crate::orm::DbConn;
-use crate::orm::institution::{get_institution_by_name, insert_institution};
-use crate::models::{InstitutionNoTime, User, UserNoTime, Role, NewRole, NewUserRole};
+use crate::orm::company::{get_company_by_name, insert_company};
+use crate::models::{CompanyNoTime, User, UserNoTime, Role, NewRole, NewUserRole};
 use crate::orm::role::insert_role;
 use crate::schema::users::dsl::*;
 use crate::schema::roles::dsl::*;
@@ -25,12 +25,12 @@ pub fn admin_init_fairing() -> AdHoc {
             None => return Err(rocket),
         };
 
-        let institution = match setup_institution(&conn).await {
+        let company = match setup_company(&conn).await {
             Ok(inst) => inst,
             Err(rocket) => return Err(rocket),
         };
 
-        match setup_admin_user(&conn, institution).await {
+        match setup_admin_user(&conn, company).await {
             Ok(()) => Ok(rocket),
             Err(rocket) => Err(rocket),
         }
@@ -47,13 +47,13 @@ async fn get_db_connection(rocket: &Rocket<rocket::Build>) -> Option<DbConn> {
     }
 }
 
-async fn setup_institution(conn: &DbConn) -> Result<crate::models::Institution, rocket::Rocket<rocket::Build>> {
+async fn setup_company(conn: &DbConn) -> Result<crate::models::Company, rocket::Rocket<rocket::Build>> {
     conn.run(|c| {
-        find_or_create_institution(c)
+        find_or_create_company(c)
     }).await.map_err(|_| rocket::build())
 }
 
-fn find_or_create_institution(c: &mut SqliteConnection) -> Result<crate::models::Institution, diesel::result::Error> {
+fn find_or_create_company(c: &mut SqliteConnection) -> Result<crate::models::Company, diesel::result::Error> {
     let candidate_names = [
         "Newtown Energy",
         "Newtown Energy, Inc",
@@ -61,35 +61,35 @@ fn find_or_create_institution(c: &mut SqliteConnection) -> Result<crate::models:
     ];
 
     for cand in candidate_names {
-        let inst_no_time = InstitutionNoTime { name: cand.to_string() };
-        match get_institution_by_name(c, &inst_no_time) {
+        let comp_no_time = CompanyNoTime { name: cand.to_string() };
+        match get_company_by_name(c, &comp_no_time) {
             Ok(Some(found)) => {
-                info!("[admin-init] Matched institution: '{}'", cand);
+                info!("[admin-init] Matched company: '{}'", cand);
                 return Ok(found);
             }
             Ok(None) => continue,
             Err(e) => {
-                error!("[admin-init] ERROR querying institution '{}': {:?}", cand, e);
+                error!("[admin-init] ERROR querying company '{}': {:?}", cand, e);
                 return Err(e);
             }
         }
     }
 
-    println!("[admin-init] No matching institution found. Creating 'Newtown Energy'.");
-    match insert_institution(c, "Newtown Energy".to_string()) {
+    println!("[admin-init] No matching company found. Creating 'Newtown Energy'.");
+    match insert_company(c, "Newtown Energy".to_string()) {
         Ok(inst) => Ok(inst),
         Err(e) => {
-            error!("[admin-init] ERROR creating institution: {:?}", e);
+            error!("[admin-init] ERROR creating company: {:?}", e);
             Err(e)
         }
     }
 }
 
-async fn setup_admin_user(conn: &DbConn, institution: crate::models::Institution) -> Result<(), rocket::Rocket<rocket::Build>> {
+async fn setup_admin_user(conn: &DbConn, company: crate::models::Company) -> Result<(), rocket::Rocket<rocket::Build>> {
     let admin_email = get_admin_email();
     
     conn.run(move |c| {
-        create_admin_user_if_needed(c, &admin_email, &institution)
+        create_admin_user_if_needed(c, &admin_email, &company)
     }).await.map_err(|e| {
         error!("[admin-init] FATAL: Admin user creation failed: {:?}", e);
         rocket::build()
@@ -100,13 +100,13 @@ fn get_admin_email() -> String {
     std::env::var("NEEMS_DEFAULT_EMAIL").unwrap_or_else(|_| "superadmin@example.com".to_string())
 }
 
-fn create_admin_user_if_needed(c: &mut SqliteConnection, admin_email: &str, institution: &crate::models::Institution) -> Result<(), diesel::result::Error> {
+fn create_admin_user_if_needed(c: &mut SqliteConnection, admin_email: &str, company: &crate::models::Company) -> Result<(), diesel::result::Error> {
     if admin_user_exists(c, admin_email)? {
         info!("[admin-init] Admin user '{}' already exists", admin_email);
         return Ok(());
     }
 
-    let user = create_admin_user(c, admin_email, institution)?;
+    let user = create_admin_user(c, admin_email, company)?;
     assign_admin_role(c, &user, admin_email)?;
     
     Ok(())
@@ -120,14 +120,14 @@ fn admin_user_exists(c: &mut SqliteConnection, admin_email: &str) -> Result<bool
     Ok(existing_user.is_some())
 }
 
-fn create_admin_user(c: &mut SqliteConnection, admin_email: &str, institution: &crate::models::Institution) -> Result<crate::models::User, diesel::result::Error> {
+fn create_admin_user(c: &mut SqliteConnection, admin_email: &str, company: &crate::models::Company) -> Result<crate::models::User, diesel::result::Error> {
     let admin_password = get_admin_password();
     let passhash = hash_password(&admin_password);
     
     let admin_user = UserNoTime {
         email: admin_email.to_string(),
         password_hash: passhash,
-        institution_id: institution.id,
+        company_id: company.id,
         totp_secret: "".to_string(),
     };
     

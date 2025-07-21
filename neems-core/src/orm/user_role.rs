@@ -125,7 +125,7 @@ mod tests {
         let user = insert_user(&mut conn, UserNoTime {
             email: "test@example.com".to_string(),
             password_hash: hash_password("password"),
-            institution_id: 1,
+            company_id: 1,
             totp_secret: "secret".to_string(),
         }).unwrap();
 
@@ -150,7 +150,7 @@ mod tests {
         let user = insert_user(&mut conn, UserNoTime {
             email: "test2@example.com".to_string(),
             password_hash: hash_password("password"),
-            institution_id: 1,
+            company_id: 1,
             totp_secret: "secret".to_string(),
         }).unwrap();
 
@@ -173,7 +173,7 @@ mod tests {
         let user = insert_user(&mut conn, UserNoTime {
             email: "test3@example.com".to_string(),
             password_hash: hash_password("password"),
-            institution_id: 1,
+            company_id: 1,
             totp_secret: "secret".to_string(),
         }).unwrap();
 
@@ -197,7 +197,7 @@ mod tests {
         let user = insert_user(&mut conn, UserNoTime {
             email: "test4@example.com".to_string(),
             password_hash: hash_password("password"),
-            institution_id: 1,
+            company_id: 1,
             totp_secret: "secret".to_string(),
         }).unwrap();
 

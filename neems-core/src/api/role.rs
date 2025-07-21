@@ -2,7 +2,7 @@
 //!
 //! This module provides HTTP endpoints for creating and listing roles
 //! in the system. Roles define permissions and access levels that can
-//! be assigned to users within institutions.
+//! be assigned to users within companies.
 
 use rocket::serde::json::Json;
 use rocket::http::Status;

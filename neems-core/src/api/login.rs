@@ -12,7 +12,7 @@ use crate::session_guards::AuthenticatedUser;
 use crate::DbConn;
 use crate::orm::login::process_login;
 use crate::orm::user_role::get_user_roles;
-use crate::orm::institution::get_institution_by_id;
+use crate::orm::company::get_company_by_id;
 
 /// Error response structure for authentication failures.
 #[derive(Serialize)]
@@ -25,17 +25,17 @@ pub struct ErrorResponse {
 pub struct LoginSuccessResponse {
     pub user_id: i32,
     pub email: String,
-    pub institution_name: String,
+    pub company_name: String,
     pub roles: Vec<String>,
 }
 
 /// Creates a standardized user response structure for login and hello endpoints.
 ///
 /// This function ensures both login and hello endpoints return exactly the same
-/// data structure for a given user, including user_id, email, institution_name, and roles.
+/// data structure for a given user, including user_id, email, company_name, and roles.
 ///
 /// # Arguments
-/// * `db` - Database connection for fetching user roles and institution information
+/// * `db` - Database connection for fetching user roles and company information
 /// * `user` - The user object to build the response for
 ///
 /// # Returns
@@ -54,20 +54,20 @@ async fn build_user_response(
         Err(_) => vec![], // Return empty roles on error rather than failing
     };
 
-    // Get institution name
-    let institution_id = user.institution_id;
-    let institution_name = match db.run(move |conn| {
-        get_institution_by_id(conn, institution_id)
+    // Get company name
+    let company_id = user.company_id;
+    let company_name = match db.run(move |conn| {
+        get_company_by_id(conn, company_id)
     }).await {
-        Ok(Some(institution)) => institution.name,
-        Ok(None) => "Unknown Institution".to_string(),
-        Err(_) => "Unknown Institution".to_string(),
+        Ok(Some(company)) => company.name,
+        Ok(None) => "Unknown Company".to_string(),
+        Err(_) => "Unknown Company".to_string(),
     };
 
     Ok(LoginSuccessResponse {
         user_id: user.id,
         email: user.email,
-        institution_name,
+        company_name,
         roles,
     })
 }
