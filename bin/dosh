@@ -9,8 +9,16 @@ cd ${BASEDIR}
 
 DEV_TEST_FLAGS="--color=always -p neems-core"
 
-_install_cranelift() {
+_install-ansi2txt() {
+    which ansi2txt > /dev/null && return 0
+    echo Please install ansi2txt, which is available on devian in the colorized-logs package.
+    return 1
+}
+
+_install-cranelift() {
     echo "➡️ Ensuring we have a Cranelift build environment..."
+
+    rustup update
 
     # Check for rustup
     if ! command -v rustup >/dev/null 2>&1; then
@@ -42,9 +50,6 @@ _install_cranelift() {
 build() {
     # Build a dev bin
     
-    # Install Cranelift if not already installed
-    _install_cranelift
-
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build --features test-staging "$@" || {
@@ -56,6 +61,26 @@ build() {
 check() {
     local cmd="check $DEV_TEST_FLAGS"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+}
+
+clippy() {
+    cargo clippy "@" 
+}
+
+depends() {
+  head -n 1 /etc/os-release | grep -q 'ID=debian' || {
+    echo "This script is intended for Debian-based systems only."
+    exit 1
+  }
+  apt install -y libsqlite3-dev
+  rustup update
+  cargo nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }
+  _install-cranelift
+  _install-ansi2txt
+}
+
+fmt() {
+    cargo fmt "@" 
 }
 
 migrate() {
@@ -72,7 +97,6 @@ migrate() {
 }
 
 nextest() {
-    # You can get ansi2txt in the Debian colorized-logs package
     local cmd="nextest run $DEV_TEST_FLAGS -p neems-core"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
@@ -83,8 +107,18 @@ push() {
 }
 
 release() {
+    # Build a release bin
+    rustup update
+    echo "🚀 Building release version..."
     flags="--features fixphrase"
-    cargo build --release $flags "$@"
+    cargo +nightly build --release $flags "$@" || {
+	echo "❌ Build failed. Please check the output above."
+	return 1
+    }
+}
+
+test() {
+    nextest "$@"
 }
 
 test-all() {
@@ -92,12 +126,7 @@ test-all() {
     FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging "$@"
 }
 
-test() {
-    nextest "$@"
-}
-
 test-trad() {
-    # You can get ansi2txt in the Debian colorized-logs package
     local cmd="test $DEV_TEST_FLAGS --quiet"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
