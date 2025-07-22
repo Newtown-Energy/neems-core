@@ -14,8 +14,8 @@ use rocket::serde::json::{json, Json};
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::orm::user::{insert_user, list_all_users, get_user, update_user, delete_user, get_users_by_company, delete_user_with_cleanup};
-use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name, remove_all_user_roles};
+use crate::orm::user::{insert_user, list_all_users, get_user, update_user, get_users_by_company, delete_user_with_cleanup};
+use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
 use crate::orm::company::get_company_by_name;
 use crate::models::{User, UserNoTime, Role, CompanyNoTime};
 
