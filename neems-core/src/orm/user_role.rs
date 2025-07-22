@@ -103,6 +103,28 @@ pub fn remove_user_role_by_name(
     remove_user_role(conn, user_id_param, role.id)
 }
 
+/// Removes all roles from a user
+/// 
+/// This function removes all role assignments for a specific user.
+/// Used primarily when deleting a user to ensure referential integrity.
+///
+/// # Arguments
+/// * `conn` - Database connection
+/// * `user_id_param` - ID of the user whose roles to remove
+///
+/// # Returns
+/// * `Ok(usize)` - Number of role assignments removed
+/// * `Err(diesel::result::Error)` - Database error
+pub fn remove_all_user_roles(
+    conn: &mut SqliteConnection,
+    user_id_param: i32,
+) -> Result<usize, diesel::result::Error> {
+    use crate::schema::user_roles::dsl::*;
+
+    diesel::delete(user_roles.filter(user_id.eq(user_id_param)))
+        .execute(conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

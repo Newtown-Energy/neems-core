@@ -158,3 +158,67 @@ async fn test_list_users_requires_auth() {
     let list: Vec<User> = response.into_json().await.expect("valid JSON response");
     assert!(!list.is_empty()); // Should have at least the admin user
 }
+
+#[rocket::async_test]
+async fn test_user_crud_endpoints() {
+    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
+    let session_cookie = login_and_get_session(&client).await;
+    let (comp_id, _) = setup_authenticated_user(&client).await;
+    
+    // Create a test user
+    let new_user = json!({
+        "email": "crudtest@example.com",
+        "password_hash": "testhash",
+        "company_id": comp_id,
+        "totp_secret": "testsecret"
+    });
+    
+    let response = client.post("/api/1/users")
+        .header(ContentType::JSON)
+        .cookie(session_cookie.clone())
+        .body(new_user.to_string())
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Created);
+    let created_user: User = response.into_json().await.expect("valid user JSON");
+    
+    // Test GET single user
+    let url = format!("/api/1/users/{}", created_user.id);
+    let response = client.get(&url)
+        .cookie(session_cookie.clone())
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Ok);
+    let retrieved_user: User = response.into_json().await.expect("valid user JSON");
+    assert_eq!(retrieved_user.id, created_user.id);
+    assert_eq!(retrieved_user.email, "crudtest@example.com");
+    
+    // Test PUT update user
+    let update_data = json!({
+        "email": "updated@example.com",
+        "totp_secret": "updatedsecret"
+    });
+    
+    let response = client.put(&url)
+        .header(ContentType::JSON)
+        .cookie(session_cookie.clone())
+        .body(update_data.to_string())
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::Ok);
+    let updated_user: User = response.into_json().await.expect("valid user JSON");
+    assert_eq!(updated_user.email, "updated@example.com");
+    assert_eq!(updated_user.totp_secret, "updatedsecret");
+    assert_eq!(updated_user.password_hash, "testhash"); // Should remain unchanged
+    
+    // Test DELETE user (should work as we're logged in as newtown-admin)
+    let response = client.delete(&url)
+        .cookie(session_cookie)
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::NoContent); // Should work as we're logged in as newtown-admin
+}

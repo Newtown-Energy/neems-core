@@ -14,8 +14,8 @@ use rocket::serde::json::{json, Json};
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::orm::user::{insert_user, list_all_users, get_user};
-use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
+use crate::orm::user::{insert_user, list_all_users, get_user, update_user, delete_user, get_users_by_company, delete_user_with_cleanup};
+use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name, remove_all_user_roles};
 use crate::orm::company::get_company_by_name;
 use crate::models::{User, UserNoTime, Role, CompanyNoTime};
 
@@ -171,8 +171,25 @@ pub async fn create_user_by_api(
 pub async fn create_user(
     db: DbConn,
     new_user: Json<UserNoTime>,
-    _auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser
 ) -> Result<status::Created<Json<User>>, Status> {
+    // Check authorization: can create users for target company?
+    let target_company_id = new_user.company_id;
+    
+    let can_create = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+        // newtown-admin and newtown-staff can create users for any company
+        true
+    } else if auth_user.has_role("admin") {
+        // admin can only create users for their own company
+        auth_user.user.company_id == target_company_id
+    } else {
+        false
+    };
+    
+    if !can_create {
+        return Err(Status::Forbidden);
+    }
+
     db.run(move |conn| {
         insert_user(conn, new_user.into_inner())
             .map(|user| status::Created::new("/").body(Json(user)))
@@ -229,16 +246,34 @@ pub async fn create_user(
 #[get("/1/users")]
 pub async fn list_users(
     db: DbConn,
-    _auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser
 ) -> Result<Json<Vec<User>>, Status> {
-    db.run(|conn| {
-        list_all_users(conn)
-            .map(Json)
-            .map_err(|e| {
-                eprintln!("Error listing users: {:?}", e);
-                Status::InternalServerError
-            })
-    }).await
+    // Authorization: determine which users this user can see
+    if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+        // newtown-admin and newtown-staff can see all users
+        db.run(|conn| {
+            list_all_users(conn)
+                .map(Json)
+                .map_err(|e| {
+                    eprintln!("Error listing all users: {:?}", e);
+                    Status::InternalServerError
+                })
+        }).await
+    } else if auth_user.has_role("admin") {
+        // admin can only see users from their own company
+        let company_id = auth_user.user.company_id;
+        db.run(move |conn| {
+            get_users_by_company(conn, company_id)
+                .map(Json)
+                .map_err(|e| {
+                    eprintln!("Error listing company users: {:?}", e);
+                    Status::InternalServerError
+                })
+        }).await
+    } else {
+        // Regular users cannot list users
+        Err(Status::Forbidden)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -257,6 +292,97 @@ pub struct AddUserRoleRequest {
 #[derive(serde::Deserialize)]
 pub struct RemoveUserRoleRequest {
     pub role_name: String,
+}
+
+/// Request structure for updating a user (all fields optional).
+#[derive(serde::Deserialize)]
+pub struct UpdateUserRequest {
+    pub email: Option<String>,
+    pub password_hash: Option<String>,
+    pub company_id: Option<i32>,
+    pub totp_secret: Option<String>,
+}
+
+/// Get User endpoint.
+///
+/// - **URL:** `/api/1/users/<user_id>`
+/// - **Method:** `GET`
+/// - **Purpose:** Retrieves a specific user by ID
+/// - **Authentication:** Required
+/// - **Authorization:** Users can view their own profile, admins can view any user
+///
+/// This endpoint retrieves a specific user's information. Users can view their
+/// own profile data, while users with admin privileges can view any user's data.
+///
+/// # Parameters
+///
+/// - `user_id` - The ID of the user to retrieve
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "id": 123,
+///   "email": "user@example.com",
+///   "password_hash": "hashed_password_string",
+///   "company_id": 1,
+///   "totp_secret": "optional_totp_secret",
+///   "created_at": "2023-01-01T00:00:00Z",
+///   "updated_at": "2023-01-01T00:00:00Z"
+/// }
+/// ```
+///
+/// **Failure (HTTP 403 Forbidden):**
+/// User doesn't have permission to view the specified user
+///
+/// **Failure (HTTP 404 Not Found):**
+/// User with specified ID doesn't exist
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `user_id` - The ID of the user to retrieve
+/// * `auth_user` - The authenticated user making the request
+///
+/// # Returns
+/// * `Ok(Json<User>)` - The requested user data
+/// * `Err(Status)` - Error status (Forbidden, NotFound, InternalServerError)
+#[get("/1/users/<user_id>")]
+pub async fn get_user_endpoint(
+    db: DbConn,
+    user_id: i32,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<User>, Status> {
+    db.run(move |conn| {
+        match get_user(conn, user_id) {
+            Ok(user) => {
+                // Authorization: who can view this user?
+                let can_view = if auth_user.user.id == user_id {
+                    // Users can always view their own profile
+                    true
+                } else if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+                    // newtown-admin and newtown-staff can view any user
+                    true
+                } else if auth_user.has_role("admin") {
+                    // Company admins can only view users from their own company
+                    auth_user.user.company_id == user.company_id
+                } else {
+                    false
+                };
+                
+                if !can_view {
+                    return Err(Status::Forbidden);
+                }
+                
+                Ok(Json(user))
+            },
+            Err(diesel::result::Error::NotFound) => Err(Status::NotFound),
+            Err(e) => {
+                eprintln!("Error getting user: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
+    }).await
 }
 
 /// Get User Roles endpoint.
@@ -593,6 +719,203 @@ pub async fn remove_user_role(
     Ok(Status::Ok)
 }
 
+/// Update User endpoint.
+///
+/// - **URL:** `/api/1/users/<user_id>`
+/// - **Method:** `PUT`
+/// - **Purpose:** Updates a user's information
+/// - **Authentication:** Required
+/// - **Authorization:** Users can update their own profile, admins can update any user
+///
+/// This endpoint allows updating user information. Users can update their own
+/// profile data, while users with admin privileges can update any user's data.
+/// All fields in the request are optional - only provided fields will be updated.
+///
+/// # Parameters
+///
+/// - `user_id` - The ID of the user to update
+///
+/// # Request Format
+///
+/// ```json
+/// {
+///   "email": "newemail@example.com",
+///   "password_hash": "new_hashed_password",
+///   "company_id": 2,
+///   "totp_secret": "new_totp_secret"
+/// }
+/// ```
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "id": 123,
+///   "email": "newemail@example.com",
+///   "password_hash": "new_hashed_password",
+///   "company_id": 2,
+///   "totp_secret": "new_totp_secret",
+///   "created_at": "2023-01-01T00:00:00Z",
+///   "updated_at": "2023-01-01T12:30:00Z"
+/// }
+/// ```
+///
+/// **Failure (HTTP 403 Forbidden):**
+/// User doesn't have permission to update the specified user
+///
+/// **Failure (HTTP 404 Not Found):**
+/// User with specified ID doesn't exist
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `user_id` - The ID of the user to update
+/// * `request` - JSON payload containing fields to update
+/// * `auth_user` - The authenticated user making the request
+///
+/// # Returns
+/// * `Ok(Json<User>)` - The updated user data
+/// * `Err(Status)` - Error status (Forbidden, NotFound, InternalServerError)
+#[put("/1/users/<user_id>", data = "<request>")]
+pub async fn update_user_endpoint(
+    db: DbConn,
+    user_id: i32,
+    request: Json<UpdateUserRequest>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<User>, Status> {
+    db.run(move |conn| {
+        // First, get the target user to check authorization
+        let target_user = match get_user(conn, user_id) {
+            Ok(user) => user,
+            Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
+            Err(e) => {
+                eprintln!("Error getting user for update: {:?}", e);
+                return Err(Status::InternalServerError);
+            }
+        };
+        
+        // Authorization: who can update this user?
+        let can_update = if auth_user.user.id == user_id {
+            // Users can always update their own profile
+            true
+        } else if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+            // newtown-admin and newtown-staff can update any user
+            true
+        } else if auth_user.has_role("admin") {
+            // Company admins can only update users from their own company
+            auth_user.user.company_id == target_user.company_id
+        } else {
+            false
+        };
+        
+        if !can_update {
+            return Err(Status::Forbidden);
+        }
+
+        match update_user(
+            conn,
+            user_id,
+            request.email.clone(),
+            request.password_hash.clone(),
+            request.company_id,
+            request.totp_secret.clone(),
+        ) {
+            Ok(user) => Ok(Json(user)),
+            Err(diesel::result::Error::NotFound) => Err(Status::NotFound),
+            Err(e) => {
+                eprintln!("Error updating user: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
+    }).await
+}
+
+/// Delete User endpoint.
+///
+/// - **URL:** `/api/1/users/<user_id>`
+/// - **Method:** `DELETE`
+/// - **Purpose:** Deletes a user from the system
+/// - **Authentication:** Required
+/// - **Authorization:** Only newtown-admin and newtown-staff can delete users
+///
+/// This endpoint permanently removes a user from the system. This is a
+/// destructive operation that also removes associated data like user roles
+/// and sessions. Only users with newtown-admin or newtown-staff roles can
+/// delete users.
+///
+/// **Warning**: This is a hard delete operation that cannot be undone.
+///
+/// # Parameters
+///
+/// - `user_id` - The ID of the user to delete
+///
+/// # Response
+///
+/// **Success (HTTP 204 No Content):**
+/// No response body - user successfully deleted
+///
+/// **Failure (HTTP 403 Forbidden):**
+/// User doesn't have permission to delete users
+///
+/// **Failure (HTTP 404 Not Found):**
+/// User with specified ID doesn't exist
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `user_id` - The ID of the user to delete
+/// * `auth_user` - The authenticated user making the request
+///
+/// # Returns
+/// * `Ok(Status::NoContent)` - User successfully deleted
+/// * `Err(Status)` - Error status (Forbidden, NotFound, InternalServerError)
+#[delete("/1/users/<user_id>")]
+pub async fn delete_user_endpoint(
+    db: DbConn,
+    user_id: i32,
+    auth_user: AuthenticatedUser,
+) -> Result<Status, Status> {
+    db.run(move |conn| {
+        // First, get the target user to check authorization
+        let target_user = match get_user(conn, user_id) {
+            Ok(user) => user,
+            Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
+            Err(e) => {
+                eprintln!("Error getting user for deletion: {:?}", e);
+                return Err(Status::InternalServerError);
+            }
+        };
+        
+        // Authorization: who can delete this user?
+        let can_delete = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+            // newtown-admin and newtown-staff can delete any user
+            true
+        } else if auth_user.has_role("admin") {
+            // Company admins can only delete users from their own company
+            auth_user.user.company_id == target_user.company_id
+        } else {
+            false
+        };
+        
+        if !can_delete {
+            return Err(Status::Forbidden);
+        }
+        
+        match delete_user_with_cleanup(conn, user_id) {
+            Ok(rows_affected) => {
+                if rows_affected > 0 {
+                    Ok(Status::NoContent)
+                } else {
+                    Err(Status::NotFound)
+                }
+            }
+            Err(e) => {
+                eprintln!("Error deleting user: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
+    }).await
+}
+
 /// Returns a vector of all routes defined in this module.
 ///
 /// This function collects all the route handlers defined in this module
@@ -601,5 +924,14 @@ pub async fn remove_user_role(
 /// # Returns
 /// A vector containing all route handlers for user endpoints
 pub fn routes() -> Vec<Route> {
-    routes![create_user, list_users, get_user_roles_endpoint, add_user_role, remove_user_role]
+    routes![
+        create_user, 
+        list_users, 
+        get_user_endpoint,
+        update_user_endpoint,
+        delete_user_endpoint,
+        get_user_roles_endpoint, 
+        add_user_role, 
+        remove_user_role
+    ]
 }
