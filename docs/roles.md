@@ -4,44 +4,44 @@ This document describes the role-based access control (RBAC) system in neems-cor
 
 ## Overview
 
-The neems-core system uses a hierarchical role system with four distinct roles that control user permissions and access to various system features. Roles are tightly integrated with institutions and enforce specific business rules around authorization.
+The neems-core system uses a hierarchical role system with four distinct roles that control user permissions and access to various system features. Roles are tightly integrated with companies and enforce specific business rules around authorization.
 
 ## The Four Roles
 
 ### 1. `newtown-admin`
 - **Purpose:** System administrator for Newtown Energy
 - **Privilege Level:** Highest - full system control
-- **Institution Restriction:** **Newtown Energy only**
+- **Company Restriction:** **Newtown Energy only**
 - **Key Capabilities:**
   - Can assign/remove any role to/from any user
   - Access to all system features and endpoints
-  - Can manage users across all institutions
+  - Can manage users across all companies
   - Full administrative privileges
 
-### 2. `newtown-staff`  
+### 2. `newtown-staff`
 - **Purpose:** Staff member for Newtown Energy
 - **Privilege Level:** High - broad system access
-- **Institution Restriction:** **Newtown Energy only**
+- **Company Restriction:** **Newtown Energy only**
 - **Key Capabilities:**
   - Can assign/remove most roles to/from any user
   - **Cannot** assign `newtown-admin` role (privilege escalation protection)
   - Access to most administrative features
-  - Can manage users across all institutions (with role limitations)
+  - Can manage users across all companies (with role limitations)
 
 ### 3. `admin`
-- **Purpose:** Administrator for individual institutions
-- **Privilege Level:** Medium - institution-scoped control  
-- **Institution Restriction:** Can only manage users within their own institution
+- **Purpose:** Administrator for individual companies
+- **Privilege Level:** Medium - company-scoped control
+- **Company Restriction:** Can only manage users within their own company
 - **Key Capabilities:**
-  - Can assign/remove `admin` role to users in the **same institution only**
+  - Can assign/remove `admin` role to users in the **same company only**
   - Cannot assign Newtown-specific roles
-  - Institution-local administrative access
-  - Limited to managing their own institution's users
+  - Company-local administrative access
+  - Limited to managing their own company's users
 
-### 4. `user`
+### 4. `staff`
 - **Purpose:** Standard system user
 - **Privilege Level:** Basic - standard user access
-- **Institution Restriction:** None specific
+- **Company Restriction:** None specific
 - **Key Capabilities:**
   - Basic system access
   - Can view their own profile and roles
@@ -54,25 +54,25 @@ The neems-core system uses a hierarchical role system with four distinct roles t
 newtown-admin     (Full system control)
     ↓
 newtown-staff     (System-wide management, limited by elevation rules)
-    ↓  
-admin             (Institution-scoped administration)
     ↓
-user              (Basic access)
+admin             (Company-scoped administration)
+    ↓
+staff             (Basic access)
 ```
 
 ## Business Rules
 
-### Institution-Based Restrictions
+### Company-Based Restrictions
 
 #### Newtown Energy Exclusive Roles
-- `newtown-admin` and `newtown-staff` roles are **strictly reserved** for users belonging to "Newtown Energy" institution
+- `newtown-admin` and `newtown-staff` roles are **strictly reserved** for users belonging to "Newtown Energy" company
 - This restriction is enforced at both API and database levels
 - **Even `newtown-admin` cannot assign Newtown roles to non-Newtown users**
 
-#### Cross-Institution Management
-- `newtown-admin` and `newtown-staff` can manage users from any institution
-- `admin` users can only manage users within their own institution
-- `user` role has no management capabilities
+#### Cross-Company Management
+- `newtown-admin` and `newtown-staff` can manage users from any company
+- `admin` users can only manage users within their own company
+- `staff` role has no management capabilities
 
 ### Role Assignment Authorization Matrix
 
@@ -80,8 +80,8 @@ user              (Basic access)
 |-----------|-------------------|--------------|
 | `newtown-admin` | **Any role** | None - full privileges |
 | `newtown-staff` | Any role **except** `newtown-admin` | Cannot create other newtown-admins |
-| `admin` | `admin` role only | Only to users in **same institution** |
-| `user` | None | No assignment privileges |
+| `admin` | `admin` role only | Only to users in **same company** |
+| `staff` | None | No assignment privileges |
 
 ### Role Removal Rules
 - Same authorization rules apply as assignment
@@ -91,7 +91,7 @@ user              (Basic access)
 
 ### User Role Requirements
 - Every user **must have at least one role** at all times
-- New users automatically receive `user` role if no other role is assigned
+- New users automatically receive `staff` role if no other role is assigned
 - The system prevents creating "roleless" users
 
 ## Frontend Integration Guidelines
@@ -107,8 +107,8 @@ const response = await fetch('/api/1/hello', { credentials: 'include' });
 if (response.ok) {
   const userInfo = await response.text(); // "Hello, user@example.com!"
   // Then get roles for the authenticated user
-  const rolesResponse = await fetch(`/api/1/users/${userId}/roles`, { 
-    credentials: 'include' 
+  const rolesResponse = await fetch(`/api/1/users/${userId}/roles`, {
+    credentials: 'include'
   });
   const roles = await rolesResponse.json();
 }
@@ -118,20 +118,20 @@ if (response.ok) {
 ```js
 // Example: Show admin panel only to appropriate roles
 function canAccessAdminPanel(userRoles) {
-  return userRoles.some(role => 
+  return userRoles.some(role =>
     ['newtown-admin', 'newtown-staff', 'admin'].includes(role.name)
   );
 }
 
 // Example: Show role management for users who can assign roles
-function canManageRoles(userRoles, targetUserInstitution, currentUserInstitution) {
+function canManageRoles(userRoles, targetUserCompany, currentUserCompany) {
   const hasNewtownAdmin = userRoles.some(r => r.name === 'newtown-admin');
   const hasNewtownStaff = userRoles.some(r => r.name === 'newtown-staff');
   const hasAdmin = userRoles.some(r => r.name === 'admin');
-  
+
   if (hasNewtownAdmin) return true; // Can manage anyone
   if (hasNewtownStaff) return true; // Can manage anyone (with role restrictions)
-  if (hasAdmin) return targetUserInstitution === currentUserInstitution; // Same institution only
+  if (hasAdmin) return targetUserCompany === currentUserCompany; // Same company only
   return false;
 }
 ```
@@ -141,23 +141,23 @@ function canManageRoles(userRoles, targetUserInstitution, currentUserInstitution
 #### Dropdown/Selection Logic
 ```js
 function getAssignableRoles(userRoles, targetUser, currentUser) {
-  const allRoles = ['user', 'admin', 'newtown-staff', 'newtown-admin'];
-  
+  const allRoles = ['staff', 'admin', 'newtown-staff', 'newtown-admin'];
+
   if (userRoles.some(r => r.name === 'newtown-admin')) {
     return allRoles; // Can assign any role
   }
-  
+
   if (userRoles.some(r => r.name === 'newtown-staff')) {
     return allRoles.filter(role => role !== 'newtown-admin'); // Cannot assign newtown-admin
   }
-  
+
   if (userRoles.some(r => r.name === 'admin')) {
-    // Can only assign admin to users in same institution
-    if (targetUser.institution_id === currentUser.institution_id) {
+    // Can only assign admin to users in same company
+    if (targetUser.company_id === currentUser.company_id) {
       return ['admin'];
     }
   }
-  
+
   return []; // No assignment privileges
 }
 ```
@@ -166,8 +166,8 @@ function getAssignableRoles(userRoles, targetUser, currentUser) {
 ```js
 function canAssignNewtownRole(targetUser, roleName) {
   if (['newtown-admin', 'newtown-staff'].includes(roleName)) {
-    // Must be Newtown Energy institution user
-    return targetUser.institution_name === 'Newtown Energy';
+    // Must be Newtown Energy company user
+    return targetUser.company_name === 'Newtown Energy';
   }
   return true;
 }
@@ -204,8 +204,8 @@ if (!response.ok) {
 
 #### Role Display
 - Always show roles with clear visual hierarchy
-- Use color coding: Newtown roles (special), admin (elevated), user (standard)
-- Display institution context when relevant
+- Use color coding: Newtown roles (special), admin (elevated), staff (standard)
+- Display company context when relevant
 
 #### Role Management Interface
 - Prevent users from removing their own critical roles
@@ -213,19 +213,49 @@ if (!response.ok) {
 - Disable options that would violate business rules
 - Provide clear feedback about permission limitations
 
-#### Institution Context
-- Always display user's institution in role management interfaces  
+#### Company Context
+- Always display user's company in role management interfaces
 - Clearly indicate when Newtown-exclusive roles are involved
-- Show institution-based restrictions in tooltips or help text
+- Show company-based restrictions in tooltips or help text
 
 ## API Endpoints Summary
 
-- `GET /api/1/users/<user_id>/roles` - Get user's roles
-- `POST /api/1/users/roles` - Add role to user  
-- `DELETE /api/1/users/roles` - Remove role from user
-- `GET /api/1/roles` - List all available roles
+The role system integrates with numerous API endpoints. Key role-related endpoints include:
 
-See `api.md` for complete endpoint documentation including request/response formats.
+**Role Management:**
+- `GET /api/1/users/<user_id>/roles` - Get user's roles
+- `POST /api/1/users/<user_id>/roles` - Add role to user
+- `DELETE /api/1/users/<user_id>/roles` - Remove role from user
+- `GET /api/1/roles` - List all available roles
+- `POST /api/1/roles` - Create new role (newtown-admin only)
+- `PUT /api/1/roles/<role_id>` - Update role (newtown-admin only)
+- `DELETE /api/1/roles/<role_id>` - Delete role (newtown-admin only)
+
+**User Management:**
+- `GET /api/1/users` - List users (authorization-scoped)
+- `POST /api/1/users` - Create user (admin privileges required)
+- `GET /api/1/users/<user_id>` - Get user details
+- `PUT /api/1/users/<user_id>` - Update user
+- `DELETE /api/1/users/<user_id>` - Delete user (admin privileges required)
+
+**Company Management:**
+- `GET /api/1/companies` - List companies
+- `POST /api/1/companies` - Create company
+- `GET /api/1/company/<company_id>/users` - List company users
+- `GET /api/1/company/<company_id>/sites` - List company sites
+
+**Authentication & Session:**
+- `POST /api/1/login` - Login and establish session
+- `GET /api/1/hello` - Check authentication status and get user info
+- `POST /api/1/logout` - End session
+
+**Other Endpoints:**
+- `GET /api/1/sites` - List/manage sites
+- `POST /api/1/sites` - Create sites
+- `GET /api/1/status` - Health check
+- `GET /api/1/fixphrase/encode/<lat>/<lon>` - FixPhrase encoding
+
+See `@docs/api.md` for complete endpoint documentation including detailed request/response formats, authorization rules, and examples.
 
 ## Security Considerations
 
@@ -239,7 +269,7 @@ See `api.md` for complete endpoint documentation including request/response form
 The system includes test endpoints (when `test-staging` feature is enabled) that demonstrate role-based access:
 
 - `/api/1/test/admin-only` - Requires `admin` role
-- `/api/1/test/staff-only` - Requires `staff` role  
+- `/api/1/test/staff-only` - Requires `staff` role
 - `/api/1/test/newtown-admin-only` - Requires `newtown-admin` role
 - `/api/1/test/newtown-staff-only` - Requires `newtown-staff` role
 
