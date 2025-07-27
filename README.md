@@ -30,7 +30,7 @@ openssl rand -base64 32
 
 ## Building
 
-```
+```bash
 dosh depends
 dosh build
 ```
@@ -46,6 +46,11 @@ dosh build
    serves the static files, but proxies /api calls to a running NEEMS
    Core on that or another machine.  Caddy would be a good choice if
    you want tls.  Maybe Nginx if you don't.
+
+You can set the port neems-core listens on in `Rocket.toml` or with the
+environment variable `ROCKET_PORT`.  Similarly, `ROCKET_ADDRESS` can change the
+interface.  See the [rocket
+docs](https://rocket.rs/guide/v0.5/configuration/#configuration) for more.
 
 ## Database
 
