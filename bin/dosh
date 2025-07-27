@@ -68,15 +68,16 @@ clippy() {
 }
 
 depends() {
-  head -n 1 /etc/os-release | grep -q 'ID=debian' || {
+  grep -q 'ID=debian' /etc/os-release  || {
     echo "This script is intended for Debian-based systems only."
     exit 1
   }
-  apt install -y libsqlite3-dev
+  set -e
+  [ "$(id -u)" -eq 0 ] && { echo "Do NOT run as root. Script uses sudo as needed." >&2; exit 1; }
+  sudo apt install -y colorized-logs libsqlite3-dev
   rustup update
   cargo nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }
   _install-cranelift
-  _install-ansi2txt
 }
 
 fmt() {

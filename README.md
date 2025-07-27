@@ -28,6 +28,13 @@ necessary, we want to be able to replace with postgres in production.
 openssl rand -base64 32
 ```
 
+## Building
+
+```
+dosh depends
+dosh build
+```
+
 ## Running
     
  * For dev, you can run the rust backend, NEEMS Core, from its
