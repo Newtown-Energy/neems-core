@@ -32,3 +32,4 @@ rocket = { workspace = true }
 serde_json = { workspace = true }
 time-test = {workspace = true}
 tokio = {workspace = true}
+ts-rs = {workspace = true}
