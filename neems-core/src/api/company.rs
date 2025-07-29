@@ -13,7 +13,7 @@ use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::{Company, CompanyName, User};
 use crate::company::insert_company;
-use crate::orm::company::get_all_companies;
+use crate::orm::company::{get_all_companies, delete_company};
 use crate::orm::site::get_sites_by_company;
 use crate::orm::user::get_users_by_company;
 use crate::models::Site;
@@ -250,6 +250,55 @@ pub async fn list_company_users(
     }).await
 }
 
+/// Delete Company endpoint.
+///
+/// - **URL:** `/api/1/companies/<company_id>`
+/// - **Method:** `DELETE`
+/// - **Purpose:** Deletes a company by ID
+/// - **Authentication:** Required
+///
+/// This endpoint deletes a company from the database by its ID.
+///
+/// # Response
+///
+/// **Success (HTTP 204 No Content):**
+/// Company was successfully deleted
+///
+/// **Failure (HTTP 404 Not Found):**
+/// Company with the specified ID was not found
+///
+/// **Failure (HTTP 500 Internal Server Error):**
+/// Database error during deletion
+///
+/// # Arguments
+/// * `db` - Database connection pool
+/// * `company_id` - The ID of the company to delete
+///
+/// # Returns
+/// * `Ok(Status::NoContent)` - Successfully deleted company
+/// * `Err(Status)` - Error during deletion (NotFound or InternalServerError)
+#[delete("/1/companies/<company_id>")]
+pub async fn delete_company_endpoint(
+    db: DbConn,
+    company_id: i32,
+    _auth_user: AuthenticatedUser
+) -> Result<Status, Status> {
+    db.run(move |conn| {
+        delete_company(conn, company_id)
+            .map(|found| {
+                if found {
+                    Status::NoContent
+                } else {
+                    Status::NotFound
+                }
+            })
+            .map_err(|e| {
+                eprintln!("Error deleting company: {:?}", e);
+                Status::InternalServerError
+            })
+    }).await
+}
+
 /// Returns a vector of all routes defined in this module.
 ///
 /// This function collects all the route handlers defined in this module
@@ -258,5 +307,5 @@ pub async fn list_company_users(
 /// # Returns
 /// A vector containing all route handlers for company endpoints
 pub fn routes() -> Vec<Route> {
-    routes![create_company, list_companies, list_company_sites, list_company_users]
+    routes![create_company, list_companies, list_company_sites, list_company_users, delete_company_endpoint]
 }

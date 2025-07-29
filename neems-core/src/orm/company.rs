@@ -74,6 +74,18 @@ pub fn get_all_companies(
         .load::<Company>(conn)
 }
 
+/// Delete a company by id.
+/// Returns Ok(true) if company was found and deleted, Ok(false) if not found, Err on DB error.
+pub fn delete_company(
+    conn: &mut SqliteConnection,
+    company_id: i32,
+) -> Result<bool, diesel::result::Error> {
+    use crate::schema::companies::dsl::*;
+    let rows_affected = diesel::delete(companies.filter(id.eq(company_id)))
+        .execute(conn)?;
+    Ok(rows_affected > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
