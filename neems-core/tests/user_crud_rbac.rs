@@ -102,7 +102,7 @@ async fn test_create_user_requires_authentication() {
         "password_hash": "hash",
         "company_id": 1,
         "totp_secret": "",
-        "role_names": ["user"]
+        "role_names": ["staff"]
     });
     
     let response = client.post("/api/1/users")
@@ -120,7 +120,7 @@ async fn test_regular_users_cannot_create_users() {
     
     // Create a test company and regular user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     let new_user = json!({
@@ -128,7 +128,7 @@ async fn test_regular_users_cannot_create_users() {
         "password_hash": "hash",
         "company_id": test_company.id,
         "totp_secret": "",
-        "role_names": ["user"]
+        "role_names": ["staff"]
     });
     
     let response = client.post("/api/1/users")
@@ -219,7 +219,7 @@ async fn test_newtown_staff_can_create_users_for_any_company() {
         "password_hash": neems_core::orm::login::hash_password("password"),
         "company_id": test_company.id,
         "totp_secret": "",
-        "role_names": ["user"]
+        "role_names": ["staff"]
     });
     
     let response = client.post("/api/1/users")
@@ -247,7 +247,7 @@ async fn test_newtown_admin_can_create_users_for_any_company() {
         "password_hash": neems_core::orm::login::hash_password("password"),
         "company_id": test_company.id,
         "totp_secret": "",
-        "role_names": ["user"]
+        "role_names": ["staff"]
     });
     
     let response = client.post("/api/1/users")
@@ -278,7 +278,7 @@ async fn test_regular_users_cannot_list_users() {
     
     // Create a test company and regular user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     let response = client.get("/api/1/users")
@@ -300,8 +300,8 @@ async fn test_admin_can_list_users_from_own_company_only() {
     
     // Create users for both companies
     let _company1_admin = create_user_with_role(&client, &admin_cookie, "admin@company1.com", company1.id, "admin").await;
-    let _company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "user").await;
-    let _company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "user").await;
+    let _company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "staff").await;
+    let _company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "staff").await;
     
     let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
     
@@ -344,7 +344,7 @@ async fn test_newtown_staff_can_list_all_users() {
     
     // Create test company and users
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let _test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     
     // Create newtown-staff user
     let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
@@ -375,7 +375,7 @@ async fn test_newtown_admin_can_list_all_users() {
     
     // Create test company and user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let _test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     
     // newtown-admin should be able to see all users
     let response = client.get("/api/1/users")
@@ -411,7 +411,7 @@ async fn test_users_can_view_own_profile() {
     
     // Create a test company and user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     // User should be able to view their own profile
@@ -434,8 +434,8 @@ async fn test_users_cannot_view_other_users_profiles() {
     
     // Create a test company and two users
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", test_company.id, "user").await;
-    let user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", test_company.id, "user").await;
+    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", test_company.id, "staff").await;
+    let user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", test_company.id, "staff").await;
     let user1_session = login_user(&client, "user1@testcompany.com", "admin").await;
     
     // User1 should NOT be able to view user2's profile
@@ -459,8 +459,8 @@ async fn test_admin_can_view_users_from_own_company_only() {
     
     // Create users for both companies
     let _company1_admin = create_user_with_role(&client, &admin_cookie, "admin@company1.com", company1.id, "admin").await;
-    let company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "user").await;
-    let company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "user").await;
+    let company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "staff").await;
+    let company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "staff").await;
     
     let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
     
@@ -503,7 +503,7 @@ async fn test_newtown_staff_can_view_any_user() {
     
     // Create test company and user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     
     // Create newtown-staff user
     let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
@@ -546,7 +546,7 @@ async fn test_users_can_update_own_profile() {
     
     // Create a test company and user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     // User should be able to update their own profile
@@ -573,8 +573,8 @@ async fn test_users_cannot_update_other_users() {
     
     // Create a test company and two users
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", test_company.id, "user").await;
-    let user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", test_company.id, "user").await;
+    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", test_company.id, "staff").await;
+    let user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", test_company.id, "staff").await;
     let user1_session = login_user(&client, "user1@testcompany.com", "admin").await;
     
     let update_request = json!({
@@ -603,8 +603,8 @@ async fn test_admin_can_update_users_from_own_company_only() {
     
     // Create users for both companies
     let _company1_admin = create_user_with_role(&client, &admin_cookie, "admin@company1.com", company1.id, "admin").await;
-    let company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "user").await;
-    let company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "user").await;
+    let company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "staff").await;
+    let company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "staff").await;
     
     let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
     
@@ -652,8 +652,8 @@ async fn test_regular_users_cannot_delete_users() {
     
     // Create a test company and users
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", test_company.id, "user").await;
-    let user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", test_company.id, "user").await;
+    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", test_company.id, "staff").await;
+    let user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", test_company.id, "staff").await;
     let user1_session = login_user(&client, "user1@testcompany.com", "admin").await;
     
     // Regular user should NOT be able to delete anyone
@@ -677,8 +677,8 @@ async fn test_admin_can_delete_users_from_own_company_only() {
     
     // Create users for both companies
     let _company1_admin = create_user_with_role(&client, &admin_cookie, "admin@company1.com", company1.id, "admin").await;
-    let company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "user").await;
-    let company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "user").await;
+    let company1_user = create_user_with_role(&client, &admin_cookie, "user@company1.com", company1.id, "staff").await;
+    let company2_user = create_user_with_role(&client, &admin_cookie, "user@company2.com", company2.id, "staff").await;
     
     let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
     
@@ -726,7 +726,7 @@ async fn test_newtown_staff_can_delete_any_user() {
     
     // Create test company and user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     
     // Create newtown-staff user
     let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
@@ -756,7 +756,7 @@ async fn test_newtown_admin_can_delete_any_user() {
     
     // Create test company and user
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let test_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     
     // newtown-admin should be able to delete any user
     let url = format!("/api/1/users/{}", test_user.id);

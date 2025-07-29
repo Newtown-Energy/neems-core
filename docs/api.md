@@ -76,7 +76,7 @@ environment variables are ignored.
   "user_id": 123,
   "email": "user@example.com",
   "company_name": "Example Corp",
-  "roles": ["user", "admin"]
+  "roles": ["staff", "admin"]
 }
 ```
 - Also sets session cookie named `session` (HTTP-only, secure, SameSite=Lax)
@@ -137,7 +137,7 @@ const response = await fetch('/api/1/logout', {
   "user_id": 123,
   "email": "user@example.com", 
   "company_name": "Example Corp",
-  "roles": ["user", "admin"]
+  "roles": ["staff", "admin"]
 }
 ```
 
@@ -183,7 +183,7 @@ for backwards compatibility and specific role management operations.
   "password_hash": "hashed_password_string",
   "company_id": 1,
   "totp_secret": "optional_totp_secret",
-  "role_names": ["admin", "user"]
+  "role_names": ["admin", "staff"]
 }
 ```
 

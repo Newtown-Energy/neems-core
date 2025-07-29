@@ -51,7 +51,7 @@ async fn setup_test_users(client: &Client) {
         let roles_to_create = vec![
             ("admin", "Administrator role"),
             ("staff", "Staff role"),
-            ("user", "Regular user role"),
+            ("staff", "Regular staff role"),
             ("newtown-admin", "Newtown administrator role"),
             ("newtown-staff", "Newtown staff role"),
         ];

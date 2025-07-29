@@ -125,7 +125,7 @@ async fn test_create_user_requires_auth() {
         "password_hash": "hashed_pw",
         "company_id": comp_id,
         "totp_secret": "SECRET123",
-        "role_names": ["user"]
+        "role_names": ["staff"]
     });
     
     let response = client.post("/api/1/users")
@@ -172,7 +172,7 @@ async fn test_user_crud_endpoints() {
         "password_hash": "testhash",
         "company_id": comp_id,
         "totp_secret": "testsecret",
-        "role_names": ["user"]
+        "role_names": ["staff"]
     });
     
     let response = client.post("/api/1/users")

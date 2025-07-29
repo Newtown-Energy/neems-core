@@ -97,7 +97,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             company_id: regular_company.id,
             totp_secret: Some("secret4".to_string()),
         }).expect("Failed to insert regular user");
-        assign_user_role_by_name(conn, regular_user.id, "user")
+        assign_user_role_by_name(conn, regular_user.id, "staff")
             .expect("Failed to assign user role");
 
         let other_company_admin = insert_user(conn, UserNoTime {
@@ -115,7 +115,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             company_id: other_company.id,
             totp_secret: Some("secret6".to_string()),
         }).expect("Failed to insert other company user");
-        assign_user_role_by_name(conn, other_company_user.id, "user")
+        assign_user_role_by_name(conn, other_company_user.id, "staff")
             .expect("Failed to assign user role to other company user");
 
         let users = TestUsers {
@@ -189,7 +189,7 @@ async fn test_get_user_roles_user_can_view_own_roles() {
     assert_eq!(response.status(), Status::Ok);
     let roles: Vec<Role> = response.into_json().await.expect("valid JSON response");
     assert_eq!(roles.len(), 1);
-    assert_eq!(roles[0].name, "user");
+    assert_eq!(roles[0].name, "staff");
 }
 
 #[tokio::test]
@@ -226,7 +226,7 @@ async fn test_get_user_roles_admin_can_view_any_roles() {
     assert_eq!(response.status(), Status::Ok);
     let roles: Vec<Role> = response.into_json().await.expect("valid JSON response");
     assert_eq!(roles.len(), 1);
-    assert_eq!(roles[0].name, "user");
+    assert_eq!(roles[0].name, "staff");
 }
 
 #[tokio::test]
@@ -277,7 +277,7 @@ async fn test_newtown_admin_can_assign_any_role() {
     
     assert_eq!(roles.len(), 2); // user + admin
     let role_names: Vec<&str> = roles.iter().map(|r| r.name.as_str()).collect();
-    assert!(role_names.contains(&"user"));
+    assert!(role_names.contains(&"staff"));
     assert!(role_names.contains(&"admin"));
 }
 
@@ -429,7 +429,7 @@ async fn test_regular_user_cannot_assign_roles() {
     
     // Regular user cannot assign roles
     let request_body = json!({
-        "role_name": "user"
+        "role_name": "staff"
     });
     
     let url = format!("/api/1/users/{}/roles", users.other_company_user.id);
@@ -470,7 +470,7 @@ async fn test_cannot_remove_last_role() {
     
     // Cannot remove the only role from a user
     let request_body = json!({
-        "role_name": "user"
+        "role_name": "staff"
     });
     
     let url = format!("/api/1/users/{}/roles", users.regular_user.id);
@@ -491,7 +491,7 @@ async fn test_remove_role_with_proper_authorization() {
     // First add an additional role to the user
     let db_conn = DbConn::get_one(client.rocket()).await.expect("database connection");
     db_conn.run(move |conn| {
-        assign_user_role_by_name(conn, users.regular_admin.id, "user")
+        assign_user_role_by_name(conn, users.regular_admin.id, "staff")
     }).await.expect("Failed to assign additional role");
     
     // Login as newtown admin
@@ -499,7 +499,7 @@ async fn test_remove_role_with_proper_authorization() {
     
     // Now remove one role (leaving the other)
     let request_body = json!({
-        "role_name": "user"
+        "role_name": "staff"
     });
     
     let url = format!("/api/1/users/{}/roles", users.regular_admin.id);
@@ -529,7 +529,7 @@ async fn test_newtown_staff_cannot_remove_newtown_admin_role() {
     // Add user role to newtown admin so they have multiple roles
     let db_conn = DbConn::get_one(client.rocket()).await.expect("database connection");
     db_conn.run(move |conn| {
-        assign_user_role_by_name(conn, users.newtown_admin.id, "user")
+        assign_user_role_by_name(conn, users.newtown_admin.id, "staff")
     }).await.expect("Failed to assign additional role");
     
     // Login as newtown staff
@@ -558,7 +558,7 @@ async fn test_regular_admin_authorization_for_role_removal() {
     // Add user role to regular admin so they have multiple roles
     let db_conn = DbConn::get_one(client.rocket()).await.expect("database connection");
     db_conn.run(move |conn| {
-        assign_user_role_by_name(conn, users.regular_admin.id, "user")
+        assign_user_role_by_name(conn, users.regular_admin.id, "staff")
     }).await.expect("Failed to assign additional role");
     
     // Login as other company admin

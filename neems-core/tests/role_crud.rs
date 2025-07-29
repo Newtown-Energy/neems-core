@@ -684,7 +684,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     assert_eq!(response.status(), Status::Ok);
     
     // Test with regular user (non-admin)
-    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "staff").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     // Should be able to list roles

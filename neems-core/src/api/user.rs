@@ -93,7 +93,7 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
 ///
 /// This function is primarily used for testing purposes. It makes a POST request
 /// to the user creation endpoint and returns the newly created user object with roles.
-/// It assigns a default "user" role if none is specified.
+/// It assigns a default "staff" role if none is specified.
 ///
 /// # Arguments
 /// * `client` - The Rocket test client instance
@@ -114,7 +114,7 @@ pub async fn create_user_by_api(
         "password_hash": &user.password_hash,
         "company_id": user.company_id,
         "totp_secret": user.totp_secret,
-        "role_names": ["user"]
+        "role_names": ["staff"]
     }).to_string();
     let response = client
         .post("/api/1/users")
@@ -193,7 +193,7 @@ pub async fn create_user_with_roles_by_api(
 ///   "password_hash": "hashed_password_string",
 ///   "company_id": 1,
 ///   "totp_secret": "optional_totp_secret",
-///   "role_names": ["admin", "user"]
+///   "role_names": ["admin", "staff"]
 /// }
 /// ```
 ///

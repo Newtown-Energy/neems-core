@@ -109,7 +109,7 @@ async fn test_company_users_can_access_own_company_users() {
     let company = create_company(&client, &admin_cookie, "Test Company").await;
     
     // Create multiple users for this company
-    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", company.id, "user").await;
+    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", company.id, "staff").await;
     let _user2 = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", company.id, "admin").await;
     
     // Login as company admin
@@ -183,7 +183,7 @@ async fn test_newtown_admin_can_access_any_company_users() {
     
     // Create a company and users
     let company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", company.id, "user").await;
+    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", company.id, "staff").await;
     let _user2 = create_user_with_role(&client, &admin_cookie, "user2@testcompany.com", company.id, "admin").await;
     
     // Newtown admin should be able to access any company's users
@@ -210,7 +210,7 @@ async fn test_newtown_staff_can_access_any_company_users() {
     
     // Create a test company and users
     let company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", company.id, "user").await;
+    let _user1 = create_user_with_role(&client, &admin_cookie, "user1@testcompany.com", company.id, "staff").await;
     
     // Get Newtown Energy company (created by admin init fairing)
     let companies_response = client.get("/api/1/companies")

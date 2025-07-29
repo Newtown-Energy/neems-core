@@ -36,7 +36,7 @@ pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &ro
         }).expect("Failed to insert user");
 
         // Assign a default role to the test user
-        assign_user_role_by_name(conn, user.id, "user")
+        assign_user_role_by_name(conn, user.id, "staff")
             .expect("Failed to assign role to test user");
     }).await;
     
@@ -66,9 +66,9 @@ async fn test_login_success() {
     assert!(body["user_id"].is_number());
     assert!(body["company_name"].is_string());
     assert!(body["roles"].is_array());
-    // Verify the test user has the "user" role that was assigned in add_dummy_data
+    // Verify the test user has the "staff" role that was assigned in add_dummy_data
     let roles = body["roles"].as_array().unwrap();
-    assert!(roles.iter().any(|r| r.as_str() == Some("user")));
+    assert!(roles.iter().any(|r| r.as_str() == Some("staff")));
 }
 
 #[tokio::test]
@@ -183,9 +183,9 @@ async fn test_secure_hello_requires_auth() {
     assert!(body["user_id"].is_number());
     assert!(body["company_name"].is_string());
     assert!(body["roles"].is_array());
-    // Verify the test user has the "user" role that was assigned in add_dummy_data
+    // Verify the test user has the "staff" role that was assigned in add_dummy_data
     let roles = body["roles"].as_array().unwrap();
-    assert!(roles.iter().any(|r| r.as_str() == Some("user")));
+    assert!(roles.iter().any(|r| r.as_str() == Some("staff")));
 }
 
 /// Helper function to create a test user with specific roles

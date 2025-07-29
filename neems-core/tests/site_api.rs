@@ -368,7 +368,7 @@ async fn test_regular_user_cannot_crud_sites() {
     let company = create_company(&client, &admin_cookie, "Test Company").await;
     
     // Create a regular user (not admin)
-    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", company.id, "user").await;
+    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", company.id, "staff").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     // Regular user cannot list sites
