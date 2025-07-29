@@ -1,6 +1,9 @@
 /.env
 .claude
-*.sqlite*
+*.sqlite
+*-shm
+*-wal
+*.db
 Rocket.toml
 secret_key.txt
 /static
