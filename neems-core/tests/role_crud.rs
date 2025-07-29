@@ -461,7 +461,7 @@ async fn test_create_role_requires_newtown_admin() {
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
     
     // Test with regular admin (should fail)
-    let regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
+    let _regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
     let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
     
     let new_role = json!({
@@ -478,7 +478,7 @@ async fn test_create_role_requires_newtown_admin() {
     assert_eq!(response.status(), Status::Forbidden);
     
     // Test with newtown-staff (should fail)
-    let newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
+    let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
     let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
     
     let response = client.post("/api/1/roles")
@@ -530,7 +530,7 @@ async fn test_update_role_requires_newtown_admin() {
     let url = format!("/api/1/roles/{}", created_role.id);
     
     // Test with regular admin (should fail)
-    let regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
+    let _regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
     let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
     
     let response = client.put(&url)
@@ -542,7 +542,7 @@ async fn test_update_role_requires_newtown_admin() {
     assert_eq!(response.status(), Status::Forbidden);
     
     // Test with newtown-staff (should fail)
-    let newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
+    let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
     let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
     
     let response = client.put(&url)
@@ -590,7 +590,7 @@ async fn test_delete_role_requires_newtown_admin() {
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
     
     // Test with regular admin (should fail)
-    let regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
+    let _regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
     let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
     
     let url = format!("/api/1/roles/{}", role_for_admin.id);
@@ -602,7 +602,7 @@ async fn test_delete_role_requires_newtown_admin() {
     assert_eq!(response.status(), Status::Forbidden);
     
     // Test with newtown-staff (should fail)
-    let newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
+    let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
     let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
     
     let url = format!("/api/1/roles/{}", role_for_staff.id);
@@ -653,7 +653,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     let test_company = create_company(&client, &admin_cookie, "Test Company").await;
     
     // Test with regular admin
-    let regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
+    let _regular_admin = create_user_with_role(&client, &admin_cookie, "admin@testcompany.com", test_company.id, "admin").await;
     let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
     
     // Should be able to list roles
@@ -676,7 +676,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     assert_eq!(role.name, "Public Role");
     
     // Test with newtown-staff
-    let newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
+    let _newtown_staff = create_user_with_role(&client, &admin_cookie, "staff@newtown.com", newtown_company.id, "newtown-staff").await;
     let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
     
     // Should be able to list roles
@@ -696,7 +696,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     assert_eq!(response.status(), Status::Ok);
     
     // Test with regular user (non-admin)
-    let regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
+    let _regular_user = create_user_with_role(&client, &admin_cookie, "user@testcompany.com", test_company.id, "user").await;
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
     
     // Should be able to list roles
