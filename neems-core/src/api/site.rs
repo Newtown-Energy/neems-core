@@ -18,7 +18,7 @@ use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::Site;
-use crate::orm::site::{insert_site, get_site_by_id, update_site, delete_site, get_all_sites, get_sites_by_company};
+use crate::orm::site::{insert_site, get_site_by_id, get_site_by_company_and_name, update_site, delete_site, get_all_sites, get_sites_by_company};
 use crate::orm::company::get_company_by_id;
 
 /// Error response structure for site API failures.
@@ -115,7 +115,28 @@ pub async fn create_site(
         // First validate that the company exists
         match get_company_by_id(conn, new_site.company_id) {
             Ok(Some(_)) => {
-                // Company exists, proceed with site creation
+                // Company exists, now check if site with this name already exists in the company
+                match get_site_by_company_and_name(conn, new_site.company_id, &new_site.name) {
+                    Ok(Some(_existing_site)) => {
+                        // Site with this name already exists in this company
+                        let err = Json(ErrorResponse {
+                            error: format!("Site with name '{}' already exists in this company", new_site.name)
+                        });
+                        return Err(response::status::Custom(Status::Conflict, err));
+                    },
+                    Ok(None) => {
+                        // Site doesn't exist, we can proceed
+                    },
+                    Err(e) => {
+                        eprintln!("Error checking for existing site: {:?}", e);
+                        let err = Json(ErrorResponse {
+                            error: "Database error while checking for existing site".to_string()
+                        });
+                        return Err(response::status::Custom(Status::InternalServerError, err));
+                    }
+                }
+                
+                // Proceed with site creation
                 insert_site(
                     conn,
                     new_site.name.clone(),

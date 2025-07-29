@@ -24,6 +24,19 @@ pub fn get_company_by_name(
     Ok(result)
 }
 
+/// Try to find a company by name (case-insensitive).
+/// Returns Ok(Some(Company)) if found, Ok(None) if not, Err on DB error.
+pub fn get_company_by_name_case_insensitive(
+    conn: &mut SqliteConnection,
+    company_name: &str,
+) -> Result<Option<Company>, diesel::result::Error> {
+    // Use raw SQL for case-insensitive comparison
+    diesel::sql_query("SELECT * FROM companies WHERE LOWER(name) = LOWER(?)")
+        .bind::<diesel::sql_types::Text, _>(company_name)
+        .get_result::<Company>(conn)
+        .optional()
+}
+
 pub fn insert_company(
     conn: &mut SqliteConnection, 
     comp_name: String,
@@ -113,5 +126,35 @@ mod tests {
 	    "updated_at should be within 1 second of now (diff: {})",
 	    diff_updated
 	);
+    }
+
+    #[test]
+    fn test_get_company_by_name_case_insensitive() {
+        let mut conn = setup_test_db();
+
+        // Insert a company with mixed case name
+        let created_company = insert_company(&mut conn, "Test Company Name".to_string())
+            .expect("Failed to insert company");
+
+        // Test case-insensitive lookup with different cases
+        let test_cases = vec![
+            "test company name",
+            "TEST COMPANY NAME", 
+            "Test Company Name",
+            "tEsT cOmPaNy NaMe"
+        ];
+
+        for test_name in test_cases {
+            let retrieved_company = get_company_by_name_case_insensitive(&mut conn, test_name)
+                .expect("Query should succeed")
+                .expect("Company should be found");
+            assert_eq!(retrieved_company.id, created_company.id);
+            assert_eq!(retrieved_company.name, "Test Company Name"); // Original case preserved
+        }
+
+        // Test non-existent company name
+        let result = get_company_by_name_case_insensitive(&mut conn, "Non-existent Company")
+            .expect("Query should succeed");
+        assert!(result.is_none());
     }
 }

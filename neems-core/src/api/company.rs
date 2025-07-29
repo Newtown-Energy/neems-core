@@ -6,17 +6,24 @@
 
 use rocket::serde::json::Json;
 use rocket::http::Status;
-use rocket::response::status;
+use rocket::response::{status, self};
 use rocket::Route;
+use serde::Serialize;
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::{Company, CompanyName, UserWithRoles};
-use crate::company::insert_company;
+use crate::company::{insert_company, get_company_by_name_case_insensitive};
 use crate::orm::company::{get_all_companies, delete_company};
 use crate::orm::site::get_sites_by_company;
 use crate::orm::user::get_users_by_company_with_roles;
 use crate::models::Site;
+
+/// Error response structure for company API failures.
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    pub error: String,
+}
 
 /// Create Company endpoint.
 ///
@@ -54,19 +61,44 @@ use crate::models::Site;
 ///
 /// # Returns
 /// * `Ok(status::Created<Json<Company>>)` - Successfully created company
-/// * `Err(Status)` - Error during creation (typically InternalServerError)
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during creation with JSON error details
 #[post("/1/companies", data = "<new_company>")]
 pub async fn create_company(
     db: DbConn,
     new_company: Json<CompanyName>,
     _auth_user: AuthenticatedUser
-) -> Result<status::Created<Json<Company>>, Status> {
+) -> Result<status::Created<Json<Company>>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
+        // First check if company with this name already exists (case-insensitive)
+        match get_company_by_name_case_insensitive(conn, &new_company.name) {
+            Ok(Some(_existing_company)) => {
+                // Company with this name already exists
+                let err = Json(ErrorResponse {
+                    error: format!("Company with name '{}' already exists", new_company.name)
+                });
+                return Err(response::status::Custom(Status::Conflict, err));
+            },
+            Ok(None) => {
+                // Company doesn't exist, we can proceed
+            },
+            Err(e) => {
+                eprintln!("Error checking for existing company: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Database error while checking for existing company".to_string()
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        }
+
+        // Proceed with company creation
         insert_company(conn, new_company.name.clone())
             .map(|comp| status::Created::new("/").body(Json(comp)))
             .map_err(|e| {
                 eprintln!("Error creating company: {:?}", e);
-                Status::InternalServerError
+                let err = Json(ErrorResponse {
+                    error: "Database error while creating company".to_string()
+                });
+                response::status::Custom(Status::InternalServerError, err)
             })
     }).await
 }

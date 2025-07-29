@@ -57,6 +57,20 @@ pub fn get_site_by_id(
         .optional()
 }
 
+/// Gets a site by company ID and name (case-insensitive).
+pub fn get_site_by_company_and_name(
+    conn: &mut SqliteConnection,
+    site_company_id: i32,
+    site_name: &str,
+) -> Result<Option<Site>, diesel::result::Error> {
+    // Use raw SQL for case-insensitive comparison
+    diesel::sql_query("SELECT * FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)")
+        .bind::<diesel::sql_types::Integer, _>(site_company_id)
+        .bind::<diesel::sql_types::Text, _>(site_name)
+        .get_result::<Site>(conn)
+        .optional()
+}
+
 /// Gets all sites in the system.
 pub fn get_all_sites(
     conn: &mut SqliteConnection,
@@ -340,5 +354,51 @@ mod tests {
 
         let deleted_count = delete_site(&mut conn, 99999).expect("Delete should succeed");
         assert_eq!(deleted_count, 0); // No rows affected
+    }
+
+    #[test]
+    fn test_get_site_by_company_and_name_case_insensitive() {
+        let mut conn = setup_test_db();
+
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to insert company");
+
+        // Insert a site with mixed case name
+        let created_site = insert_site(
+            &mut conn,
+            "Test Site Name".to_string(),
+            "123 Test St".to_string(),
+            40.7128,
+            -74.0060,
+            company.id,
+        ).expect("Failed to insert site");
+
+        // Test case-insensitive lookup with different cases
+        let test_cases = vec![
+            "test site name",
+            "TEST SITE NAME", 
+            "Test Site Name",
+            "tEsT sItE nAmE"
+        ];
+
+        for test_name in test_cases {
+            let retrieved_site = get_site_by_company_and_name(&mut conn, company.id, test_name)
+                .expect("Query should succeed")
+                .expect("Site should be found");
+            assert_eq!(retrieved_site.id, created_site.id);
+            assert_eq!(retrieved_site.name, "Test Site Name"); // Original case preserved
+        }
+
+        // Test non-existent site name
+        let result = get_site_by_company_and_name(&mut conn, company.id, "Non-existent Site")
+            .expect("Query should succeed");
+        assert!(result.is_none());
+
+        // Test with different company (should not find the site)
+        let other_company = crate::company::insert_company(&mut conn, "Other Company".to_string())
+            .expect("Failed to insert other company");
+        let result = get_site_by_company_and_name(&mut conn, other_company.id, "Test Site Name")
+            .expect("Query should succeed");
+        assert!(result.is_none());
     }
 }

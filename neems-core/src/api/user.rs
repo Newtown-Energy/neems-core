@@ -16,7 +16,7 @@ use rocket::serde::Serialize;
 use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::orm::user::{insert_user, get_user, update_user, delete_user_with_cleanup, list_all_users_with_roles, get_user_with_roles, get_users_by_company_with_roles};
+use crate::orm::user::{insert_user, get_user, get_user_by_email, update_user, delete_user_with_cleanup, list_all_users_with_roles, get_user_with_roles, get_users_by_company_with_roles};
 use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
 use crate::orm::company::get_company_by_name;
 use crate::orm::role::get_role_by_name;
@@ -367,7 +367,28 @@ pub async fn create_user(
             }
         }
 
-        // SECOND: Create the user (now that all roles are validated)
+        // SECOND: Check if user with this email already exists
+        match get_user_by_email(conn, &user_request.email) {
+            Ok(_existing_user) => {
+                // User with this email already exists
+                let err = Json(ErrorResponse {
+                    error: "User with this email already exists".to_string()
+                });
+                return Err(response::status::Custom(Status::Conflict, err));
+            },
+            Err(diesel::result::Error::NotFound) => {
+                // User doesn't exist, we can proceed
+            },
+            Err(e) => {
+                eprintln!("Error checking for existing user: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Database error while checking for existing user".to_string()
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        }
+
+        // THIRD: Create the user (now that all roles are validated and email is unique)
         let user_no_time = UserNoTime {
             email: user_request.email,
             password_hash: user_request.password_hash,
@@ -377,13 +398,6 @@ pub async fn create_user(
 
         let created_user = match insert_user(conn, user_no_time) {
             Ok(user) => user,
-            Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, _)) => {
-                eprintln!("Error creating user: email already exists");
-                let err = Json(ErrorResponse {
-                    error: "User with this email already exists".to_string()
-                });
-                return Err(response::status::Custom(Status::Conflict, err));
-            }
             Err(e) => {
                 eprintln!("Error creating user: {:?}", e);
                 let err = Json(ErrorResponse {
@@ -393,7 +407,7 @@ pub async fn create_user(
             }
         };
 
-        // THIRD: Assign roles to the user (roles already validated above)
+        // FOURTH: Assign roles to the user (roles already validated above)
         for role_name in &user_request.role_names {
             // Assign the role (we already validated everything above)
             if let Err(e) = assign_user_role_by_name(conn, created_user.id, role_name) {

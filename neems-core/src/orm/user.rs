@@ -80,6 +80,20 @@ pub fn get_user(
     users.filter(id.eq(user_id)).first::<User>(conn)
 }
 
+/// Gets a single user by email (case-insensitive).
+pub fn get_user_by_email(
+    conn: &mut SqliteConnection,
+    user_email: &str,
+) -> Result<User, diesel::result::Error> {
+    // Convert to lowercase for case-insensitive comparison
+    let lowercase_email = user_email.to_lowercase();
+    
+    // Use raw SQL with parameter binding for case-insensitive search
+    diesel::sql_query("SELECT * FROM users WHERE LOWER(email) = LOWER(?)")
+        .bind::<diesel::sql_types::Text, _>(&lowercase_email)
+        .get_result::<User>(conn)
+}
+
 /// Updates a user's fields.
 ///
 /// This function updates the specified fields of a user and automatically
@@ -510,6 +524,41 @@ mod tests {
         // Try to delete a user that doesn't exist
         let rows_affected = delete_user(&mut conn, 99999).unwrap();
         assert_eq!(rows_affected, 0);
+    }
+
+    #[test]
+    fn test_get_user_by_email_case_insensitive() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to insert company");
+
+        let new_user = UserNoTime {
+            email: "Test.User@Example.COM".to_string(),
+            password_hash: "hashedpassword".to_string(),
+            company_id: company.id,
+            totp_secret: Some("secret".to_string()),
+        };
+
+        let inserted_user = insert_user(&mut conn, new_user).unwrap();
+
+        // Test case-insensitive lookup with different cases
+        let test_cases = vec![
+            "test.user@example.com",
+            "TEST.USER@EXAMPLE.COM", 
+            "Test.User@Example.COM",
+            "tEsT.uSeR@eXaMpLe.CoM"
+        ];
+
+        for test_email in test_cases {
+            let retrieved_user = get_user_by_email(&mut conn, test_email).unwrap();
+            assert_eq!(retrieved_user.id, inserted_user.id);
+            assert_eq!(retrieved_user.email, "Test.User@Example.COM"); // Original case preserved
+        }
+
+        // Test non-existent email
+        let result = get_user_by_email(&mut conn, "nonexistent@example.com");
+        assert!(result.is_err());
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use chrono::NaiveDateTime;
-use diesel::{Identifiable, Queryable, Insertable};
+use diesel::{Identifiable, Queryable, Insertable, QueryableByName};
 use serde::{Serialize, Deserialize};
 
-#[derive(Deserialize, Queryable, Identifiable, Debug, Serialize)]
+#[derive(Deserialize, Queryable, Identifiable, QueryableByName, Debug, Serialize)]
 #[diesel(table_name = crate::schema::companies)]
 pub struct Company {
     pub id: i32,

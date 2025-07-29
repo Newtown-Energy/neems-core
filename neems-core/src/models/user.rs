@@ -1,10 +1,11 @@
 use crate::schema::users;
 use crate::models::Role;
-use diesel::{Identifiable, Queryable, Insertable};
+use diesel::{Identifiable, Queryable, Insertable, QueryableByName};
 use serde::{Serialize, Deserialize};
 use chrono::NaiveDateTime;
 
-#[derive(Deserialize, Queryable, Identifiable, Debug, Serialize)]
+#[derive(Deserialize, Queryable, Identifiable, QueryableByName, Debug, Serialize)]
+#[diesel(table_name = users)]
 pub struct User {
     pub id: i32,
     pub email: String,     // Will be unique

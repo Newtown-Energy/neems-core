@@ -36,7 +36,7 @@ pub fn random_energy_company_names(count: usize) -> Vec<&'static str> {
 }
 
 
-pub use crate::orm::company::{get_company_by_name, insert_company};
+pub use crate::orm::company::{get_company_by_name, get_company_by_name_case_insensitive, insert_company};
 
 
 
