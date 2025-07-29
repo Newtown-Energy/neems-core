@@ -2,7 +2,7 @@
 //!
 //! This module provides HTTP endpoints for CRUD operations on sites.
 //! Sites are associated with companies and have location data.
-//! 
+//!
 //! # Authorization Rules
 //! - Company admins can perform CRUD operations on sites within their company
 //! - newtown-staff and newtown-admin roles can perform CRUD operations on any site
@@ -10,7 +10,7 @@
 
 use rocket::serde::json::Json;
 use rocket::http::Status;
-use rocket::response::status;
+use rocket::response::{status, self};
 use rocket::Route;
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,13 @@ use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::Site;
 use crate::orm::site::{insert_site, get_site_by_id, update_site, delete_site, get_all_sites, get_sites_by_company};
+use crate::orm::company::get_company_by_id;
+
+/// Error response structure for site API failures.
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    pub error: String,
+}
 
 /// Request payload for creating a new site
 #[derive(Deserialize, Serialize)]
@@ -46,12 +53,12 @@ fn can_crud_site(user: &AuthenticatedUser, site_company_id: i32) -> bool {
     if user.has_any_role(&["newtown-admin", "newtown-staff"]) {
         return true;
     }
-    
+
     // Company admins can CRUD sites in their own company
     if user.has_role("admin") && user.user.company_id == site_company_id {
         return true;
     }
-    
+
     false
 }
 
@@ -95,26 +102,52 @@ pub async fn create_site(
     db: DbConn,
     new_site: LoggedJson<CreateSiteRequest>,
     auth_user: AuthenticatedUser
-) -> Result<status::Created<Json<Site>>, Status> {
+) -> Result<status::Created<Json<Site>>, response::status::Custom<Json<ErrorResponse>>> {
     // Check authorization
     if !can_crud_site(&auth_user, new_site.company_id) {
-        return Err(Status::Forbidden);
+        let err = Json(ErrorResponse {
+            error: "Forbidden: insufficient permissions to create site for this company".to_string(),
+        });
+        return Err(response::status::Custom(Status::Forbidden, err));
     }
-    
+
     db.run(move |conn| {
-        insert_site(
-            conn,
-            new_site.name.clone(),
-            new_site.address.clone(),
-            new_site.latitude,
-            new_site.longitude,
-            new_site.company_id,
-        )
-        .map(|site| status::Created::new("/").body(Json(site)))
-        .map_err(|e| {
-            eprintln!("Error creating site: {:?}", e);
-            Status::InternalServerError
-        })
+        // First validate that the company exists
+        match get_company_by_id(conn, new_site.company_id) {
+            Ok(Some(_)) => {
+                // Company exists, proceed with site creation
+                insert_site(
+                    conn,
+                    new_site.name.clone(),
+                    new_site.address.clone(),
+                    new_site.latitude,
+                    new_site.longitude,
+                    new_site.company_id,
+                )
+                .map(|site| status::Created::new("/").body(Json(site)))
+                .map_err(|e| {
+                    eprintln!("Error creating site: {:?}", e);
+                    let err = Json(ErrorResponse {
+                        error: "Internal server error while creating site".to_string(),
+                    });
+                    response::status::Custom(Status::InternalServerError, err)
+                })
+            }
+            Ok(None) => {
+                eprintln!("Error creating site: Company with ID {} does not exist", new_site.company_id);
+                let err = Json(ErrorResponse {
+                    error: format!("Company with ID {} does not exist", new_site.company_id),
+                });
+                Err(response::status::Custom(Status::BadRequest, err))
+            }
+            Err(e) => {
+                eprintln!("Error validating company for site creation: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error while validating company".to_string(),
+                });
+                Err(response::status::Custom(Status::InternalServerError, err))
+            }
+        }
     }).await
 }
 
@@ -207,23 +240,49 @@ pub async fn update_site_endpoint(
     site_id: i32,
     update_data: LoggedJson<UpdateSiteRequest>,
     auth_user: AuthenticatedUser
-) -> Result<Json<Site>, Status> {
+) -> Result<Json<Site>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         // First get the site to check authorization
         match get_site_by_id(conn, site_id) {
             Ok(Some(site)) => {
                 // Check authorization against the current site's company
                 if !can_crud_site(&auth_user, site.company_id) {
-                    return Err(Status::Forbidden);
+                    let err = Json(ErrorResponse {
+                        error: "Forbidden: insufficient permissions to update this site".to_string(),
+                    });
+                    return Err(response::status::Custom(Status::Forbidden, err));
                 }
-                
-                // If changing company, check authorization for new company too
+
+                // If changing company, validate new company exists and check authorization
                 if let Some(new_company_id) = update_data.company_id {
-                    if !can_crud_site(&auth_user, new_company_id) {
-                        return Err(Status::Forbidden);
+                    // First check if the new company exists
+                    match get_company_by_id(conn, new_company_id) {
+                        Ok(Some(_)) => {
+                            // Company exists, check authorization
+                            if !can_crud_site(&auth_user, new_company_id) {
+                                let err = Json(ErrorResponse {
+                                    error: "Forbidden: insufficient permissions to move site to this company".to_string(),
+                                });
+                                return Err(response::status::Custom(Status::Forbidden, err));
+                            }
+                        }
+                        Ok(None) => {
+                            eprintln!("Error updating site: Company with ID {} does not exist", new_company_id);
+                            let err = Json(ErrorResponse {
+                                error: format!("Company with ID {} does not exist", new_company_id),
+                            });
+                            return Err(response::status::Custom(Status::BadRequest, err));
+                        }
+                        Err(e) => {
+                            eprintln!("Error validating company for site update: {:?}", e);
+                            let err = Json(ErrorResponse {
+                                error: "Internal server error while validating company".to_string(),
+                            });
+                            return Err(response::status::Custom(Status::InternalServerError, err));
+                        }
                     }
                 }
-                
+
                 // Perform the update
                 update_site(
                     conn,
@@ -237,13 +296,24 @@ pub async fn update_site_endpoint(
                 .map(Json)
                 .map_err(|e| {
                     eprintln!("Error updating site: {:?}", e);
-                    Status::InternalServerError
+                    let err = Json(ErrorResponse {
+                        error: "Internal server error while updating site".to_string(),
+                    });
+                    response::status::Custom(Status::InternalServerError, err)
                 })
             }
-            Ok(None) => Err(Status::NotFound),
+            Ok(None) => {
+                let err = Json(ErrorResponse {
+                    error: format!("Site with ID {} not found", site_id),
+                });
+                Err(response::status::Custom(Status::NotFound, err))
+            }
             Err(e) => {
                 eprintln!("Error finding site for update: {:?}", e);
-                Err(Status::InternalServerError)
+                let err = Json(ErrorResponse {
+                    error: "Internal server error while finding site".to_string(),
+                });
+                Err(response::status::Custom(Status::InternalServerError, err))
             }
         }
     }).await
@@ -270,7 +340,7 @@ pub async fn delete_site_endpoint(
                 if !can_crud_site(&auth_user, site.company_id) {
                     return Err(Status::Forbidden);
                 }
-                
+
                 // Perform the deletion
                 match delete_site(conn, site_id) {
                     Ok(rows_affected) => {

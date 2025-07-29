@@ -8,9 +8,10 @@ use rand::rng;
 use rand::prelude::IndexedRandom;
 use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
-use rocket::response::status;
+use rocket::response::{status, self};
 use rocket::Route;
 use rocket::serde::json::{json, Json};
+use rocket::serde::Serialize;
 
 use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
@@ -18,7 +19,14 @@ use crate::orm::DbConn;
 use crate::orm::user::{insert_user, get_user, update_user, delete_user_with_cleanup, list_all_users_with_roles, get_user_with_roles, get_users_by_company_with_roles};
 use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
 use crate::orm::company::get_company_by_name;
+use crate::orm::role::get_role_by_name;
 use crate::models::{UserNoTime, Role, CompanyNoTime, UserWithRoles};
+
+/// Error response structure for user API failures.
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    pub error: String,
+}
 
 /// Generates a random selection of usernames for testing purposes.
 ///
@@ -217,13 +225,28 @@ pub async fn create_user_with_roles_by_api(
 /// ```
 ///
 /// **Failure (HTTP 400 Bad Request):**
-/// No roles provided in request
+/// ```json
+/// { "error": "At least one role must be provided" }
+/// { "error": "Role 'invalid-role' does not exist" }
+/// ```
 ///
 /// **Failure (HTTP 403 Forbidden):**
-/// User doesn't have permission to create users or assign specified roles
+/// ```json
+/// { "error": "Insufficient permissions to create users" }
+/// { "error": "Insufficient permissions to assign role 'admin'" }
+/// { "error": "Role 'newtown-admin' is restricted to Newtown Energy company" }
+/// ```
+///
+/// **Failure (HTTP 409 Conflict):**
+/// ```json
+/// { "error": "User with this email already exists" }
+/// ```
 ///
 /// **Failure (HTTP 500 Internal Server Error):**
-/// Database error or validation failure
+/// ```json
+/// { "error": "Database error while creating user" }
+/// { "error": "Failed to assign role 'admin' to user" }
+/// ```
 ///
 /// # Arguments
 /// * `db` - Database connection pool
@@ -231,16 +254,16 @@ pub async fn create_user_with_roles_by_api(
 ///
 /// # Returns
 /// * `Ok(status::Created<Json<UserWithRoles>>)` - Successfully created user with roles
-/// * `Err(Status)` - Error during creation (BadRequest, Forbidden, InternalServerError)
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during creation with JSON error details
 #[post("/1/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
     new_user: LoggedJson<CreateUserWithRolesRequest>,
     auth_user: AuthenticatedUser
-) -> Result<status::Created<Json<UserWithRoles>>, Status> {
+) -> Result<status::Created<Json<UserWithRoles>>, response::status::Custom<Json<ErrorResponse>>> {
     // Check authorization: can create users for target company?
     let target_company_id = new_user.company_id;
-    
+
     let can_create = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
         // newtown-admin and newtown-staff can create users for any company
         true
@@ -250,37 +273,47 @@ pub async fn create_user(
     } else {
         false
     };
-    
+
     if !can_create {
-        return Err(Status::Forbidden);
+        let err = Json(ErrorResponse {
+            error: "Insufficient permissions to create users".to_string()
+        });
+        return Err(response::status::Custom(Status::Forbidden, err));
     }
 
     // Validate that at least one role is provided
     if new_user.role_names.is_empty() {
-        return Err(Status::BadRequest);
+        let err = Json(ErrorResponse {
+            error: "At least one role must be provided".to_string()
+        });
+        return Err(response::status::Custom(Status::BadRequest, err));
     }
 
     db.run(move |conn| {
         let user_request = new_user.into_inner();
-        
-        // Create the user first
-        let user_no_time = UserNoTime {
-            email: user_request.email,
-            password_hash: user_request.password_hash,
-            company_id: user_request.company_id,
-            totp_secret: user_request.totp_secret,
-        };
-        
-        let created_user = match insert_user(conn, user_no_time) {
-            Ok(user) => user,
-            Err(e) => {
-                eprintln!("Error creating user: {:?}", e);
-                return Err(Status::InternalServerError);
-            }
-        };
 
-        // Assign roles to the user
+        // FIRST: Validate all roles exist and user can assign them
         for role_name in &user_request.role_names {
+            // Check if role exists
+            match get_role_by_name(conn, role_name) {
+                Ok(Some(_role)) => {
+                    // Role exists, continue with authorization check
+                }
+                Ok(None) => {
+                    let err = Json(ErrorResponse {
+                        error: format!("Role '{}' does not exist", role_name)
+                    });
+                    return Err(response::status::Custom(Status::BadRequest, err));
+                }
+                Err(e) => {
+                    eprintln!("Error checking role existence: {:?}", e);
+                    let err = Json(ErrorResponse {
+                        error: "Database error while validating roles".to_string()
+                    });
+                    return Err(response::status::Custom(Status::InternalServerError, err));
+                }
+            }
+
             // Check if user can assign this role (same logic as add_user_role)
             let can_assign = if auth_user.has_role("newtown-admin") {
                 // newtown-admin can assign any role
@@ -290,14 +323,16 @@ pub async fn create_user(
                 role_name != "newtown-admin"
             } else if auth_user.has_role("admin") {
                 // admin can only assign admin role to users in same company
-                role_name == "admin" && auth_user.user.company_id == created_user.company_id
+                role_name == "admin" && auth_user.user.company_id == user_request.company_id
             } else {
                 false
             };
 
             if !can_assign {
-                eprintln!("User cannot assign role: {}", role_name);
-                return Err(Status::Forbidden);
+                let err = Json(ErrorResponse {
+                    error: format!("Insufficient permissions to assign role '{}'", role_name)
+                });
+                return Err(response::status::Custom(Status::Forbidden, err));
             }
 
             // Check if role is newtown-staff or newtown-admin (company restriction)
@@ -309,23 +344,64 @@ pub async fn create_user(
                     Ok(Some(company)) => company,
                     Ok(None) => {
                         eprintln!("Newtown Energy company not found");
-                        return Err(Status::InternalServerError);
+                        let err = Json(ErrorResponse {
+                            error: "Newtown Energy company not found".to_string()
+                        });
+                        return Err(response::status::Custom(Status::InternalServerError, err));
                     }
                     Err(e) => {
                         eprintln!("Error getting Newtown Energy company: {:?}", e);
-                        return Err(Status::InternalServerError);
+                        let err = Json(ErrorResponse {
+                            error: "Database error while validating company".to_string()
+                        });
+                        return Err(response::status::Custom(Status::InternalServerError, err));
                     }
                 };
 
-                if created_user.company_id != newtown_company.id {
-                    return Err(Status::Forbidden);
+                if user_request.company_id != newtown_company.id {
+                    let err = Json(ErrorResponse {
+                        error: format!("Role '{}' is restricted to Newtown Energy company", role_name)
+                    });
+                    return Err(response::status::Custom(Status::Forbidden, err));
                 }
             }
+        }
 
-            // Assign the role
+        // SECOND: Create the user (now that all roles are validated)
+        let user_no_time = UserNoTime {
+            email: user_request.email,
+            password_hash: user_request.password_hash,
+            company_id: user_request.company_id,
+            totp_secret: user_request.totp_secret,
+        };
+
+        let created_user = match insert_user(conn, user_no_time) {
+            Ok(user) => user,
+            Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, _)) => {
+                eprintln!("Error creating user: email already exists");
+                let err = Json(ErrorResponse {
+                    error: "User with this email already exists".to_string()
+                });
+                return Err(response::status::Custom(Status::Conflict, err));
+            }
+            Err(e) => {
+                eprintln!("Error creating user: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Database error while creating user".to_string()
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // THIRD: Assign roles to the user (roles already validated above)
+        for role_name in &user_request.role_names {
+            // Assign the role (we already validated everything above)
             if let Err(e) = assign_user_role_by_name(conn, created_user.id, role_name) {
                 eprintln!("Error assigning role {}: {:?}", role_name, e);
-                return Err(Status::InternalServerError);
+                let err = Json(ErrorResponse {
+                    error: format!("Failed to assign role '{}' to user", role_name)
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
             }
         }
 
@@ -334,7 +410,10 @@ pub async fn create_user(
             Ok(user_with_roles) => Ok(status::Created::new("/").body(Json(user_with_roles))),
             Err(e) => {
                 eprintln!("Error getting created user with roles: {:?}", e);
-                Err(Status::InternalServerError)
+                let err = Json(ErrorResponse {
+                    error: "User created but failed to retrieve with roles".to_string()
+                });
+                Err(response::status::Custom(Status::InternalServerError, err))
             }
         }
     }).await
@@ -496,13 +575,13 @@ pub struct UpdateUserRequest {
 ///
 /// # Returns
 /// * `Ok(Json<User>)` - The requested user data
-/// * `Err(Status)` - Error status (Forbidden, NotFound, InternalServerError)
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error with JSON error details
 #[get("/1/users/<user_id>")]
 pub async fn get_user_endpoint(
     db: DbConn,
     user_id: i32,
     auth_user: AuthenticatedUser,
-) -> Result<Json<UserWithRoles>, Status> {
+) -> Result<Json<UserWithRoles>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         match get_user_with_roles(conn, user_id) {
             Ok(user) => {
@@ -519,17 +598,28 @@ pub async fn get_user_endpoint(
                 } else {
                     false
                 };
-                
+
                 if !can_view {
-                    return Err(Status::Forbidden);
+                    let err = Json(ErrorResponse {
+                        error: "Insufficient permissions to view this user".to_string()
+                    });
+                    return Err(response::status::Custom(Status::Forbidden, err));
                 }
-                
+
                 Ok(Json(user))
             },
-            Err(diesel::result::Error::NotFound) => Err(Status::NotFound),
+            Err(diesel::result::Error::NotFound) => {
+                let err = Json(ErrorResponse {
+                    error: "User not found".to_string()
+                });
+                Err(response::status::Custom(Status::NotFound, err))
+            },
             Err(e) => {
                 eprintln!("Error getting user: {:?}", e);
-                Err(Status::InternalServerError)
+                let err = Json(ErrorResponse {
+                    error: "Database error while retrieving user".to_string()
+                });
+                Err(response::status::Custom(Status::InternalServerError, err))
             }
         }
     }).await
@@ -599,7 +689,7 @@ pub async fn get_user_roles_endpoint(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Role>>, Status> {
     // Users can view their own roles, admins can view any user's roles
-    if auth_user.user.id != user_id && 
+    if auth_user.user.id != user_id &&
        !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
         return Err(Status::Forbidden);
     }
@@ -943,7 +1033,7 @@ pub async fn update_user_endpoint(
                 return Err(Status::InternalServerError);
             }
         };
-        
+
         // Authorization: who can update this user?
         let can_update = if auth_user.user.id == user_id {
             // Users can always update their own profile
@@ -957,7 +1047,7 @@ pub async fn update_user_endpoint(
         } else {
             false
         };
-        
+
         if !can_update {
             return Err(Status::Forbidden);
         }
@@ -1043,7 +1133,7 @@ pub async fn delete_user_endpoint(
                 return Err(Status::InternalServerError);
             }
         };
-        
+
         // Authorization: who can delete this user?
         let can_delete = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
             // newtown-admin and newtown-staff can delete any user
@@ -1054,11 +1144,11 @@ pub async fn delete_user_endpoint(
         } else {
             false
         };
-        
+
         if !can_delete {
             return Err(Status::Forbidden);
         }
-        
+
         match delete_user_with_cleanup(conn, user_id) {
             Ok(rows_affected) => {
                 if rows_affected > 0 {
@@ -1084,13 +1174,13 @@ pub async fn delete_user_endpoint(
 /// A vector containing all route handlers for user endpoints
 pub fn routes() -> Vec<Route> {
     routes![
-        create_user, 
-        list_users, 
+        create_user,
+        list_users,
         get_user_endpoint,
         update_user_endpoint,
         delete_user_endpoint,
-        get_user_roles_endpoint, 
-        add_user_role, 
+        get_user_roles_endpoint,
+        add_user_role,
         remove_user_role
     ]
 }
