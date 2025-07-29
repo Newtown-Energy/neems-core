@@ -136,7 +136,11 @@ test-trad() {
 watch() {
     echo "Running Neems Core for development purposes..."
     cargo --list | grep -Eq '^    watch$' || cargo install cargo-watch
-    cargo watch -x run
+
+    # Maybe copy our test db to /tmp
+    [ -f neems-core.sqlite ] && cp neems-core.sqlite /tmp
+
+    cargo watch --ignore "neems-core.sqlite*" -x run
 }
 
 "$@" # <- execute the task
