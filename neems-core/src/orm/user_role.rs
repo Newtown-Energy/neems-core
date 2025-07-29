@@ -148,7 +148,7 @@ mod tests {
             email: "test@example.com".to_string(),
             password_hash: hash_password("password"),
             company_id: 1,
-            totp_secret: "secret".to_string(),
+            totp_secret: Some("secret".to_string()),
         }).unwrap();
 
         // Assign roles
@@ -173,7 +173,7 @@ mod tests {
             email: "test2@example.com".to_string(),
             password_hash: hash_password("password"),
             company_id: 1,
-            totp_secret: "secret".to_string(),
+            totp_secret: Some("secret".to_string()),
         }).unwrap();
 
         // Initially user has no roles
@@ -196,7 +196,7 @@ mod tests {
             email: "test3@example.com".to_string(),
             password_hash: hash_password("password"),
             company_id: 1,
-            totp_secret: "secret".to_string(),
+            totp_secret: Some("secret".to_string()),
         }).unwrap();
 
         // Assign multiple roles so we can safely remove one
@@ -220,7 +220,7 @@ mod tests {
             email: "test4@example.com".to_string(),
             password_hash: hash_password("password"),
             company_id: 1,
-            totp_secret: "secret".to_string(),
+            totp_secret: Some("secret".to_string()),
         }).unwrap();
 
         // Assign only one role

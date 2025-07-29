@@ -262,7 +262,7 @@ mod tests {
             company_id: 1,
             created_at: now,
             updated_at: now,
-            totp_secret: "dummysecret".to_string(),
+            totp_secret: Some("dummysecret".to_string()),
         };
 
         // Correct password should verify
@@ -283,7 +283,7 @@ mod tests {
             email: "legofkarl@ots.com".to_string(),
             password_hash: hash,
             company_id: company.id,
-            totp_secret: "dummysecret".to_string(),
+            totp_secret: Some("dummysecret".to_string()),
         };
         insert_user(conn, dummy_user).expect("insert dummy user")
     }

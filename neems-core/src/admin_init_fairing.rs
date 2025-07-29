@@ -128,7 +128,7 @@ fn create_admin_user(c: &mut SqliteConnection, admin_email: &str, company: &crat
         email: admin_email.to_string(),
         password_hash: passhash,
         company_id: company.id,
-        totp_secret: "".to_string(),
+        totp_secret: None,
     };
     
     match insert_user(c, admin_user) {

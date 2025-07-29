@@ -11,7 +11,7 @@ pub struct User {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub company_id: i32,
-    pub totp_secret: String,
+    pub totp_secret: Option<String>,
 }
 
 #[derive(Insertable, Deserialize)]
@@ -22,7 +22,7 @@ pub struct NewUser {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub company_id: i32,
-    pub totp_secret: String,
+    pub totp_secret: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -30,5 +30,5 @@ pub struct UserNoTime {
     pub email: String,
     pub password_hash: String,
     pub company_id: i32,
-    pub totp_secret: String,
+    pub totp_secret: Option<String>,
 }

@@ -341,7 +341,7 @@ impl RoleGuard {
                 created_at: chrono::Utc::now().naive_utc(),
                 updated_at: chrono::Utc::now().naive_utc(),
                 company_id: 0,
-                totp_secret: String::new(),
+                totp_secret: None,
             },
             roles: Vec::new(),
             required_roles,

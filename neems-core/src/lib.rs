@@ -14,6 +14,7 @@ pub mod company;
 pub mod models; 
 pub mod orm;
 pub use orm::DbConn;
+pub mod request_logging_fairing;
 pub mod session_guards;
 pub mod schema;  
 
@@ -71,6 +72,9 @@ pub fn rocket() -> Rocket<Build> {
 	.attach(orm::set_foreign_keys_fairing())
 	.attach(orm::run_migrations_fairing())
 	.attach(admin_init_fairing::admin_init_fairing())
+        .attach(request_logging_fairing::request_logging_fairing())
+        // Alternative: log to file as well
+        // .attach(request_logging_fairing::request_logging_fairing_with_file("api_requests.log"))
         .register("/", catchers![not_found]);
 
     log_rocket_info(&rocket);

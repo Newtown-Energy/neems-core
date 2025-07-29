@@ -55,7 +55,7 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Timestamp,
         company_id -> Integer,
-        totp_secret -> Text,
+        totp_secret -> Nullable<Text>,
     }
 }
 

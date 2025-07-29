@@ -68,7 +68,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             email: "newtown_admin@newtownenergy.com".to_string(),
             password_hash: hash_password("password123"),
             company_id: newtown_energy.id,
-            totp_secret: "secret1".to_string(),
+            totp_secret: Some("secret1".to_string()),
         }).expect("Failed to insert newtown admin");
         assign_user_role_by_name(conn, newtown_admin.id, "newtown-admin")
             .expect("Failed to assign newtown-admin role");
@@ -77,7 +77,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             email: "newtown_staff@newtownenergy.com".to_string(),
             password_hash: hash_password("password123"),
             company_id: newtown_energy.id,
-            totp_secret: "secret2".to_string(),
+            totp_secret: Some("secret2".to_string()),
         }).expect("Failed to insert newtown staff");
         assign_user_role_by_name(conn, newtown_staff.id, "newtown-staff")
             .expect("Failed to assign newtown-staff role");
@@ -86,7 +86,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             email: "admin@regularcorp.com".to_string(),
             password_hash: hash_password("password123"),
             company_id: regular_company.id,
-            totp_secret: "secret3".to_string(),
+            totp_secret: Some("secret3".to_string()),
         }).expect("Failed to insert regular admin");
         assign_user_role_by_name(conn, regular_admin.id, "admin")
             .expect("Failed to assign admin role");
@@ -95,7 +95,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             email: "user@regularcorp.com".to_string(),
             password_hash: hash_password("password123"),
             company_id: regular_company.id,
-            totp_secret: "secret4".to_string(),
+            totp_secret: Some("secret4".to_string()),
         }).expect("Failed to insert regular user");
         assign_user_role_by_name(conn, regular_user.id, "user")
             .expect("Failed to assign user role");
@@ -104,7 +104,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             email: "admin@othercorp.com".to_string(),
             password_hash: hash_password("password123"),
             company_id: other_company.id,
-            totp_secret: "secret5".to_string(),
+            totp_secret: Some("secret5".to_string()),
         }).expect("Failed to insert other company admin");
         assign_user_role_by_name(conn, other_company_admin.id, "admin")
             .expect("Failed to assign admin role to other company admin");
@@ -113,7 +113,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             email: "user@othercorp.com".to_string(),
             password_hash: hash_password("password123"),
             company_id: other_company.id,
-            totp_secret: "secret6".to_string(),
+            totp_secret: Some("secret6".to_string()),
         }).expect("Failed to insert other company user");
         assign_user_role_by_name(conn, other_company_user.id, "user")
             .expect("Failed to assign user role to other company user");

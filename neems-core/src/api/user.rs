@@ -103,7 +103,7 @@ pub async fn create_user_by_api(
         "email": &user.email,
         "password_hash": &user.password_hash,
         "company_id": user.company_id,
-        "totp_secret": &user.totp_secret
+        "totp_secret": user.totp_secret
     }).to_string();
     let response = client
         .post("/api/1/users")

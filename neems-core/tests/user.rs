@@ -211,7 +211,7 @@ async fn test_user_crud_endpoints() {
     assert_eq!(response.status(), rocket::http::Status::Ok);
     let updated_user: User = response.into_json().await.expect("valid user JSON");
     assert_eq!(updated_user.email, "updated@example.com");
-    assert_eq!(updated_user.totp_secret, "updatedsecret");
+    assert_eq!(updated_user.totp_secret, Some("updatedsecret".to_string()));
     assert_eq!(updated_user.password_hash, "testhash"); // Should remain unchanged
     
     // Test DELETE user (should work as we're logged in as newtown-admin)

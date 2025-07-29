@@ -32,7 +32,7 @@ pub async fn add_dummy_data(client: &rocket::local::asynchronous::Client) -> &ro
             email: "testuser@example.com".to_string(),
             password_hash: hash_password("testpassword"),
             company_id: comp.id,
-            totp_secret: "dummy_secret".to_string(),
+            totp_secret: Some("dummy_secret".to_string()),
         }).expect("Failed to insert user");
 
         // Assign a default role to the test user
@@ -199,7 +199,7 @@ async fn create_test_user_with_roles(client: &rocket::local::asynchronous::Clien
             email: email.clone(),
             password_hash: hash_password("testpassword"),
             company_id: 1, // Assumes company exists
-            totp_secret: "dummy_secret".to_string(),
+            totp_secret: Some("dummy_secret".to_string()),
         }).expect("Failed to insert test user");
 
         // Assign specified roles

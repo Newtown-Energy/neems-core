@@ -234,7 +234,7 @@ mod tests {
             email: "test@example.com".to_string(),
             password_hash: "hashedpassword".to_string(),
             company_id: company.id,    // Use a valid company id for your test db
-            totp_secret: "secret".to_string(),
+            totp_secret: Some("secret".to_string()),
         };
 
         let result = insert_user(&mut conn, new_user);
@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(user.email, "test@example.com");
         assert_eq!(user.password_hash, "hashedpassword");
         assert_eq!(user.company_id, 2); // one more than our existing company, Newtown
-        assert_eq!(user.totp_secret, "secret");
+        assert_eq!(user.totp_secret, Some("secret".to_string()));
         assert!(user.id > 0);
 
         let now = chrono::Utc::now().naive_utc();
@@ -265,13 +265,13 @@ mod tests {
             email: "user1@example.com".to_string(),
             password_hash: "pw1".to_string(),
             company_id: company.id,
-            totp_secret: "secret1".to_string(),
+            totp_secret: Some("secret1".to_string()),
         };
         let user2 = UserNoTime {
             email: "user2@example.com".to_string(),
             password_hash: "pw2".to_string(),
             company_id: company.id,
-            totp_secret: "secret2".to_string(),
+            totp_secret: Some("secret2".to_string()),
         };
 
         let _ = insert_user(&mut conn, user1).unwrap();
@@ -295,7 +295,7 @@ mod tests {
             email: "gettest@example.com".to_string(),
             password_hash: "gethash".to_string(),
             company_id: company.id,
-            totp_secret: "getsecret".to_string(),
+            totp_secret: Some("getsecret".to_string()),
         };
 
         let inserted_user = insert_user(&mut conn, new_user).unwrap();
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(retrieved_user.email, "gettest@example.com");
         assert_eq!(retrieved_user.password_hash, "gethash");
         assert_eq!(retrieved_user.company_id, company.id);
-        assert_eq!(retrieved_user.totp_secret, "getsecret");
+        assert_eq!(retrieved_user.totp_secret, Some("getsecret".to_string()));
     }
 
     #[test]
@@ -319,7 +319,7 @@ mod tests {
             email: "updatetest@example.com".to_string(),
             password_hash: "originalhash".to_string(),
             company_id: company.id,
-            totp_secret: "originalsecret".to_string(),
+            totp_secret: Some("originalsecret".to_string()),
         };
 
         let inserted_user = insert_user(&mut conn, new_user).unwrap();
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(updated_user.email, "newemail@example.com");
         assert_eq!(updated_user.password_hash, "originalhash"); // Unchanged
         assert_eq!(updated_user.company_id, company.id); // Unchanged
-        assert_eq!(updated_user.totp_secret, "originalsecret"); // Unchanged
+        assert_eq!(updated_user.totp_secret, Some("originalsecret".to_string())); // Unchanged
         assert!(updated_user.updated_at > original_updated_at); // Should be updated
 
         // Update multiple fields
@@ -357,7 +357,7 @@ mod tests {
 
         assert_eq!(updated_user2.email, "newemail@example.com"); // From previous update
         assert_eq!(updated_user2.password_hash, "newhash"); // Updated
-        assert_eq!(updated_user2.totp_secret, "newsecret"); // Updated
+        assert_eq!(updated_user2.totp_secret, Some("newsecret".to_string())); // Updated
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
             email: "deletetest@example.com".to_string(),
             password_hash: "deletehash".to_string(),
             company_id: company.id,
-            totp_secret: "deletesecret".to_string(),
+            totp_secret: Some("deletesecret".to_string()),
         };
 
         let inserted_user = insert_user(&mut conn, new_user).unwrap();
@@ -413,13 +413,13 @@ mod tests {
             email: "user1@company1.com".to_string(),
             password_hash: "hash1".to_string(),
             company_id: company1.id,
-            totp_secret: "secret1".to_string(),
+            totp_secret: Some("secret1".to_string()),
         };
         let user2_company1 = UserNoTime {
             email: "user2@company1.com".to_string(),
             password_hash: "hash2".to_string(),
             company_id: company1.id,
-            totp_secret: "secret2".to_string(),
+            totp_secret: Some("secret2".to_string()),
         };
 
         // Create user for company 2
@@ -427,7 +427,7 @@ mod tests {
             email: "user1@company2.com".to_string(),
             password_hash: "hash3".to_string(),
             company_id: company2.id,
-            totp_secret: "secret3".to_string(),
+            totp_secret: Some("secret3".to_string()),
         };
 
         // Insert users
