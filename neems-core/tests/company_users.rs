@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_core::orm::testing::test_rocket;
-use neems_core::models::{Company, User};
+use neems_core::models::{Company, UserWithRoles};
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -46,14 +46,15 @@ async fn create_user_with_role(
     email: &str,
     company_id: i32,
     role_name: &str,
-) -> User {
+) -> UserWithRoles {
     // Create user with properly hashed password
     let password_hash = neems_core::orm::login::hash_password("admin");
     let new_user = json!({
         "email": email,
         "password_hash": password_hash,
         "company_id": company_id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": [role_name]
     });
     
     let response = client.post("/api/1/users")
@@ -63,22 +64,9 @@ async fn create_user_with_role(
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     
-    // Assign role
-    let role_assignment = json!({
-        "user_id": created_user.id,
-        "role_name": role_name
-    });
-    
-    let url = format!("/api/1/users/{}/roles", created_user.id);
-    let response = client.post(&url)
-        .cookie(admin_cookie.clone())
-        .json(&role_assignment)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::Ok);
+    // Role is already assigned during user creation, no need for separate assignment
     
     created_user
 }
@@ -136,7 +124,7 @@ async fn test_company_users_can_access_own_company_users() {
     
     assert_eq!(response.status(), Status::Ok);
     
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 2); // Should see both users
     
     // Verify the users belong to the correct company
@@ -174,7 +162,7 @@ async fn test_users_cannot_access_different_company_users() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "admin@company1.com");
     
@@ -206,7 +194,7 @@ async fn test_newtown_admin_can_access_any_company_users() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 2);
     
     // Verify users belong to the company
@@ -247,7 +235,7 @@ async fn test_newtown_staff_can_access_any_company_users() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].email, "user1@testcompany.com");
 }
@@ -273,7 +261,7 @@ async fn test_users_response_format() {
     
     assert_eq!(response.status(), Status::Ok);
     
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 1);
     
     let user = &users[0];
@@ -300,7 +288,7 @@ async fn test_nonexistent_company_users() {
     // Should return OK with empty array for non-existent company
     assert_eq!(response.status(), Status::Ok);
     
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 0);
 }
 
@@ -321,6 +309,6 @@ async fn test_empty_users_for_existing_company() {
     
     assert_eq!(response.status(), Status::Ok);
     
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     assert_eq!(users.len(), 0);
 }

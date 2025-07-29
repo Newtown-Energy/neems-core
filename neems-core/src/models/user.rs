@@ -1,4 +1,5 @@
 use crate::schema::users;
+use crate::models::Role;
 use diesel::{Identifiable, Queryable, Insertable};
 use serde::{Serialize, Deserialize};
 use chrono::NaiveDateTime;
@@ -31,4 +32,16 @@ pub struct UserNoTime {
     pub password_hash: String,
     pub company_id: i32,
     pub totp_secret: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+pub struct UserWithRoles {
+    pub id: i32,
+    pub email: String,
+    pub password_hash: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub company_id: i32,
+    pub totp_secret: Option<String>,
+    pub roles: Vec<Role>,
 }

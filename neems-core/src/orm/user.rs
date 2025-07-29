@@ -2,7 +2,7 @@ use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 use diesel::QueryableByName;
 
-use crate::models::{User, UserNoTime, NewUser};
+use crate::models::{User, UserNoTime, NewUser, UserWithRoles};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
@@ -81,7 +81,7 @@ pub fn get_user(
 }
 
 /// Updates a user's fields.
-/// 
+///
 /// This function updates the specified fields of a user and automatically
 /// sets the `updated_at` timestamp. All fields are optional - only provided
 /// fields will be updated.
@@ -106,39 +106,39 @@ pub fn update_user(
     new_totp_secret: Option<String>,
 ) -> Result<User, diesel::result::Error> {
     use crate::schema::users::dsl::*;
-    
+
     let now = chrono::Utc::now().naive_utc();
-    
+
     // Update each field individually if provided
     if let Some(email_val) = new_email {
         diesel::update(users.filter(id.eq(user_id)))
             .set((email.eq(email_val), updated_at.eq(now)))
             .execute(conn)?;
     }
-    
+
     if let Some(password_val) = new_password_hash {
         diesel::update(users.filter(id.eq(user_id)))
             .set((password_hash.eq(password_val), updated_at.eq(now)))
             .execute(conn)?;
     }
-    
+
     if let Some(company_val) = new_company_id {
         diesel::update(users.filter(id.eq(user_id)))
             .set((company_id.eq(company_val), updated_at.eq(now)))
             .execute(conn)?;
     }
-    
+
     if let Some(totp_val) = new_totp_secret {
         diesel::update(users.filter(id.eq(user_id)))
             .set((totp_secret.eq(totp_val), updated_at.eq(now)))
             .execute(conn)?;
     }
-    
+
     // Always update the timestamp even if no other fields changed
     diesel::update(users.filter(id.eq(user_id)))
         .set(updated_at.eq(now))
         .execute(conn)?;
-    
+
     // Return the updated user
     users.filter(id.eq(user_id)).first::<User>(conn)
 }
@@ -152,7 +152,7 @@ pub fn update_user(
 /// (like user roles, sessions, etc.) due to foreign key constraints. Consider the
 /// implications before using this function.
 ///
-/// # Arguments  
+/// # Arguments
 /// * `conn` - Database connection
 /// * `user_id` - ID of the user to delete
 ///
@@ -164,7 +164,7 @@ pub fn delete_user(
     user_id: i32,
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::users::dsl::*;
-    
+
     diesel::delete(users.filter(id.eq(user_id)))
         .execute(conn)
 }
@@ -175,7 +175,7 @@ pub fn delete_user(
 /// data, properly handling foreign key constraints and database triggers.
 /// It disables the trigger temporarily to allow complete user deletion.
 ///
-/// # Arguments  
+/// # Arguments
 /// * `conn` - Database connection
 /// * `user_id` - ID of the user to delete
 ///
@@ -189,32 +189,146 @@ pub fn delete_user_with_cleanup(
     // Temporarily drop the trigger to allow deletion
     diesel::sql_query("DROP TRIGGER IF EXISTS prevent_user_without_roles")
         .execute(conn)?;
-    
+
     // Delete user_roles first
     diesel::sql_query("DELETE FROM user_roles WHERE user_id = ?1")
         .bind::<diesel::sql_types::Integer, _>(user_id)
         .execute(conn)?;
-    
+
     // Delete the user
     use crate::schema::users::dsl::*;
     let result = diesel::delete(users.filter(id.eq(user_id)))
         .execute(conn);
-    
+
     // Recreate the trigger
     diesel::sql_query(r#"
         CREATE TRIGGER prevent_user_without_roles
         BEFORE DELETE ON user_roles
         FOR EACH ROW
         BEGIN
-            SELECT CASE 
+            SELECT CASE
                 WHEN (SELECT COUNT(*) FROM user_roles WHERE user_id = OLD.user_id) = 1
                 THEN RAISE(ABORT, 'Cannot remove the last role from a user. Users must have at least one role.')
             END;
         END
     "#)
         .execute(conn)?;
-    
+
     result
+}
+
+/// Gets a single user by ID with their roles.
+///
+/// This function retrieves a user and their associated roles in a single
+/// efficient query using a JOIN operation.
+///
+/// # Arguments
+/// * `conn` - Database connection
+/// * `user_id` - ID of the user to retrieve
+///
+/// # Returns
+/// * `Ok(UserWithRoles)` - User with their roles
+/// * `Err(diesel::result::Error)` - Database error or user not found
+pub fn get_user_with_roles(
+    conn: &mut SqliteConnection,
+    user_id: i32,
+) -> Result<UserWithRoles, diesel::result::Error> {
+    use crate::schema::users::dsl::*;
+
+    // First get the user
+    let user = users.filter(id.eq(user_id)).first::<User>(conn)?;
+
+    // Then get their roles
+    let user_roles = crate::orm::user_role::get_user_roles(conn, user_id)?;
+
+    Ok(UserWithRoles {
+        id: user.id,
+        email: user.email,
+        password_hash: user.password_hash,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        company_id: user.company_id,
+        totp_secret: user.totp_secret,
+        roles: user_roles,
+    })
+}
+
+/// Returns all users with their roles, ordered by id.
+///
+/// This function retrieves all users and their associated roles efficiently.
+/// For each user, it fetches their roles and constructs a UserWithRoles object.
+///
+/// # Arguments
+/// * `conn` - Database connection
+///
+/// # Returns
+/// * `Ok(Vec<UserWithRoles>)` - List of all users with their roles
+/// * `Err(diesel::result::Error)` - Database error
+pub fn list_all_users_with_roles(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<UserWithRoles>, diesel::result::Error> {
+    use crate::schema::users::dsl::*;
+
+    let all_users = users.order(id.asc()).load::<User>(conn)?;
+    let mut users_with_roles = Vec::new();
+
+    for user in all_users {
+        let user_roles = crate::orm::user_role::get_user_roles(conn, user.id)?;
+        users_with_roles.push(UserWithRoles {
+            id: user.id,
+            email: user.email,
+            password_hash: user.password_hash,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+            company_id: user.company_id,
+            totp_secret: user.totp_secret,
+            roles: user_roles,
+        });
+    }
+
+    Ok(users_with_roles)
+}
+
+/// Returns all users for a specific company with their roles, ordered by id.
+///
+/// This function retrieves all users that belong to the specified company
+/// along with their associated roles. Results are ordered by user ID.
+///
+/// # Arguments
+/// * `conn` - Database connection
+/// * `target_company_id` - ID of the company whose users to retrieve
+///
+/// # Returns
+/// * `Ok(Vec<UserWithRoles>)` - List of users with roles for the company
+/// * `Err(diesel::result::Error)` - Database error
+pub fn get_users_by_company_with_roles(
+    conn: &mut SqliteConnection,
+    target_company_id: i32,
+) -> Result<Vec<UserWithRoles>, diesel::result::Error> {
+    use crate::schema::users::dsl::*;
+
+    let company_users = users
+        .filter(company_id.eq(target_company_id))
+        .order(id.asc())
+        .load::<User>(conn)?;
+
+    let mut users_with_roles = Vec::new();
+
+    for user in company_users {
+        let user_roles = crate::orm::user_role::get_user_roles(conn, user.id)?;
+        users_with_roles.push(UserWithRoles {
+            id: user.id,
+            email: user.email,
+            password_hash: user.password_hash,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+            company_id: user.company_id,
+            totp_secret: user.totp_secret,
+            roles: user_roles,
+        });
+    }
+
+    Ok(users_with_roles)
 }
 
 #[cfg(test)]

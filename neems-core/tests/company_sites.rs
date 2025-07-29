@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_core::orm::testing::test_rocket;
-use neems_core::models::{Company, Site, User};
+use neems_core::models::{Company, Site, UserWithRoles};
 
 /// Helper to create a user and return login credentials
 async fn create_user_with_role(
@@ -19,7 +19,8 @@ async fn create_user_with_role(
         "email": email,
         "password_hash": password_hash,
         "company_id": company_id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": [role_name]
     });
     
     let response = client.post("/api/1/users")
@@ -29,22 +30,9 @@ async fn create_user_with_role(
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let _created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     
-    // Assign role
-    let role_assignment = json!({
-        "user_id": created_user.id,
-        "role_name": role_name
-    });
-    
-    let url = format!("/api/1/users/{}/roles", created_user.id);
-    let response = client.post(&url)
-        .cookie(admin_cookie.clone())
-        .json(&role_assignment)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::Ok);
+    // Role is already assigned during user creation, no need for separate assignment
     
     (email.to_string(), "admin".to_string()) // Use default password
 }

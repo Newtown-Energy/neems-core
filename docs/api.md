@@ -155,11 +155,17 @@ const response = await fetch('/api/1/hello', {
 
 ## User Management
 
+**Note:** All user endpoints now return user data with embedded role information
+for improved efficiency. This eliminates the need for separate API calls to
+fetch user roles in most cases. The separate role endpoints
+(`/api/1/users/<user_id>/roles`) are deprecated but remain temporarily available
+for backwards compatibility and specific role management operations.
+
 ### Create User
 
 - **URL:** `/api/1/users`
 - **Method:** `POST`
-- **Purpose:** Creates a new user in the system
+- **Purpose:** Creates a new user in the system with assigned roles
 - **Authentication:** Required
 - **Authorization:** Admin privileges required with company-based restrictions
 
@@ -167,6 +173,7 @@ const response = await fetch('/api/1/hello', {
 
 - newtown-admin and newtown-staff can create users for any company
 - Company admins can only create users for their own company
+- Role assignment follows the same authorization rules as the "Add User Role" endpoint
 
 #### Request Format
 
@@ -175,9 +182,12 @@ const response = await fetch('/api/1/hello', {
   "email": "newuser@example.com",
   "password_hash": "hashed_password_string",
   "company_id": 1,
-  "totp_secret": "optional_totp_secret"
+  "totp_secret": "optional_totp_secret",
+  "role_names": ["admin", "user"]
 }
 ```
+
+**Note:** At least one role must be provided in the `role_names` array.
 
 #### Response
 
@@ -190,12 +200,27 @@ const response = await fetch('/api/1/hello', {
   "company_id": 1,
   "totp_secret": "optional_totp_secret",
   "created_at": "2023-01-01T00:00:00Z",
-  "updated_at": "2023-01-01T00:00:00Z"
+  "updated_at": "2023-01-01T00:00:00Z",
+  "roles": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator role"
+    },
+    {
+      "id": 2,
+      "name": "user",
+      "description": "Basic user role"
+    }
+  ]
 }
 ```
 
+**Failure (HTTP 400 Bad Request):**
+No roles provided in request
+
 **Failure (HTTP 403 Forbidden):**
-User doesn't have permission to create users for the specified company
+User doesn't have permission to create users for the specified company or assign specified roles
 
 **Failure (HTTP 500 Internal Server Error):**
 Database error or validation failure
@@ -204,7 +229,7 @@ Database error or validation failure
 
 - **URL:** `/api/1/users`
 - **Method:** `GET`
-- **Purpose:** Retrieves users based on authorization level
+- **Purpose:** Retrieves users with their roles based on authorization level
 - **Authentication:** Required
 - **Authorization:** Company admins see users from their company; newtown-admin/staff see all users; regular users forbidden
 
@@ -226,7 +251,14 @@ Database error or validation failure
     "company_id": 1,
     "totp_secret": null,
     "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
+    "updated_at": "2023-01-01T00:00:00Z",
+    "roles": [
+      {
+        "id": 1,
+        "name": "admin",
+        "description": "Administrator role"
+      }
+    ]
   },
   {
     "id": 2,
@@ -235,7 +267,19 @@ Database error or validation failure
     "company_id": 2,
     "totp_secret": "secret",
     "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
+    "updated_at": "2023-01-01T00:00:00Z",
+    "roles": [
+      {
+        "id": 2,
+        "name": "user",
+        "description": "Basic user role"
+      },
+      {
+        "id": 3,
+        "name": "staff",
+        "description": "Staff role"
+      }
+    ]
   }
 ]
 ```
@@ -247,7 +291,7 @@ User doesn't have permission to list users
 
 - **URL:** `/api/1/users/<user_id>`
 - **Method:** `GET`
-- **Purpose:** Retrieves a specific user by ID
+- **Purpose:** Retrieves a specific user by ID with their roles
 - **Authentication:** Required
 - **Authorization:** Users can view their own profile; admins can view users based on company scope
 
@@ -272,7 +316,19 @@ User doesn't have permission to list users
   "company_id": 1,
   "totp_secret": "optional_totp_secret",
   "created_at": "2023-01-01T00:00:00Z",
-  "updated_at": "2023-01-01T00:00:00Z"
+  "updated_at": "2023-01-01T00:00:00Z",
+  "roles": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator role"
+    },
+    {
+      "id": 2,
+      "name": "user",
+      "description": "Basic user role"
+    }
+  ]
 }
 ```
 
@@ -286,7 +342,7 @@ User with specified ID doesn't exist
 
 - **URL:** `/api/1/users/<user_id>`
 - **Method:** `PUT`
-- **Purpose:** Updates a user's information
+- **Purpose:** Updates a user's information and returns the updated user with roles
 - **Authentication:** Required
 - **Authorization:** Users can update their own profile; admins can update users based on company scope
 
@@ -324,7 +380,14 @@ All fields are optional - only provided fields will be updated:
   "company_id": 2,
   "totp_secret": "new_totp_secret",
   "created_at": "2023-01-01T00:00:00Z",
-  "updated_at": "2023-01-01T12:30:00Z"
+  "updated_at": "2023-01-01T12:30:00Z",
+  "roles": [
+    {
+      "id": 1,
+      "name": "admin",
+      "description": "Administrator role"
+    }
+  ]
 }
 ```
 
@@ -963,7 +1026,7 @@ const response = await fetch('/api/1/company/123/sites', {
 
 - **URL:** `/api/1/company/<company_id>/users`
 - **Method:** `GET`
-- **Purpose:** Retrieves all users for a specific company
+- **Purpose:** Retrieves all users for a specific company with their roles
 - **Authentication:** Required
 - **Authorization:** Users can see users if they work for the company OR have newtown-admin/newtown-staff roles
 
@@ -988,7 +1051,14 @@ const response = await fetch('/api/1/company/123/sites', {
     "company_id": 1,
     "totp_secret": null,
     "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
+    "updated_at": "2023-01-01T00:00:00Z",
+    "roles": [
+      {
+        "id": 1,
+        "name": "admin",
+        "description": "Administrator role"
+      }
+    ]
   },
   {
     "id": 2,
@@ -997,7 +1067,19 @@ const response = await fetch('/api/1/company/123/sites', {
     "company_id": 1,
     "totp_secret": "secret",
     "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
+    "updated_at": "2023-01-01T00:00:00Z",
+    "roles": [
+      {
+        "id": 2,
+        "name": "user",
+        "description": "Basic user role"
+      },
+      {
+        "id": 3,
+        "name": "staff",
+        "description": "Staff role"
+      }
+    ]
   }
 ]
 ```

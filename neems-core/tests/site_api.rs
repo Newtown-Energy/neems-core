@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_core::orm::testing::test_rocket;
-use neems_core::models::{Company, Site, User};
+use neems_core::models::{Company, Site, UserWithRoles};
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -46,14 +46,15 @@ async fn create_user_with_role(
     email: &str,
     company_id: i32,
     role_name: &str,
-) -> User {
+) -> UserWithRoles {
     // Create user with properly hashed password using the hash_password function
     let password_hash = neems_core::orm::login::hash_password("admin");
     let new_user = json!({
         "email": email,
         "password_hash": password_hash,
         "company_id": company_id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": [role_name]
     });
     
     let response = client.post("/api/1/users")
@@ -63,22 +64,9 @@ async fn create_user_with_role(
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     
-    // Assign role
-    let role_assignment = json!({
-        "user_id": created_user.id,
-        "role_name": role_name
-    });
-    
-    let url = format!("/api/1/users/{}/roles", created_user.id);
-    let response = client.post(&url)
-        .cookie(admin_cookie.clone())
-        .json(&role_assignment)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::Ok);
+    // Role is already assigned during user creation, no need for separate assignment
     
     created_user
 }

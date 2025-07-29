@@ -5,7 +5,7 @@ use rocket::serde::json::json;
 use rocket::tokio;
 
 use neems_core::orm::testing::test_rocket;
-use neems_core::models::{Company, Role, User};
+use neems_core::models::{Company, Role, User, UserWithRoles};
 use neems_core::schema::users::dsl::*;
 use neems_core::schema::roles;
 use neems_core::schema::user_roles;
@@ -124,7 +124,8 @@ async fn test_create_user_requires_auth() {
         "email": "newuser@example.com",
         "password_hash": "hashed_pw",
         "company_id": comp_id,
-        "totp_secret": "SECRET123"
+        "totp_secret": "SECRET123",
+        "role_names": ["user"]
     });
     
     let response = client.post("/api/1/users")
@@ -155,7 +156,7 @@ async fn test_list_users_requires_auth() {
     
     assert_eq!(response.status(), rocket::http::Status::Ok);
     
-    let list: Vec<User> = response.into_json().await.expect("valid JSON response");
+    let list: Vec<UserWithRoles> = response.into_json().await.expect("valid JSON response");
     assert!(!list.is_empty()); // Should have at least the admin user
 }
 
@@ -170,7 +171,8 @@ async fn test_user_crud_endpoints() {
         "email": "crudtest@example.com",
         "password_hash": "testhash",
         "company_id": comp_id,
-        "totp_secret": "testsecret"
+        "totp_secret": "testsecret",
+        "role_names": ["user"]
     });
     
     let response = client.post("/api/1/users")
@@ -181,7 +183,7 @@ async fn test_user_crud_endpoints() {
         .await;
     
     assert_eq!(response.status(), rocket::http::Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     
     // Test GET single user
     let url = format!("/api/1/users/{}", created_user.id);
@@ -191,7 +193,7 @@ async fn test_user_crud_endpoints() {
         .await;
     
     assert_eq!(response.status(), rocket::http::Status::Ok);
-    let retrieved_user: User = response.into_json().await.expect("valid user JSON");
+    let retrieved_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(retrieved_user.id, created_user.id);
     assert_eq!(retrieved_user.email, "crudtest@example.com");
     
@@ -209,7 +211,7 @@ async fn test_user_crud_endpoints() {
         .await;
     
     assert_eq!(response.status(), rocket::http::Status::Ok);
-    let updated_user: User = response.into_json().await.expect("valid user JSON");
+    let updated_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(updated_user.email, "updated@example.com");
     assert_eq!(updated_user.totp_secret, Some("updatedsecret".to_string()));
     assert_eq!(updated_user.password_hash, "testhash"); // Should remain unchanged

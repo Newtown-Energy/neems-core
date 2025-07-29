@@ -11,11 +11,11 @@ use rocket::Route;
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::models::{Company, CompanyName, User};
+use crate::models::{Company, CompanyName, UserWithRoles};
 use crate::company::insert_company;
 use crate::orm::company::{get_all_companies, delete_company};
 use crate::orm::site::get_sites_by_company;
-use crate::orm::user::get_users_by_company;
+use crate::orm::user::get_users_by_company_with_roles;
 use crate::models::Site;
 
 /// Create Company endpoint.
@@ -234,7 +234,7 @@ pub async fn list_company_users(
     db: DbConn,
     company_id: i32,
     auth_user: AuthenticatedUser
-) -> Result<Json<Vec<User>>, Status> {
+) -> Result<Json<Vec<UserWithRoles>>, Status> {
     // Check authorization: user must be in the same company OR have newtown admin/staff roles
     let has_access = auth_user.user.company_id == company_id 
         || auth_user.has_any_role(&["newtown-admin", "newtown-staff"]);
@@ -244,7 +244,7 @@ pub async fn list_company_users(
     }
     
     db.run(move |conn| {
-        get_users_by_company(conn, company_id)
+        get_users_by_company_with_roles(conn, company_id)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
     }).await

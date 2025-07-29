@@ -15,10 +15,10 @@ use rocket::serde::json::{json, Json};
 use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
-use crate::orm::user::{insert_user, list_all_users, get_user, update_user, get_users_by_company, delete_user_with_cleanup};
+use crate::orm::user::{insert_user, get_user, update_user, delete_user_with_cleanup, list_all_users_with_roles, get_user_with_roles, get_users_by_company_with_roles};
 use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
 use crate::orm::company::get_company_by_name;
-use crate::models::{User, UserNoTime, Role, CompanyNoTime};
+use crate::models::{UserNoTime, Role, CompanyNoTime, UserWithRoles};
 
 /// Generates a random selection of usernames for testing purposes.
 ///
@@ -81,17 +81,18 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
     selected
 }
 
-/// Helper function to create a user via the API and return the created User.
+/// Helper function to create a user via the API and return the created UserWithRoles.
 ///
 /// This function is primarily used for testing purposes. It makes a POST request
-/// to the user creation endpoint and returns the newly created user object.
+/// to the user creation endpoint and returns the newly created user object with roles.
+/// It assigns a default "user" role if none is specified.
 ///
 /// # Arguments
 /// * `client` - The Rocket test client instance
 /// * `user` - The user data to create (without timestamp fields)
 ///
 /// # Returns
-/// The created User object with all fields populated
+/// The created UserWithRoles object with all fields populated
 ///
 /// # Panics
 /// This function will panic if the API request fails or returns invalid data,
@@ -99,12 +100,13 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
 pub async fn create_user_by_api(
     client: &Client,
     user: &UserNoTime,
-) -> User {
+) -> UserWithRoles {
     let body = json!({
         "email": &user.email,
         "password_hash": &user.password_hash,
         "company_id": user.company_id,
-        "totp_secret": user.totp_secret
+        "totp_secret": user.totp_secret,
+        "role_names": ["user"]
     }).to_string();
     let response = client
         .post("/api/1/users")
@@ -116,21 +118,64 @@ pub async fn create_user_by_api(
     assert_eq!(response.status(), rocket::http::Status::Created);
 
     response
-        .into_json::<User>()
+        .into_json::<UserWithRoles>()
         .await
-        .expect("valid User JSON response")
+        .expect("valid UserWithRoles JSON response")
+}
+
+/// Helper function to create a user with specific roles via the API.
+///
+/// This function is primarily used for testing purposes. It makes a POST request
+/// to the user creation endpoint with specified roles and returns the newly created user object.
+///
+/// # Arguments
+/// * `client` - The Rocket test client instance
+/// * `user` - The user data to create (without timestamp fields)
+/// * `role_names` - The roles to assign to the user
+///
+/// # Returns
+/// The created UserWithRoles object with all fields populated
+///
+/// # Panics
+/// This function will panic if the API request fails or returns invalid data,
+/// as it's intended for testing scenarios where such failures indicate test problems.
+pub async fn create_user_with_roles_by_api(
+    client: &Client,
+    user: &UserNoTime,
+    role_names: &[&str],
+) -> UserWithRoles {
+    let body = json!({
+        "email": &user.email,
+        "password_hash": &user.password_hash,
+        "company_id": user.company_id,
+        "totp_secret": user.totp_secret,
+        "role_names": role_names
+    }).to_string();
+    let response = client
+        .post("/api/1/users")
+        .header(ContentType::JSON)
+        .body(body)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), rocket::http::Status::Created);
+
+    response
+        .into_json::<UserWithRoles>()
+        .await
+        .expect("valid UserWithRoles JSON response")
 }
 
 /// Create User endpoint.
 ///
 /// - **URL:** `/api/1/users`
 /// - **Method:** `POST`
-/// - **Purpose:** Creates a new user in the system
+/// - **Purpose:** Creates a new user in the system with assigned roles
 /// - **Authentication:** Required
 ///
 /// This endpoint accepts a JSON payload containing user information and
-/// creates a new user record in the database. The user data should not
-/// include timestamp fields as they are automatically generated.
+/// role assignments, creates a new user record in the database, and assigns
+/// the specified roles in a single operation. At least one role must be provided.
 ///
 /// # Request Format
 ///
@@ -139,7 +184,8 @@ pub async fn create_user_by_api(
 ///   "email": "newuser@example.com",
 ///   "password_hash": "hashed_password_string",
 ///   "company_id": 1,
-///   "totp_secret": "optional_totp_secret"
+///   "totp_secret": "optional_totp_secret",
+///   "role_names": ["admin", "user"]
 /// }
 /// ```
 ///
@@ -154,26 +200,44 @@ pub async fn create_user_by_api(
 ///   "company_id": 1,
 ///   "totp_secret": "optional_totp_secret",
 ///   "created_at": "2023-01-01T00:00:00Z",
-///   "updated_at": "2023-01-01T00:00:00Z"
+///   "updated_at": "2023-01-01T00:00:00Z",
+///   "roles": [
+///     {
+///       "id": 1,
+///       "name": "admin",
+///       "description": "Administrator role"
+///     },
+///     {
+///       "id": 2,
+///       "name": "user",
+///       "description": "Basic user role"
+///     }
+///   ]
 /// }
 /// ```
+///
+/// **Failure (HTTP 400 Bad Request):**
+/// No roles provided in request
+///
+/// **Failure (HTTP 403 Forbidden):**
+/// User doesn't have permission to create users or assign specified roles
 ///
 /// **Failure (HTTP 500 Internal Server Error):**
 /// Database error or validation failure
 ///
 /// # Arguments
 /// * `db` - Database connection pool
-/// * `new_user` - JSON payload containing the new user data
+/// * `new_user` - JSON payload containing the new user data and role assignments
 ///
 /// # Returns
-/// * `Ok(status::Created<Json<User>>)` - Successfully created user
-/// * `Err(Status)` - Error during creation (typically InternalServerError)
+/// * `Ok(status::Created<Json<UserWithRoles>>)` - Successfully created user with roles
+/// * `Err(Status)` - Error during creation (BadRequest, Forbidden, InternalServerError)
 #[post("/1/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
-    new_user: LoggedJson<UserNoTime>,
+    new_user: LoggedJson<CreateUserWithRolesRequest>,
     auth_user: AuthenticatedUser
-) -> Result<status::Created<Json<User>>, Status> {
+) -> Result<status::Created<Json<UserWithRoles>>, Status> {
     // Check authorization: can create users for target company?
     let target_company_id = new_user.company_id;
     
@@ -191,13 +255,88 @@ pub async fn create_user(
         return Err(Status::Forbidden);
     }
 
+    // Validate that at least one role is provided
+    if new_user.role_names.is_empty() {
+        return Err(Status::BadRequest);
+    }
+
     db.run(move |conn| {
-        insert_user(conn, new_user.into_inner())
-            .map(|user| status::Created::new("/").body(Json(user)))
-            .map_err(|e| {
+        let user_request = new_user.into_inner();
+        
+        // Create the user first
+        let user_no_time = UserNoTime {
+            email: user_request.email,
+            password_hash: user_request.password_hash,
+            company_id: user_request.company_id,
+            totp_secret: user_request.totp_secret,
+        };
+        
+        let created_user = match insert_user(conn, user_no_time) {
+            Ok(user) => user,
+            Err(e) => {
                 eprintln!("Error creating user: {:?}", e);
-                Status::InternalServerError
-            })
+                return Err(Status::InternalServerError);
+            }
+        };
+
+        // Assign roles to the user
+        for role_name in &user_request.role_names {
+            // Check if user can assign this role (same logic as add_user_role)
+            let can_assign = if auth_user.has_role("newtown-admin") {
+                // newtown-admin can assign any role
+                true
+            } else if auth_user.has_role("newtown-staff") {
+                // newtown-staff can assign any role except newtown-admin
+                role_name != "newtown-admin"
+            } else if auth_user.has_role("admin") {
+                // admin can only assign admin role to users in same company
+                role_name == "admin" && auth_user.user.company_id == created_user.company_id
+            } else {
+                false
+            };
+
+            if !can_assign {
+                eprintln!("User cannot assign role: {}", role_name);
+                return Err(Status::Forbidden);
+            }
+
+            // Check if role is newtown-staff or newtown-admin (company restriction)
+            if role_name == "newtown-staff" || role_name == "newtown-admin" {
+                let newtown_company_search = CompanyNoTime {
+                    name: "Newtown Energy".to_string(),
+                };
+                let newtown_company = match get_company_by_name(conn, &newtown_company_search) {
+                    Ok(Some(company)) => company,
+                    Ok(None) => {
+                        eprintln!("Newtown Energy company not found");
+                        return Err(Status::InternalServerError);
+                    }
+                    Err(e) => {
+                        eprintln!("Error getting Newtown Energy company: {:?}", e);
+                        return Err(Status::InternalServerError);
+                    }
+                };
+
+                if created_user.company_id != newtown_company.id {
+                    return Err(Status::Forbidden);
+                }
+            }
+
+            // Assign the role
+            if let Err(e) = assign_user_role_by_name(conn, created_user.id, role_name) {
+                eprintln!("Error assigning role {}: {:?}", role_name, e);
+                return Err(Status::InternalServerError);
+            }
+        }
+
+        // Get the user with roles after creation and role assignment
+        match get_user_with_roles(conn, created_user.id) {
+            Ok(user_with_roles) => Ok(status::Created::new("/").body(Json(user_with_roles))),
+            Err(e) => {
+                eprintln!("Error getting created user with roles: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
     }).await
 }
 
@@ -248,12 +387,12 @@ pub async fn create_user(
 pub async fn list_users(
     db: DbConn,
     auth_user: AuthenticatedUser
-) -> Result<Json<Vec<User>>, Status> {
+) -> Result<Json<Vec<UserWithRoles>>, Status> {
     // Authorization: determine which users this user can see
     if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
         // newtown-admin and newtown-staff can see all users
         db.run(|conn| {
-            list_all_users(conn)
+            list_all_users_with_roles(conn)
                 .map(Json)
                 .map_err(|e| {
                     eprintln!("Error listing all users: {:?}", e);
@@ -264,7 +403,7 @@ pub async fn list_users(
         // admin can only see users from their own company
         let company_id = auth_user.user.company_id;
         db.run(move |conn| {
-            get_users_by_company(conn, company_id)
+            get_users_by_company_with_roles(conn, company_id)
                 .map(Json)
                 .map_err(|e| {
                     eprintln!("Error listing company users: {:?}", e);
@@ -281,6 +420,16 @@ pub async fn list_users(
 pub struct SetUserRoleRequest {
     pub user_id: i32,
     pub role_name: String,
+}
+
+/// Request structure for creating a user with roles.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CreateUserWithRolesRequest {
+    pub email: String,
+    pub password_hash: String,
+    pub company_id: i32,
+    pub totp_secret: Option<String>,
+    pub role_names: Vec<String>,
 }
 
 /// Request structure for adding a role to a user (user_id comes from URL path).
@@ -353,9 +502,9 @@ pub async fn get_user_endpoint(
     db: DbConn,
     user_id: i32,
     auth_user: AuthenticatedUser,
-) -> Result<Json<User>, Status> {
+) -> Result<Json<UserWithRoles>, Status> {
     db.run(move |conn| {
-        match get_user(conn, user_id) {
+        match get_user_with_roles(conn, user_id) {
             Ok(user) => {
                 // Authorization: who can view this user?
                 let can_view = if auth_user.user.id == user_id {
@@ -783,7 +932,7 @@ pub async fn update_user_endpoint(
     user_id: i32,
     request: Json<UpdateUserRequest>,
     auth_user: AuthenticatedUser,
-) -> Result<Json<User>, Status> {
+) -> Result<Json<UserWithRoles>, Status> {
     db.run(move |conn| {
         // First, get the target user to check authorization
         let target_user = match get_user(conn, user_id) {
@@ -821,7 +970,16 @@ pub async fn update_user_endpoint(
             request.company_id,
             request.totp_secret.clone(),
         ) {
-            Ok(user) => Ok(Json(user)),
+            Ok(_user) => {
+                // Get the updated user with roles
+                match get_user_with_roles(conn, user_id) {
+                    Ok(user_with_roles) => Ok(Json(user_with_roles)),
+                    Err(e) => {
+                        eprintln!("Error getting updated user with roles: {:?}", e);
+                        Err(Status::InternalServerError)
+                    }
+                }
+            },
             Err(diesel::result::Error::NotFound) => Err(Status::NotFound),
             Err(e) => {
                 eprintln!("Error updating user: {:?}", e);

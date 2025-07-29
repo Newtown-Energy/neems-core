@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_core::orm::testing::test_rocket;
-use neems_core::models::{User, Company};
+use neems_core::models::{UserWithRoles, Company};
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -46,14 +46,15 @@ async fn create_user_with_role(
     email: &str,
     company_id: i32,
     role_name: &str,
-) -> User {
+) -> UserWithRoles {
     // Create user with properly hashed password
     let password_hash = neems_core::orm::login::hash_password("admin");
     let new_user = json!({
         "email": email,
         "password_hash": password_hash,
         "company_id": company_id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": [role_name]
     });
     
     let response = client.post("/api/1/users")
@@ -63,22 +64,9 @@ async fn create_user_with_role(
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     
-    // Assign role
-    let role_assignment = json!({
-        "user_id": created_user.id,
-        "role_name": role_name
-    });
-    
-    let url = format!("/api/1/users/{}/roles", created_user.id);
-    let response = client.post(&url)
-        .cookie(admin_cookie.clone())
-        .json(&role_assignment)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::Ok);
+    // Role is already assigned during user creation, no need for separate assignment
     
     created_user
 }
@@ -113,7 +101,8 @@ async fn test_create_user_requires_authentication() {
         "email": "test@example.com",
         "password_hash": "hash",
         "company_id": 1,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": ["user"]
     });
     
     let response = client.post("/api/1/users")
@@ -138,7 +127,8 @@ async fn test_regular_users_cannot_create_users() {
         "email": "shouldnotwork@example.com",
         "password_hash": "hash",
         "company_id": test_company.id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": ["user"]
     });
     
     let response = client.post("/api/1/users")
@@ -168,7 +158,8 @@ async fn test_admin_can_create_users_for_own_company_only() {
         "email": "newuser@company1.com",
         "password_hash": neems_core::orm::login::hash_password("password"),
         "company_id": company1.id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": ["admin"]
     });
     
     let response = client.post("/api/1/users")
@@ -178,7 +169,7 @@ async fn test_admin_can_create_users_for_own_company_only() {
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(created_user.company_id, company1.id);
     
     // Should NOT be able to create user for different company
@@ -186,7 +177,8 @@ async fn test_admin_can_create_users_for_own_company_only() {
         "email": "unauthorized@company2.com",
         "password_hash": neems_core::orm::login::hash_password("password"),
         "company_id": company2.id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": ["admin"]
     });
     
     let response = client.post("/api/1/users")
@@ -226,7 +218,8 @@ async fn test_newtown_staff_can_create_users_for_any_company() {
         "email": "newuser@testcompany.com",
         "password_hash": neems_core::orm::login::hash_password("password"),
         "company_id": test_company.id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": ["user"]
     });
     
     let response = client.post("/api/1/users")
@@ -236,7 +229,7 @@ async fn test_newtown_staff_can_create_users_for_any_company() {
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(created_user.company_id, test_company.id);
 }
 
@@ -253,7 +246,8 @@ async fn test_newtown_admin_can_create_users_for_any_company() {
         "email": "newuser@testcompany.com",
         "password_hash": neems_core::orm::login::hash_password("password"),
         "company_id": test_company.id,
-        "totp_secret": ""
+        "totp_secret": "",
+        "role_names": ["user"]
     });
     
     let response = client.post("/api/1/users")
@@ -263,7 +257,7 @@ async fn test_newtown_admin_can_create_users_for_any_company() {
         .await;
     
     assert_eq!(response.status(), Status::Created);
-    let created_user: User = response.into_json().await.expect("valid user JSON");
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(created_user.company_id, test_company.id);
 }
 
@@ -318,7 +312,7 @@ async fn test_admin_can_list_users_from_own_company_only() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     
     // Should see exactly 2 users (admin and user from company1)
     assert_eq!(users.len(), 2);
@@ -363,7 +357,7 @@ async fn test_newtown_staff_can_list_all_users() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     
     // Should see users from multiple companies (at least 3: superadmin, staff, test_user)
     assert!(users.len() >= 3);
@@ -390,7 +384,7 @@ async fn test_newtown_admin_can_list_all_users() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<User> = response.into_json().await.expect("valid users JSON");
+    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
     
     // Should see users from multiple companies (at least 2: superadmin, test_user)
     assert!(users.len() >= 2);
@@ -428,7 +422,7 @@ async fn test_users_can_view_own_profile() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let retrieved_user: User = response.into_json().await.expect("valid user JSON");
+    let retrieved_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(retrieved_user.id, test_user.id);
     assert_eq!(retrieved_user.email, "user@testcompany.com");
 }
@@ -478,7 +472,7 @@ async fn test_admin_can_view_users_from_own_company_only() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let retrieved_user: User = response.into_json().await.expect("valid user JSON");
+    let retrieved_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(retrieved_user.id, company1_user.id);
     
     // Admin should NOT be able to view users from different company
@@ -523,7 +517,7 @@ async fn test_newtown_staff_can_view_any_user() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let retrieved_user: User = response.into_json().await.expect("valid user JSON");
+    let retrieved_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(retrieved_user.id, test_user.id);
 }
 
@@ -568,7 +562,7 @@ async fn test_users_can_update_own_profile() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let updated_user: User = response.into_json().await.expect("valid user JSON");
+    let updated_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(updated_user.email, "newuser@testcompany.com");
 }
 
@@ -627,7 +621,7 @@ async fn test_admin_can_update_users_from_own_company_only() {
         .await;
     
     assert_eq!(response.status(), Status::Ok);
-    let updated_user: User = response.into_json().await.expect("valid user JSON");
+    let updated_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(updated_user.email, "updated@company.com");
     
     // Admin should NOT be able to update users from different company
