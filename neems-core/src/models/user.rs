@@ -25,7 +25,7 @@ pub struct NewUser {
     pub totp_secret: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct UserNoTime {
     pub email: String,
     pub password_hash: String,

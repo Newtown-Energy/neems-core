@@ -8,6 +8,7 @@ use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::Route;
 
+use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::role::{insert_role, get_all_roles, get_role, update_role, delete_role};
@@ -58,7 +59,7 @@ use crate::models::{Role, NewRole};
 #[post("/1/roles", data = "<new_role>")]
 pub async fn create_role(
     db: DbConn,
-    new_role: Json<NewRole>,
+    new_role: LoggedJson<NewRole>,
     auth_user: AuthenticatedUser
 ) -> Result<Json<Role>, Status> {
     // Only newtown-admin can create roles

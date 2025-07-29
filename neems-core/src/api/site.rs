@@ -12,15 +12,16 @@ use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::status;
 use rocket::Route;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
+use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::models::Site;
 use crate::orm::site::{insert_site, get_site_by_id, update_site, delete_site, get_all_sites, get_sites_by_company};
 
 /// Request payload for creating a new site
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CreateSiteRequest {
     pub name: String,
     pub address: String,
@@ -30,7 +31,7 @@ pub struct CreateSiteRequest {
 }
 
 /// Request payload for updating a site (all fields optional)
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct UpdateSiteRequest {
     pub name: Option<String>,
     pub address: Option<String>,
@@ -92,7 +93,7 @@ fn can_crud_site(user: &AuthenticatedUser, site_company_id: i32) -> bool {
 #[post("/1/sites", data = "<new_site>")]
 pub async fn create_site(
     db: DbConn,
-    new_site: Json<CreateSiteRequest>,
+    new_site: LoggedJson<CreateSiteRequest>,
     auth_user: AuthenticatedUser
 ) -> Result<status::Created<Json<Site>>, Status> {
     // Check authorization
@@ -204,7 +205,7 @@ pub async fn list_sites(
 pub async fn update_site_endpoint(
     db: DbConn,
     site_id: i32,
-    update_data: Json<UpdateSiteRequest>,
+    update_data: LoggedJson<UpdateSiteRequest>,
     auth_user: AuthenticatedUser
 ) -> Result<Json<Site>, Status> {
     db.run(move |conn| {

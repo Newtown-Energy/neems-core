@@ -12,6 +12,7 @@ use rocket::response::status;
 use rocket::Route;
 use rocket::serde::json::{json, Json};
 
+use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
 use crate::orm::user::{insert_user, list_all_users, get_user, update_user, get_users_by_company, delete_user_with_cleanup};
@@ -170,7 +171,7 @@ pub async fn create_user_by_api(
 #[post("/1/users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
-    new_user: Json<UserNoTime>,
+    new_user: LoggedJson<UserNoTime>,
     auth_user: AuthenticatedUser
 ) -> Result<status::Created<Json<User>>, Status> {
     // Check authorization: can create users for target company?

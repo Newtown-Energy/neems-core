@@ -9,7 +9,7 @@ pub struct Role {
     pub description: Option<String>,
 }
 
-#[derive(Insertable, Debug, Deserialize)]
+#[derive(Insertable, Debug, Deserialize, Serialize)]
 #[diesel(table_name = roles)]
 pub struct NewRole {
     pub name: String,

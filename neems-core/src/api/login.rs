@@ -5,6 +5,7 @@
 //! and provides authenticated endpoints.
 
 use rocket::{post, get, Route, http::CookieJar, serde::json::Json};
+use crate::logged_json::LoggedJson;
 use rocket::response;
 use rocket::serde::{Serialize, Deserialize};
 
@@ -73,7 +74,7 @@ async fn build_user_response(
 }
 
 /// Login request structure containing user credentials.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
@@ -141,7 +142,7 @@ pub struct LoginRequest {
 pub async fn login(
     db: DbConn,
     cookies: &CookieJar<'_>,
-    login: Json<LoginRequest>,
+    login: LoggedJson<LoginRequest>,
 ) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
     match process_login(&db, cookies, &login).await {
         Ok((_status, user)) => {
