@@ -9,6 +9,7 @@ use rocket::http::Status;
 use rocket::response::{status, self};
 use rocket::Route;
 use serde::Serialize;
+use ts_rs::TS;
 
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
@@ -20,7 +21,8 @@ use crate::orm::user::get_users_by_company_with_roles;
 use crate::models::Site;
 
 /// Error response structure for company API failures.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct ErrorResponse {
     pub error: String,
 }

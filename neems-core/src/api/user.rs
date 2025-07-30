@@ -16,6 +16,7 @@ use rocket::serde::Serialize;
 use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
 use crate::orm::DbConn;
+use ts_rs::TS;
 use crate::orm::user::{insert_user, get_user, get_user_by_email, update_user, delete_user_with_cleanup, list_all_users_with_roles, get_user_with_roles, get_users_by_company_with_roles};
 use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
 use crate::orm::company::get_company_by_name;
@@ -23,7 +24,8 @@ use crate::orm::role::get_role_by_name;
 use crate::models::{UserNoTime, Role, CompanyNoTime, UserWithRoles};
 
 /// Error response structure for user API failures.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -516,7 +518,8 @@ pub struct SetUserRoleRequest {
 }
 
 /// Request structure for creating a user with roles.
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, TS)]
+#[ts(export)]
 pub struct CreateUserWithRolesRequest {
     pub email: String,
     pub password_hash: String,
@@ -526,19 +529,22 @@ pub struct CreateUserWithRolesRequest {
 }
 
 /// Request structure for adding a role to a user (user_id comes from URL path).
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, TS)]
+#[ts(export)]
 pub struct AddUserRoleRequest {
     pub role_name: String,
 }
 
 /// Request structure for removing a role from a user (user_id comes from URL path).
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, TS)]
+#[ts(export)]
 pub struct RemoveUserRoleRequest {
     pub role_name: String,
 }
 
 /// Request structure for updating a user (all fields optional).
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, TS)]
+#[ts(export)]
 pub struct UpdateUserRequest {
     pub email: Option<String>,
     pub password_hash: Option<String>,

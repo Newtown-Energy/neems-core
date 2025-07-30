@@ -8,6 +8,7 @@ use rocket::{post, get, Route, http::CookieJar, serde::json::Json};
 use crate::logged_json::LoggedJson;
 use rocket::response;
 use rocket::serde::{Serialize, Deserialize};
+use ts_rs::TS;
 
 use crate::session_guards::AuthenticatedUser;
 use crate::DbConn;
@@ -16,13 +17,15 @@ use crate::orm::user_role::get_user_roles;
 use crate::orm::company::get_company_by_id;
 
 /// Error response structure for authentication failures.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct ErrorResponse {
     error: String,
 }
 
 /// Login success response structure containing user information.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct LoginSuccessResponse {
     pub user_id: i32,
     pub email: String,

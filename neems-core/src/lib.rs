@@ -16,7 +16,10 @@ pub mod models;
 pub mod orm;
 pub use orm::DbConn;
 pub mod session_guards;
-pub mod schema;  
+pub mod schema;
+
+#[cfg(test)]
+pub mod generate_types;  
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 

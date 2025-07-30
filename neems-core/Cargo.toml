@@ -17,6 +17,7 @@ rocket_sync_db_pools = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+ts-rs = { workspace = true }
 
 [features]
 default = []

@@ -13,6 +13,7 @@ use rocket::http::Status;
 use rocket::response::{status, self};
 use rocket::Route;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::logged_json::LoggedJson;
 use crate::session_guards::AuthenticatedUser;
@@ -22,13 +23,15 @@ use crate::orm::site::{insert_site, get_site_by_id, get_site_by_company_and_name
 use crate::orm::company::get_company_by_id;
 
 /// Error response structure for site API failures.
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct ErrorResponse {
     pub error: String,
 }
 
 /// Request payload for creating a new site
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, TS)]
+#[ts(export)]
 pub struct CreateSiteRequest {
     pub name: String,
     pub address: String,
@@ -38,7 +41,8 @@ pub struct CreateSiteRequest {
 }
 
 /// Request payload for updating a site (all fields optional)
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, TS)]
+#[ts(export)]
 pub struct UpdateSiteRequest {
     pub name: Option<String>,
     pub address: Option<String>,
