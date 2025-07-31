@@ -4,7 +4,7 @@
 //! in the system. Roles define permissions and access levels that can
 //! be assigned to users within companies.
 
-use rocket::serde::json::{Json, json, Value};
+use rocket::serde::json::Json;
 use rocket::http::Status;
 use rocket::response::{self};
 use rocket::Route;
