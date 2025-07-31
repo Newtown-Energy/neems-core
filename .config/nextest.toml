@@ -18,6 +18,10 @@ success-output = "never"
 # Timeout for individual tests (30 seconds)
 slow-timeout = { period = "30s", terminate-after = 2 }
 
+[profile.default.junit]
+# This will be in target/nextest/default
+path = "junit.xml"
+
 [profile.ci]
 # Profile optimized for CI environments
 test-threads = 2
