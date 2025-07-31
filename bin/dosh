@@ -5,6 +5,7 @@
 SCRIPTNAME=`basename "$0"`
 BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
 cd ${BASEDIR}
+NIGHTLY="+nightly"
 
 
 DEV_TEST_FLAGS="--color=always -p neems-core"
@@ -52,7 +53,7 @@ build() {
     
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly build --features test-staging "$@" || {
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY build --features test-staging "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	return 1
     }
@@ -60,7 +61,7 @@ build() {
 
 check() {
     local cmd="check $DEV_TEST_FLAGS"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
 clippy() {
@@ -99,7 +100,7 @@ migrate() {
 
 nextest() {
     local cmd="nextest run $DEV_TEST_FLAGS -p neems-core"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
 push() {
@@ -112,11 +113,11 @@ release() {
     rustup update
     echo "🚀 Building release version..."
     local flags="--features fixphrase --features admin-cli"
-    cargo +nightly test --release $flags "$@" || {
+    cargo $NIGHTLY test --release $flags "$@" || {
 	echo "❌ Tests failed. Please check the output above."
 	return 1
     }
-    cargo +nightly build --release $flags "$@" || {
+    cargo $NIGHTLY build --release $flags "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	return 1
     }
@@ -128,12 +129,12 @@ test() {
 
 test-all() {
     # FORCE_ALL_TESTS=1 nextest --features fixphrase "@"
-    FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging "$@"
+    FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging --features admin-cli "$@"
 }
 
 test-trad() {
     local cmd="test $DEV_TEST_FLAGS --quiet"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo +nightly $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
 
