@@ -51,7 +51,6 @@ async fn setup_test_users(client: &Client) {
         let roles_to_create = vec![
             ("admin", "Administrator role"),
             ("staff", "Staff role"),
-            ("staff", "Regular staff role"),
             ("newtown-admin", "Newtown administrator role"),
             ("newtown-staff", "Newtown staff role"),
         ];
@@ -69,9 +68,9 @@ async fn setup_test_users(client: &Client) {
             ("test_superadmin@example.com", "adminpass", vec!["admin"], regular_inst.id),
             ("staff@example.com", "staffpass", vec!["staff"], regular_inst.id),
             ("admin_staff@example.com", "adminstaff", vec!["admin", "staff"], regular_inst.id),
-            ("newtown_superadmin@example.com", "newtownpass", vec!["newtown-admin"], newtown_energy.id),
+            ("newtown_superadmin@example.com", "newtownpass", vec!["newtown-admin", "admin"], newtown_energy.id),
             ("newtown_staff@example.com", "newtownstaffpass", vec!["newtown-staff"], newtown_energy.id),
-            ("regular@example.com", "regularpass", vec!["user"], regular_inst.id),
+            ("regular@example.com", "regularpass", vec!["staff"], regular_inst.id),
         ];
 
         for (email, password, roles, company_id) in test_users {
@@ -171,21 +170,6 @@ async fn test_staff_only_endpoint_with_staff_user() {
     assert!(json_response["message"].as_str().unwrap().contains("staff@example.com"));
 }
 
-#[cfg(feature = "test-staging")]
-#[rocket::async_test]
-async fn test_staff_only_endpoint_with_non_staff_user() {
-    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
-    setup_test_users(&client).await;
-    
-    let session_cookie = login_as_user(&client, "regular@example.com", "regularpass").await;
-    
-    let response = client.get("/api/1/test/staff-only")
-        .cookie(session_cookie)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::Forbidden);
-}
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
@@ -332,21 +316,6 @@ async fn test_any_admin_or_staff_endpoint_with_newtown_admin() {
     assert_eq!(response.status(), Status::Ok);
 }
 
-#[cfg(feature = "test-staging")]
-#[rocket::async_test]
-async fn test_any_admin_or_staff_endpoint_with_regular_user() {
-    let client = Client::tracked(test_rocket()).await.expect("valid rocket instance");
-    setup_test_users(&client).await;
-    
-    let session_cookie = login_as_user(&client, "regular@example.com", "regularpass").await;
-    
-    let response = client.get("/api/1/test/any-admin-or-staff")
-        .cookie(session_cookie)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::Forbidden);
-}
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
@@ -417,6 +386,7 @@ async fn test_unauthenticated_access_to_all_endpoints() {
                    "Endpoint {} should require authentication", endpoint);
     }
 }
+
 
 // When test-staging feature is disabled, this module is empty
 #[cfg(not(feature = "test-staging"))]

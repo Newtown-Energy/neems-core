@@ -113,7 +113,8 @@ release() {
     rustup update
     echo "🚀 Building release version..."
     local flags="--features fixphrase --features admin-cli"
-    cargo $NIGHTLY test --release $flags "$@" || {
+    # The test-staging feature just makes sure we run some security tests:w
+    FORCE_TEST_ALL=1 cargo $NIGHTLY test --release $flags --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above."
 	return 1
     }
@@ -128,7 +129,6 @@ test() {
 }
 
 test-all() {
-    # FORCE_ALL_TESTS=1 nextest --features fixphrase "@"
     FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging --features admin-cli "$@"
 }
 
