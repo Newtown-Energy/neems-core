@@ -366,7 +366,7 @@ pub async fn delete_role_endpoint(
     db: DbConn,
     role_id: i32,
     auth_user: AuthenticatedUser
-) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
+) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
     // Only newtown-admin can delete roles
     if !auth_user.has_role("newtown-admin") {
         let err = Json(ErrorResponse {
@@ -378,7 +378,7 @@ pub async fn delete_role_endpoint(
         match delete_role(conn, role_id) {
             Ok(rows_affected) => {
                 if rows_affected > 0 {
-                    Ok(Json(json!({"message": "Role deleted successfully"})))
+                    Ok(Status::NoContent)
                 } else {
                     let err = Json(ErrorResponse {
                         error: format!("Role with ID {} not found", role_id)

@@ -11,6 +11,7 @@ might refer to some sources of information:
  * the `neems-core/src/api` directory
  * integration tests in `tests/*.rs` that exercise these endpoints.
  * the react codebase at `https://github.com/Newtown-Energy/neems-react`, which hits these endpoints
+ * **TypeScript type definitions** generated from the Rust code (see "Generated TypeScript Types" section below)
 
 You might point an LLM at those source to help you answer any question
 you have or even to write code.
@@ -23,6 +24,73 @@ testing purposes, as they shouldn't be enabled in production.
 ## Base URL
 
 All API endpoints are prefixed with `/api/1/`
+
+## JSON-Only API Responses
+
+**Important:** This API is guaranteed to return JSON responses only. No HTML error pages will ever be served from `/api/*` routes.
+
+### Error Response Format
+
+All API errors return a standardized JSON structure:
+
+```json
+{
+  "error": "Error message describing what went wrong",
+  "status": 404,
+  "path": "/api/1/endpoint"
+}
+```
+
+### Framework-Level Error Handling
+
+The API includes comprehensive error catchers for common HTTP status codes:
+
+- **401 Unauthorized**: `{"error": "Unauthorized", "status": 401, "path": "/api/1/endpoint"}`
+- **403 Forbidden**: `{"error": "Forbidden", "status": 403, "path": "/api/1/endpoint"}`
+- **404 Not Found**: `{"error": "Not Found", "status": 404, "path": "/api/1/endpoint"}`
+- **422 Unprocessable Entity**: `{"error": "Unprocessable Entity", "status": 422, "path": "/api/1/endpoint"}`
+- **500 Internal Server Error**: `{"error": "Internal Server Error", "status": 500, "path": "/api/1/endpoint"}`
+
+This ensures that frontend applications can always safely parse API responses as JSON without checking content types.
+
+## Generated TypeScript Types
+
+The API includes automatically generated TypeScript type definitions that match the Rust data structures exactly. These types are generated using the `ts-rs` crate and provide compile-time type safety for frontend development.
+
+### Available Types
+
+The generated types include:
+- `ErrorResponse` - Standard error response structure used across all endpoints
+- `LoginSuccessResponse` - Response structure for login and hello endpoints
+- `CreateUserWithRolesRequest` - Request structure for creating users with roles
+- `AddUserRoleRequest` - Request structure for adding roles to users
+- `RemoveUserRoleRequest` - Request structure for removing roles from users
+- `UpdateUserRequest` - Request structure for updating user information
+- `CreateSiteRequest` - Request structure for creating sites
+- `UpdateSiteRequest` - Request structure for updating sites
+- All model types (`User`, `Role`, `Company`, `Site`, etc.)
+
+### Using Generated Types
+
+```typescript
+import { LoginSuccessResponse, ErrorResponse, CreateUserWithRolesRequest } from './generated-types';
+
+// Type-safe API calls
+const loginResponse: LoginSuccessResponse = await fetch('/api/1/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email: 'user@example.com', password: 'password' }),
+  credentials: 'include'
+}).then(res => res.json());
+
+// Type-safe error handling
+if (!response.ok) {
+  const error: ErrorResponse = await response.json();
+  console.error(error.error);
+}
+```
+
+The types are automatically kept in sync with the backend code, ensuring that API changes are immediately reflected in the frontend type definitions.
 
 ## Authentication
 
@@ -109,7 +177,13 @@ const response = await fetch('/api/1/login', {
 
 #### Response
 
-**Always returns HTTP 200 OK** - Success regardless of session state
+**Success (HTTP 200 OK):**
+```json
+{
+  "message": "Logout successful",
+  "status": "ok"
+}
+```
 
 #### Example
 
@@ -118,6 +192,9 @@ const response = await fetch('/api/1/logout', {
   method: 'POST',
   credentials: 'include'
 });
+
+const data = await response.json();
+console.log(data.message); // "Logout successful"
 ```
 
 ### Hello (Authentication Check)
@@ -609,10 +686,18 @@ const response = await fetch('/api/1/users/123/roles', {
 ```
 
 **Failure (HTTP 403 Forbidden):**
-User doesn't have permission to create roles
+```json
+{
+  "error": "Forbidden: only newtown-admin can create roles"
+}
+```
 
 **Failure (HTTP 500 Internal Server Error):**
-Database error or validation failure
+```json
+{
+  "error": "Internal server error while creating role"
+}
+```
 
 ### List Roles
 
@@ -664,7 +749,18 @@ Database error or validation failure
 ```
 
 **Failure (HTTP 404 Not Found):**
-Role with specified ID doesn't exist
+```json
+{
+  "error": "Role with ID 123 not found"
+}
+```
+
+**Failure (HTTP 500 Internal Server Error):**
+```json
+{
+  "error": "Internal server error while getting role"
+}
+```
 
 ### Update Role
 
@@ -705,10 +801,25 @@ All fields are optional - only provided fields will be updated:
 ```
 
 **Failure (HTTP 403 Forbidden):**
-User doesn't have permission to update roles
+```json
+{
+  "error": "Forbidden: only newtown-admin can update roles"
+}
+```
 
 **Failure (HTTP 404 Not Found):**
-Role with specified ID doesn't exist
+```json
+{
+  "error": "Role with ID 123 not found"
+}
+```
+
+**Failure (HTTP 500 Internal Server Error):**
+```json
+{
+  "error": "Internal server error while updating role"
+}
+```
 
 ### Delete Role
 
@@ -734,10 +845,25 @@ Role with specified ID doesn't exist
 No response body - role successfully deleted
 
 **Failure (HTTP 403 Forbidden):**
-User doesn't have permission to delete roles
+```json
+{
+  "error": "Forbidden: only newtown-admin can delete roles"
+}
+```
 
 **Failure (HTTP 404 Not Found):**
-Role with specified ID doesn't exist
+```json
+{
+  "error": "Role with ID 123 not found"
+}
+```
+
+**Failure (HTTP 500 Internal Server Error):**
+```json
+{
+  "error": "Internal server error while deleting role"
+}
+```
 
 ## Site Management
 
@@ -1188,11 +1314,21 @@ const response = await fetch('/api/1/users', {
 
 ### Error Response Format
 
-Most error responses follow this format:
+All error responses follow these standardized formats:
 
+**Application-specific errors:**
 ```json
 {
   "error": "Error description"
+}
+```
+
+**Framework-level errors:**
+```json
+{
+  "error": "Error message",
+  "status": 404,
+  "path": "/api/1/endpoint"
 }
 ```
 
@@ -1200,9 +1336,11 @@ Most error responses follow this format:
 
 1. **Always use HTTPS** in production
 2. **Include `credentials: 'include'`** in all authenticated requests
-3. **Handle errors gracefully** with user-friendly messages
-4. **Never try to access the session cookie** from JavaScript
-5. **Check authentication status** using the `/api/1/hello` endpoint
+3. **Always parse responses as JSON** - the API guarantees JSON-only responses
+4. **Handle errors gracefully** with user-friendly messages from the `error` field
+5. **Never try to access the session cookie** from JavaScript
+6. **Check authentication status** using the `/api/1/hello` endpoint
+7. **Use generated TypeScript types** for compile-time type safety
 
 ## Quick Examples
 
@@ -1240,10 +1378,14 @@ async function isAuthenticated() {
 
 ```js
 async function logout() {
-  await fetch('/api/1/logout', {
+  const response = await fetch('/api/1/logout', {
     method: 'POST',
     credentials: 'include'
   });
+  
+  const data = await response.json();
+  console.log(data.message); // "Logout successful"
+  return data;
 }
 ```
 
