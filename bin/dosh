@@ -111,7 +111,11 @@ release() {
     # Build a release bin
     rustup update
     echo "🚀 Building release version..."
-    flags="--features fixphrase"
+    local flags="--features fixphrase --features admin-cli"
+    cargo +nightly test --release $flags "$@" || {
+	echo "❌ Tests failed. Please check the output above."
+	return 1
+    }
     cargo +nightly build --release $flags "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	return 1

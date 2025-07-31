@@ -2,9 +2,16 @@
 name = "neems-core"
 version = "0.1.2"
 edition = "2024"
+default-run = "neems-core"
+
+[[bin]]
+name = "neems-admin"
+path = "src/bin/neems-admin.rs"
+required-features = ["admin-cli"]
 
 [dependencies]
 fixphrase = { path = "../crates/fixphrase", optional = true }  
+clap = { workspace = true, optional = true }
 
 argon2 = { workspace = true }
 chrono = { workspace = true }
@@ -22,6 +29,7 @@ ts-rs = { workspace = true }
 [features]
 default = []
 fixphrase = ["dep:fixphrase"]
+admin-cli = ["dep:clap"]
 test-staging = []
 
 [dev-dependencies]
