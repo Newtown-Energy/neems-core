@@ -23,12 +23,57 @@ pub mod generate_types;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
 
+#[catch(401)]
+fn unauthorized(req: &Request) -> Json<Value> {
+    Json(json!({
+        "error": "Unauthorized",
+        "path": req.uri().path().to_string(),
+        "status": 401
+    }))
+}
+
+#[catch(403)]
+fn forbidden(req: &Request) -> Json<Value> {
+    Json(json!({
+        "error": "Forbidden",
+        "path": req.uri().path().to_string(),
+        "status": 403
+    }))
+}
+
 #[catch(404)]
 fn not_found(req: &Request) -> Json<Value> {
     Json(json!({
         "error": "Not Found",
         "path": req.uri().path().to_string(),
         "status": 404
+    }))
+}
+
+#[catch(422)]
+fn unprocessable_entity(req: &Request) -> Json<Value> {
+    Json(json!({
+        "error": "Unprocessable Entity",
+        "path": req.uri().path().to_string(),
+        "status": 422
+    }))
+}
+
+#[catch(500)]
+fn internal_server_error(req: &Request) -> Json<Value> {
+    Json(json!({
+        "error": "Internal Server Error",
+        "path": req.uri().path().to_string(),
+        "status": 500
+    }))
+}
+
+#[catch(default)]
+fn default_catcher(status: rocket::http::Status, req: &Request) -> Json<Value> {
+    Json(json!({
+        "error": status.reason().unwrap_or("Unknown Error"),
+        "path": req.uri().path().to_string(),
+        "status": status.code
     }))
 }
 
@@ -75,7 +120,7 @@ pub fn rocket() -> Rocket<Build> {
 	.attach(orm::set_foreign_keys_fairing())
 	.attach(orm::run_migrations_fairing())
 	.attach(admin_init_fairing::admin_init_fairing())
-        .register("/", catchers![not_found]);
+        .register("/", catchers![unauthorized, forbidden, not_found, unprocessable_entity, internal_server_error, default_catcher]);
 
     log_rocket_info(&rocket);
 

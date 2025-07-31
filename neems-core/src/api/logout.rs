@@ -3,7 +3,8 @@
 //! This module provides HTTP endpoints for user logout functionality,
 //! including session revocation and cookie cleanup.
 
-use rocket::{post, http::{Cookie, CookieJar, Status}, Route};
+use rocket::{post, http::{Cookie, CookieJar}, Route};
+use rocket::serde::json::{Json, json, Value};
 use crate::DbConn;
 use crate::orm::logout::revoke_session;
 
@@ -27,7 +28,7 @@ use crate::orm::logout::revoke_session;
 /// * `cookies` - Cookie jar containing the session cookie to remove
 ///
 /// # Returns
-/// * `Status::Ok` - Always returns success, regardless of session state
+/// * `Json<Value>` - Always returns JSON success message, regardless of session state
 ///
 /// # Behavior
 /// - Extracts the session token from the "session" cookie
@@ -52,7 +53,7 @@ use crate::orm::logout::revoke_session;
 pub async fn logout(
     db: DbConn,
     cookies: &CookieJar<'_>,
-) -> Status {
+) -> Json<Value> {
     // Get the cookie value first without holding a reference
     let cookie_value = cookies.get("session").map(|c| c.value().to_string());
     
@@ -63,7 +64,11 @@ pub async fn logout(
         // Remove cookie
         cookies.remove(Cookie::from("session"));
     }
-    Status::Ok
+    
+    Json(json!({
+        "message": "Logout successful",
+        "status": "ok"
+    }))
 }
 
 /// Returns all logout-related API routes.
