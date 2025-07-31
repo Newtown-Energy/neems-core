@@ -79,7 +79,7 @@ async fn setup_test_users(client: &Client) {
                 email: email.to_string(),
                 password_hash: hash_password(password),
                 company_id,
-                totp_secret: "dummy_secret".to_string(),
+                totp_secret: Some("dummy_secret".to_string()),
             }).expect("Failed to insert user");
 
             for role_name in roles {

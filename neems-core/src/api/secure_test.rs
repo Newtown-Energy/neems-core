@@ -18,7 +18,7 @@ use rocket::Route;
 #[cfg(feature = "test-staging")]
 use rocket::http::Status;
 #[cfg(feature = "test-staging")]
-use rocket::response::{self, status};
+use rocket::response::{self};
 #[cfg(feature = "test-staging")]
 use serde::Serialize;
 #[cfg(feature = "test-staging")]
