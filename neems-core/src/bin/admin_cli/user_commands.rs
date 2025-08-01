@@ -11,8 +11,8 @@ use rpassword::read_password;
 
 #[derive(Subcommand)]
 pub enum UserAction {
-    #[command(about = "Create a new user")]
-    Create {
+    #[command(about = "Add a new user")]
+    Add {
         #[arg(short, long, help = "Email address")]
         email: String,
         #[arg(short, long, help = "Password (will be prompted securely if not provided)")]
@@ -63,13 +63,13 @@ pub fn handle_user_command_with_conn(
     action: UserAction
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        UserAction::Create {
+        UserAction::Add {
             email,
             password,
             company_id,
             totp_secret,
         } => {
-            create_user_impl(conn, &email, password, company_id, totp_secret)?;
+            add_user_impl(conn, &email, password, company_id, totp_secret)?;
         }
         UserAction::ChangePassword { email, password } => {
             change_password_impl(conn, &email, password)?;
@@ -87,7 +87,7 @@ pub fn handle_user_command_with_conn(
     Ok(())
 }
 
-pub fn create_user_impl(
+pub fn add_user_impl(
     conn: &mut SqliteConnection,
     email: &str,
     password: Option<String>,

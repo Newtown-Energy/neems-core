@@ -16,8 +16,8 @@ pub enum CompanyAction {
         #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
         fixed_string: bool,
     },
-    #[command(about = "Create a new company")]
-    Create {
+    #[command(about = "Add a new company")]
+    Add {
         #[arg(short, long, help = "Company name")]
         name: String,
     },
@@ -47,8 +47,8 @@ pub fn handle_company_command_with_conn(
         CompanyAction::Ls { search_term, fixed_string } => {
             company_ls_impl(conn, search_term, fixed_string)?;
         }
-        CompanyAction::Create { name } => {
-            company_create_impl(conn, name)?;
+        CompanyAction::Add { name } => {
+            company_add_impl(conn, name)?;
         }
         CompanyAction::Rm { search_term, fixed_string, yes } => {
             company_rm_impl(conn, search_term, fixed_string, yes)?;
@@ -96,7 +96,7 @@ pub fn company_ls_impl(
     Ok(())
 }
 
-pub fn company_create_impl(
+pub fn company_add_impl(
     conn: &mut SqliteConnection,
     name: String,
 ) -> Result<(), Box<dyn std::error::Error>> {

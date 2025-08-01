@@ -16,8 +16,8 @@ pub enum SiteAction {
         #[arg(short = 'c', long = "company", help = "Filter by company ID")]
         company_id: Option<i32>,
     },
-    #[command(about = "Create a new site")]
-    Create {
+    #[command(about = "Add a new site")]
+    Add {
         #[arg(short, long, help = "Site name")]
         name: String,
         #[arg(short, long, help = "Site address")]
@@ -65,8 +65,8 @@ pub fn handle_site_command_with_conn(
         SiteAction::Ls { search_term, fixed_string, company_id } => {
             site_ls_impl(conn, search_term, fixed_string, company_id)?;
         }
-        SiteAction::Create { name, address, latitude, longitude, company_id } => {
-            site_create_impl(conn, name, address, latitude, longitude, company_id)?;
+        SiteAction::Add { name, address, latitude, longitude, company_id } => {
+            site_add_impl(conn, name, address, latitude, longitude, company_id)?;
         }
         SiteAction::Rm { search_term, fixed_string, yes, company_id } => {
             site_rm_impl(conn, search_term, fixed_string, yes, company_id)?;
@@ -119,7 +119,7 @@ pub fn site_ls_impl(
     Ok(())
 }
 
-pub fn site_create_impl(
+pub fn site_add_impl(
     conn: &mut SqliteConnection,
     name: String,
     address: String,

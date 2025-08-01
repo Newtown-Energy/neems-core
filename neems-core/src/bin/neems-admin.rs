@@ -125,19 +125,19 @@ mod tests {
     use neems_core::orm::user::{get_user_by_email, list_all_users, get_user};
     use neems_core::orm::company::{get_all_companies, get_company_by_id};
     use neems_core::orm::site::{get_all_sites, insert_site, get_site_by_id};
-    use admin_cli::user_commands::{create_user_impl, change_password_impl, list_users_impl, remove_users_impl, user_edit_impl, hash_password};
-    use admin_cli::company_commands::{company_ls_impl, company_create_impl, company_rm_impl, company_edit_impl};
-    use admin_cli::site_commands::{site_ls_impl, site_create_impl, site_rm_impl, site_edit_impl};
+    use admin_cli::user_commands::{add_user_impl, change_password_impl, list_users_impl, remove_users_impl, user_edit_impl, hash_password};
+    use admin_cli::company_commands::{company_ls_impl, company_add_impl, company_rm_impl, company_edit_impl};
+    use admin_cli::site_commands::{site_ls_impl, site_add_impl, site_rm_impl, site_edit_impl};
     use argon2::{Argon2, PasswordVerifier, PasswordHash};
 
     #[test]
-    fn test_handle_user_command_with_conn_create() {
+    fn test_handle_user_command_with_conn_add() {
         let mut conn = setup_test_db();
         
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        let action = UserAction::Create {
+        let action = UserAction::Add {
             email: "cli_test@example.com".to_string(),
             password: Some("cli_password".to_string()),
             company_id: company.id,
@@ -162,7 +162,7 @@ mod tests {
             .expect("Failed to create test company");
         
         // Create user first
-        let create_action = UserAction::Create {
+        let create_action = UserAction::Add {
             email: "change_test@example.com".to_string(),
             password: Some("original".to_string()),
             company_id: company.id,
@@ -209,7 +209,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        let create_action = UserAction::Create {
+        let create_action = UserAction::Add {
             email: "delete_me@example.com".to_string(),
             password: Some("password1".to_string()),
             company_id: company.id,
@@ -217,7 +217,7 @@ mod tests {
         };
         handle_user_command_with_conn(&mut conn, create_action).expect("Failed to create user");
         
-        let create_action2 = UserAction::Create {
+        let create_action2 = UserAction::Add {
             email: "keep_me@test.com".to_string(),
             password: Some("password2".to_string()),
             company_id: company.id,
@@ -251,10 +251,10 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_company_command_with_conn_create() {
+    fn test_handle_company_command_with_conn_add() {
         let mut conn = setup_test_db();
         
-        let action = CompanyAction::Create {
+        let action = CompanyAction::Add {
             name: "CLI Test Company".to_string(),
         };
         let result = handle_company_command_with_conn(&mut conn, action);
@@ -299,13 +299,13 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_site_command_with_conn_create() {
+    fn test_handle_site_command_with_conn_add() {
         let mut conn = setup_test_db();
         
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create company");
         
-        let action = SiteAction::Create {
+        let action = SiteAction::Add {
             name: "CLI Test Site".to_string(),
             address: "CLI Test Address".to_string(),
             latitude: 40.7128,
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_user_impl() {
+    fn test_add_user_impl() {
         let mut conn = setup_test_db();
         
         // Create a test company first
@@ -367,7 +367,7 @@ mod tests {
             .expect("Failed to create test company");
         
         // Test creating a user
-        let result = create_user_impl(
+        let result = add_user_impl(
             &mut conn,
             "test@example.com",
             Some("password123".to_string()),
@@ -391,18 +391,18 @@ mod tests {
     }
 
     #[test]
-    fn test_create_user_impl_duplicate_email() {
+    fn test_add_user_impl_duplicate_email() {
         let mut conn = setup_test_db();
         
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
         // Create first user
-        create_user_impl(&mut conn, "test@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "test@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create first user");
         
         // Try to create second user with same email
-        let result = create_user_impl(&mut conn, "test@example.com", Some("password2".to_string()), company.id, None);
+        let result = add_user_impl(&mut conn, "test@example.com", Some("password2".to_string()), company.id, None);
         
         assert!(result.is_err());
     }
@@ -415,7 +415,7 @@ mod tests {
             .expect("Failed to create test company");
         
         // Create a user first
-        create_user_impl(&mut conn, "test@example.com", Some("original_password".to_string()), company.id, None)
+        add_user_impl(&mut conn, "test@example.com", Some("original_password".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let original_user = get_user_by_email(&mut conn, "test@example.com")
@@ -465,9 +465,9 @@ mod tests {
             .expect("Failed to create test company");
         
         // Create a few users
-        create_user_impl(&mut conn, "user1@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user1@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "user2@example.com", Some("password2".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user2@example.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
         
         let result = list_users_impl(&mut conn, None, false);
@@ -487,11 +487,11 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "alice@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "alice@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "bob@test.com", Some("password2".to_string()), company.id, None)
+        add_user_impl(&mut conn, "bob@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
-        create_user_impl(&mut conn, "charlie@example.org", Some("password3".to_string()), company.id, None)
+        add_user_impl(&mut conn, "charlie@example.org", Some("password3".to_string()), company.id, None)
             .expect("Failed to create user3");
         
         let result = list_users_impl(&mut conn, Some("example\\.com$".to_string()), false);
@@ -508,9 +508,9 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user.with.dots@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user.with.dots@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "normaluser@test.com", Some("password2".to_string()), company.id, None)
+        add_user_impl(&mut conn, "normaluser@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
         
         let result = list_users_impl(&mut conn, Some(".with.".to_string()), true);
@@ -532,7 +532,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let result = list_users_impl(&mut conn, Some("nonexistent".to_string()), false);
@@ -546,11 +546,11 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "alice@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "alice@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "bob@test.com", Some("password2".to_string()), company.id, None)
+        add_user_impl(&mut conn, "bob@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
-        create_user_impl(&mut conn, "charlie@example.org", Some("password3".to_string()), company.id, None)
+        add_user_impl(&mut conn, "charlie@example.org", Some("password3".to_string()), company.id, None)
             .expect("Failed to create user3");
         
         let result = remove_users_impl(&mut conn, "example\\.com$".to_string(), false, true);
@@ -569,9 +569,9 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user.with.dots@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user.with.dots@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "normaluser@test.com", Some("password2".to_string()), company.id, None)
+        add_user_impl(&mut conn, "normaluser@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
         
         let result = remove_users_impl(&mut conn, ".with.".to_string(), true, true);
@@ -589,7 +589,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user@example.com", Some("password1".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let result = remove_users_impl(&mut conn, "nonexistent".to_string(), false, true);
@@ -614,7 +614,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "password_test@example.com", Some("original_password".to_string()), company.id, None)
+        add_user_impl(&mut conn, "password_test@example.com", Some("original_password".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let original_user = get_user_by_email(&mut conn, "password_test@example.com")
@@ -632,13 +632,13 @@ mod tests {
     }
 
     #[test]
-    fn test_create_user_impl_with_provided_password() {
+    fn test_add_user_impl_with_provided_password() {
         let mut conn = setup_test_db();
         
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        let result = create_user_impl(
+        let result = add_user_impl(
             &mut conn,
             "create_test@example.com",
             Some("test_password".to_string()),
@@ -685,10 +685,10 @@ mod tests {
     }
 
     #[test]
-    fn test_company_create_impl() {
+    fn test_company_add_impl() {
         let mut conn = setup_test_db();
         
-        let result = company_create_impl(&mut conn, "New Test Company".to_string());
+        let result = company_add_impl(&mut conn, "New Test Company".to_string());
         assert!(result.is_ok());
         
         let companies = get_all_companies(&mut conn).expect("Failed to get companies");
@@ -707,11 +707,11 @@ mod tests {
             .expect("Failed to create company");
         
         // Create user in company to be deleted
-        create_user_impl(&mut conn, "user@deleteme.com", Some("password".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user@deleteme.com", Some("password".to_string()), company.id, None)
             .expect("Failed to create user");
         
         // Create user in company to keep
-        create_user_impl(&mut conn, "user@keepme.com", Some("password".to_string()), keep_company.id, None)
+        add_user_impl(&mut conn, "user@keepme.com", Some("password".to_string()), keep_company.id, None)
             .expect("Failed to create user");
         
         // Delete company
@@ -790,13 +790,13 @@ mod tests {
     }
 
     #[test]
-    fn test_site_create_impl() {
+    fn test_site_add_impl() {
         let mut conn = setup_test_db();
         
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create company");
         
-        let result = site_create_impl(
+        let result = site_add_impl(
             &mut conn,
             "New Site".to_string(),
             "123 New St".to_string(),
@@ -867,7 +867,7 @@ mod tests {
             .expect("Failed to create company 2");
         
         // Create a user
-        create_user_impl(&mut conn, "original@example.com", Some("password".to_string()), company1.id, Some("original_totp".to_string()))
+        add_user_impl(&mut conn, "original@example.com", Some("password".to_string()), company1.id, Some("original_totp".to_string()))
             .expect("Failed to create user");
         
         let user = get_user_by_email(&mut conn, "original@example.com")
@@ -905,7 +905,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create company");
         
-        create_user_impl(&mut conn, "user@example.com", Some("password".to_string()), company.id, None)
+        add_user_impl(&mut conn, "user@example.com", Some("password".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let user = get_user_by_email(&mut conn, "user@example.com")
