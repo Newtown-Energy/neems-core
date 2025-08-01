@@ -17,6 +17,7 @@ diesel_migrations = "2.2.0"
 dotenvy = "0.15"  # For loading .env files
 rand = "0.9"
 rand_core = "0.6"
+regex = "1.0"
 reqwest = { version = "0.12", features = ["json", "cookies"] }
 rocket = { version = "0.5.1", features = ["json"] }
 rocket_sync_db_pools = { version = "0.1.0", features = ["diesel_sqlite_pool"] }

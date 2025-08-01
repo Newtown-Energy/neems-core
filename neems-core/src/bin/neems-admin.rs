@@ -6,6 +6,7 @@ use neems_core::models::UserNoTime;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 use dotenvy::dotenv;
+use regex::Regex;
 
 #[derive(Parser)]
 #[command(name = "neems-admin")]
@@ -49,8 +50,13 @@ enum UserAction {
         #[arg(short, long, help = "New password")]
         password: String,
     },
-    #[command(about = "List all users")]
-    List,
+    #[command(about = "List users, optionally filtered by search term")]
+    List {
+        #[arg(help = "Search term (regex by default, use -F for fixed string)")]
+        search_term: Option<String>,
+        #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
+        fixed_string: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -93,8 +99,8 @@ fn handle_user_command_with_conn(
         UserAction::ChangePassword { email, password } => {
             change_password_impl(conn, &email, &password)?;
         }
-        UserAction::List => {
-            list_users_impl(conn)?;
+        UserAction::List { search_term, fixed_string } => {
+            list_users_impl(conn, search_term, fixed_string)?;
         }
     }
     Ok(())
@@ -141,13 +147,37 @@ fn change_password_impl(
     Ok(())
 }
 
-fn list_users_impl(conn: &mut SqliteConnection) -> Result<(), Box<dyn std::error::Error>> {
+fn list_users_impl(
+    conn: &mut SqliteConnection, 
+    search_term: Option<String>, 
+    fixed_string: bool
+) -> Result<(), Box<dyn std::error::Error>> {
     let users = list_all_users(conn)?;
     
-    println!("All users:");
-    for user in users {
-        println!("  ID: {}, Email: {}, Company ID: {}, Created: {}", 
-                user.id, user.email, user.company_id, user.created_at);
+    let filtered_users = if let Some(term) = search_term {
+        if fixed_string {
+            users.into_iter()
+                .filter(|user| user.email.contains(&term))
+                .collect::<Vec<_>>()
+        } else {
+            let regex = Regex::new(&term)
+                .map_err(|e| format!("Invalid regex pattern '{}': {}", term, e))?;
+            users.into_iter()
+                .filter(|user| regex.is_match(&user.email))
+                .collect::<Vec<_>>()
+        }
+    } else {
+        users
+    };
+    
+    if filtered_users.is_empty() {
+        println!("No users found.");
+    } else {
+        println!("Users:");
+        for user in filtered_users {
+            println!("  ID: {}, Email: {}, Company ID: {}, Created: {}", 
+                    user.id, user.email, user.company_id, user.created_at);
+        }
     }
     
     Ok(())
@@ -300,7 +330,7 @@ mod tests {
         let mut conn = setup_test_db();
         
         // Should not panic with empty database
-        let result = list_users_impl(&mut conn);
+        let result = list_users_impl(&mut conn, None, false);
         assert!(result.is_ok());
     }
 
@@ -317,7 +347,7 @@ mod tests {
         create_user_impl(&mut conn, "user2@example.com", "password2", company.id, None)
             .expect("Failed to create user2");
         
-        let result = list_users_impl(&mut conn);
+        let result = list_users_impl(&mut conn, None, false);
         assert!(result.is_ok());
         
         // Verify users exist
@@ -391,8 +421,70 @@ mod tests {
     fn test_handle_user_command_with_conn_list() {
         let mut conn = setup_test_db();
         
-        let action = UserAction::List;
+        let action = UserAction::List {
+            search_term: None,
+            fixed_string: false,
+        };
         let result = handle_user_command_with_conn(&mut conn, action);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_users_impl_with_regex_search() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "alice@example.com", "password1", company.id, None)
+            .expect("Failed to create user1");
+        create_user_impl(&mut conn, "bob@test.com", "password2", company.id, None)
+            .expect("Failed to create user2");
+        create_user_impl(&mut conn, "charlie@example.org", "password3", company.id, None)
+            .expect("Failed to create user3");
+        
+        let result = list_users_impl(&mut conn, Some("example\\.com$".to_string()), false);
+        assert!(result.is_ok());
+        
+        let result = list_users_impl(&mut conn, Some("@test".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_users_impl_with_fixed_string_search() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "user.with.dots@example.com", "password1", company.id, None)
+            .expect("Failed to create user1");
+        create_user_impl(&mut conn, "normaluser@test.com", "password2", company.id, None)
+            .expect("Failed to create user2");
+        
+        let result = list_users_impl(&mut conn, Some(".with.".to_string()), true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_users_impl_invalid_regex() {
+        let mut conn = setup_test_db();
+        
+        let result = list_users_impl(&mut conn, Some("[invalid".to_string()), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_users_impl_no_matches() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "user@example.com", "password1", company.id, None)
+            .expect("Failed to create user");
+        
+        let result = list_users_impl(&mut conn, Some("nonexistent".to_string()), false);
         assert!(result.is_ok());
     }
 }
