@@ -14,6 +14,31 @@ if [ -z "$DB_PATH" ]; then
     exit 1
 fi
 
+# Figure out where neems-admin is
+if [ -n "$NEEMS_ADMIN_BIN" ]; then
+    if [ -x "$NEEMS_ADMIN_BIN" ]; then
+        echo "Using pre-set NEEMS_ADMIN_BIN: $NEEMS_ADMIN_BIN" >&2
+    else
+        echo "Error: Pre-set NEEMS_ADMIN_BIN '$NEEMS_ADMIN_BIN' is not executable or does not exist" >&2
+        exit 1
+    fi
+else
+    NEEMS_ADMIN_BIN=$(command -v neems-admin 2>/dev/null)
+
+    if [ -z "$NEEMS_ADMIN_BIN" ]; then
+        if [ -x "./bin/neems-admin" ]; then
+            NEEMS_ADMIN_BIN="./bin/neems-admin"
+        elif [ -x "./neems-admin" ]; then
+            NEEMS_ADMIN_BIN="./neems-admin"
+        else
+            echo "Error: neems-admin not found in PATH, ./bin/neems-admin, or ./neems-admin" >&2
+            exit 1
+        fi
+    fi
+    echo "Found neems-admin at: $NEEMS_ADMIN_BIN" >&2
+    export NEEMS_ADMIN_BIN
+fi
+
 echo "Setting up demo data for database: $DB_PATH"
 
 # Export the database URL for neems-admin to use
@@ -21,14 +46,14 @@ export DATABASE_URL="$DB_PATH"
 
 # Add demo companies (idempotent - will skip if already exists)
 echo "Adding demo companies..."
-./bin/neems-admin company add --name "Sunny Solar" 2>/dev/null || echo "Company 'Sunny Solar' already exists"
-./bin/neems-admin company add --name "Best BESS" 2>/dev/null || echo "Company 'Best BESS' already exists"
+$NEEMS_ADMIN_BIN company add --name "Sunny Solar" 2>/dev/null || echo "Company 'Sunny Solar' already exists"
+$NEEMS_ADMIN_BIN company add --name "Best BESS" 2>/dev/null || echo "Company 'Best BESS' already exists"
 
 # Get company IDs
 echo "Getting company IDs..."
-SUNNY_SOLAR_ID=$(./bin/neems-admin company ls | grep "Sunny Solar" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
-BEST_BESS_ID=$(./bin/neems-admin company ls | grep "Best BESS" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
-NEWTOWN_ENERGY_ID=$(./bin/neems-admin company ls | grep "Newtown Energy" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+SUNNY_SOLAR_ID=$($NEEMS_ADMIN_BIN company ls | grep "Sunny Solar" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+BEST_BESS_ID=$($NEEMS_ADMIN_BIN company ls | grep "Best BESS" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+NEWTOWN_ENERGY_ID=$($NEEMS_ADMIN_BIN company ls | grep "Newtown Energy" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
 
 if [ -z "$SUNNY_SOLAR_ID" ] || [ -z "$BEST_BESS_ID" ]; then
     echo "Error: Could not find company IDs"
@@ -41,41 +66,41 @@ echo "Newtown Energy ID: $NEWTOWN_ENERGY_ID"
 
 # Add demo users for Sunny Solar
 echo "Adding users for Sunny Solar..."
-./bin/neems-admin user add --email "admin@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User admin@sunnysolar.com already exists"
-./bin/neems-admin user add --email "user@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User user@sunnysolar.com already exists"
+$NEEMS_ADMIN_BIN user add --email "admin@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User admin@sunnysolar.com already exists"
+$NEEMS_ADMIN_BIN user add --email "user@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User user@sunnysolar.com already exists"
 
 # Add demo users for Best BESS
 echo "Adding users for Best BESS..."
-./bin/neems-admin user add --email "admin@bestbess.com" --password "admin" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "User admin@bestbess.com already exists"
-./bin/neems-admin user add --email "user@bestbess.com" --password "admin" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "User user@bestbess.com already exists"
+$NEEMS_ADMIN_BIN user add --email "admin@bestbess.com" --password "admin" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "User admin@bestbess.com already exists"
+$NEEMS_ADMIN_BIN user add --email "user@bestbess.com" --password "admin" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "User user@bestbess.com already exists"
 
 # Add demo user for Newtown Energy
 echo "Adding user for Newtown Energy..."
-./bin/neems-admin user add --email "james@newtown.energy" --password "admin" --company-id "$NEWTOWN_ENERGY_ID" 2>/dev/null || echo "User james@newtown.energy already exists"
+$NEEMS_ADMIN_BIN user add --email "james@newtown.energy" --password "admin" --company-id "$NEWTOWN_ENERGY_ID" 2>/dev/null || echo "User james@newtown.energy already exists"
 
 # Add demo sites for Sunny Solar
 echo "Adding sites for Sunny Solar..."
-./bin/neems-admin site add --name "Bat Farm 1" --address "123 Bat Farm Road, Rural Area" --latitude "40.7128" --longitude "-74.0060" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 1' already exists"
-./bin/neems-admin site add --name "Bat Farm 2" --address "456 Bat Farm Lane, Rural Area" --latitude "40.7580" --longitude "-73.9855" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 2' already exists"
+$NEEMS_ADMIN_BIN site add --name "Bat Farm 1" --address "123 Bat Farm Road, Rural Area" --latitude "40.7128" --longitude "-74.0060" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 1' already exists"
+$NEEMS_ADMIN_BIN site add --name "Bat Farm 2" --address "456 Bat Farm Lane, Rural Area" --latitude "40.7580" --longitude "-73.9855" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 2' already exists"
 
 # Add demo sites for Best BESS
 echo "Adding sites for Best BESS..."
-./bin/neems-admin site add --name "B1" --address "789 Battery Street, Industrial Zone" --latitude "40.6892" --longitude "-74.0445" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B1' already exists"
-./bin/neems-admin site add --name "B2" --address "321 Energy Avenue, Industrial Zone" --latitude "40.7282" --longitude "-74.0776" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B2' already exists"
+$NEEMS_ADMIN_BIN site add --name "B1" --address "789 Battery Street, Industrial Zone" --latitude "40.6892" --longitude "-74.0445" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B1' already exists"
+$NEEMS_ADMIN_BIN site add --name "B2" --address "321 Energy Avenue, Industrial Zone" --latitude "40.7282" --longitude "-74.0776" --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B2' already exists"
 
 # Assign admin role to admin users (role 3 is 'admin')
 echo "Assigning admin roles..."
-./bin/neems-admin user add-role --email "admin@sunnysolar.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
-./bin/neems-admin user add-role --email "admin@bestbess.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
+$NEEMS_ADMIN_BIN user add-role --email "admin@sunnysolar.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
+$NEEMS_ADMIN_BIN user add-role --email "admin@bestbess.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
 
 # Assign user role to regular users (role 4 is 'user')
 echo "Assigning user roles..."
-./bin/neems-admin user add-role --email "user@sunnysolar.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@sunnysolar.com"
-./bin/neems-admin user add-role --email "user@bestbess.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@bestbess.com"
+$NEEMS_ADMIN_BIN user add-role --email "user@sunnysolar.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@sunnysolar.com"
+$NEEMS_ADMIN_BIN user add-role --email "user@bestbess.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@bestbess.com"
 
 # Assign newtown-admin role to james@newtown.energy (role 1 is 'newtown-admin')
 echo "Assigning newtown-admin role..."
-./bin/neems-admin user add-role --email "james@newtown.energy" --role-id 1 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
+$NEEMS_ADMIN_BIN user add-role --email "james@newtown.energy" --role-id 1 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
 
 echo "Demo data setup complete!"
 echo ""
