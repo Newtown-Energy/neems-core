@@ -99,7 +99,7 @@ migrate() {
 }
 
 nextest() {
-    local cmd="nextest run $DEV_TEST_FLAGS -p neems-core"
+    local cmd="nextest run $DEV_TEST_FLAGS"
     RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
 }
 
@@ -113,7 +113,7 @@ release() {
     echo "🚀 Building release version..."
     # The test-staging feature just makes sure we run some security tests.
     local flags="--features fixphrase --features test-staging"
-    FORCE_TEST_ALL=1 cargo $NIGHTLY test --quiet --release $flags --features test-staging "$@" || {
+    FORCE_TEST_ALL=1 cargo $NIGHTLY test --quiet --release $flags "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
 	exit 1
     }
