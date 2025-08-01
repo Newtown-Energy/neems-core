@@ -53,7 +53,7 @@ build() {
     
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY build --features test-staging "$@" || {
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY build --features test-staging --p neems-core "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	return 1
     }
@@ -112,7 +112,7 @@ release() {
     rustup update
     echo "🚀 Building release version..."
     # The test-staging feature just makes sure we run some security tests.
-    local flags="--features fixphrase --features admin-cli --features test-staging"
+    local flags="--features fixphrase --features test-staging"
     FORCE_TEST_ALL=1 cargo $NIGHTLY test --quiet --release $flags --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
 	exit 1
@@ -128,7 +128,7 @@ test() {
 }
 
 test-all() {
-    FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging --features admin-cli "$@"
+    FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging "$@"
 }
 
 test-trad() {

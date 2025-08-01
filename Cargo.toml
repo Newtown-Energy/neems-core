@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "neems-core",
+    "neems-admin",
     "crates/fixphrase"
 ]
 resolver = "2"  # Recommended for Rust 2021+ editions

@@ -1374,23 +1374,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "neems-admin"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "chrono",
+ "clap",
+ "diesel",
+ "dotenvy",
+ "neems-core",
+ "regex",
+ "rpassword",
+]
+
+[[package]]
 name = "neems-core"
 version = "0.1.2"
 dependencies = [
  "argon2",
  "chrono",
- "clap",
  "diesel",
  "diesel_migrations",
  "dotenvy",
  "fixphrase",
  "rand 0.9.1",
  "rand_core 0.6.4",
- "regex",
  "reqwest",
  "rocket",
  "rocket_sync_db_pools",
- "rpassword",
  "serde",
  "serde_json",
  "time-test",
