@@ -135,13 +135,14 @@ mod tests {
     use neems_core::orm::testing::setup_test_db;
     use neems_core::orm::company::insert_company;
     use neems_core::orm::user::{get_user_by_email, list_all_users, get_user};
-    use neems_core::orm::company::{get_all_companies, get_company_by_id};
+    use neems_core::orm::company::{get_all_companies, get_company_by_id, get_company_by_name};
+    use neems_core::models::CompanyNoTime;
     use neems_core::orm::site::{get_all_sites, insert_site, get_site_by_id};
     use neems_core::orm::role::get_all_roles;
     use admin_cli::user_commands::{add_user_impl, change_password_impl, list_users_impl, remove_users_impl, user_edit_impl, hash_password, user_add_role_impl, user_rm_role_impl, user_set_roles_impl};
     use admin_cli::company_commands::{company_ls_impl, company_add_impl, company_rm_impl, company_edit_impl};
     use admin_cli::site_commands::{site_ls_impl, site_add_impl, site_rm_impl, site_edit_impl};
-    use admin_cli::role_commands::{role_ls_impl, role_add_impl, role_rm_impl, role_edit_impl};
+    use admin_cli::role_commands::{role_ls_impl, role_add_impl};
     use argon2::{Argon2, PasswordVerifier, PasswordHash};
 
     #[test]
@@ -1040,8 +1041,10 @@ mod tests {
     fn test_user_add_role_impl() {
         let mut conn = setup_test_db();
         
-        let company = insert_company(&mut conn, "Test Company".to_string())
-            .expect("Failed to create company");
+        let company = get_company_by_name(&mut conn, &CompanyNoTime {
+            name: "Newtown Energy".to_string(),
+        }).expect("Failed to query company")
+          .expect("Newtown Energy company should exist");
         
         add_user_impl(&mut conn, "test@example.com", Some("password".to_string()), company.id, None)
             .expect("Failed to create user");
@@ -1054,8 +1057,10 @@ mod tests {
     fn test_user_set_roles_impl() {
         let mut conn = setup_test_db();
         
-        let company = insert_company(&mut conn, "Test Company".to_string())
-            .expect("Failed to create company");
+        let company = get_company_by_name(&mut conn, &CompanyNoTime {
+            name: "Newtown Energy".to_string(),
+        }).expect("Failed to query company")
+          .expect("Newtown Energy company should exist");
         
         add_user_impl(&mut conn, "test2@example.com", Some("password".to_string()), company.id, None)
             .expect("Failed to create user");
@@ -1068,8 +1073,10 @@ mod tests {
     fn test_user_rm_role_impl_last_role_fails() {
         let mut conn = setup_test_db();
         
-        let company = insert_company(&mut conn, "Test Company".to_string())
-            .expect("Failed to create company");
+        let company = get_company_by_name(&mut conn, &CompanyNoTime {
+            name: "Newtown Energy".to_string(),
+        }).expect("Failed to query company")
+          .expect("Newtown Energy company should exist");
         
         add_user_impl(&mut conn, "test3@example.com", Some("password".to_string()), company.id, None)
             .expect("Failed to create user");
