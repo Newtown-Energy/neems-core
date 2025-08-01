@@ -51,7 +51,7 @@ enum UserAction {
         password: String,
     },
     #[command(about = "List users, optionally filtered by search term")]
-    List {
+    Ls {
         #[arg(help = "Search term (regex by default, use -F for fixed string)")]
         search_term: Option<String>,
         #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
@@ -99,7 +99,7 @@ fn handle_user_command_with_conn(
         UserAction::ChangePassword { email, password } => {
             change_password_impl(conn, &email, &password)?;
         }
-        UserAction::List { search_term, fixed_string } => {
+        UserAction::Ls { search_term, fixed_string } => {
             list_users_impl(conn, search_term, fixed_string)?;
         }
     }
@@ -421,7 +421,7 @@ mod tests {
     fn test_handle_user_command_with_conn_list() {
         let mut conn = setup_test_db();
         
-        let action = UserAction::List {
+        let action = UserAction::Ls {
             search_term: None,
             fixed_string: false,
         };
