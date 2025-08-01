@@ -1,7 +1,31 @@
+/*!
+ * NEEMS Administrative CLI Utility
+ * 
+ * This is a command-line interface for administrative management of a neems-core 
+ * instance's SQLite database. The utility provides comprehensive database management
+ * capabilities including user management, company management, and system operations.
+ * 
+ * The CLI leverages the ORM functions located in @neems-core/src/orm/ for all database
+ * manipulations, ensuring consistent data access patterns and maintaining referential
+ * integrity across operations.
+ * 
+ * Key Features:
+ * - User management (create, list, remove, password changes)  
+ * - Company management (create, list, remove with cascading deletes)
+ * - Search functionality with regex and fixed-string support
+ * - Secure password prompting without echo
+ * - Cascading deletes to maintain data consistency
+ * - Interactive confirmation prompts for destructive operations
+ * 
+ * For detailed usage information and available commands, run with --help.
+ */
+
 use clap::{Parser, Subcommand};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user, delete_user_with_cleanup};
+use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user, delete_user_with_cleanup, get_users_by_company};
+use neems_core::orm::company::{get_all_companies, insert_company, delete_company};
+use neems_core::orm::site::{get_sites_by_company, delete_site};
 use neems_core::models::UserNoTime;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
@@ -24,6 +48,10 @@ enum Commands {
     User {
         #[command(subcommand)]
         action: UserAction,
+    },
+    Company {
+        #[command(subcommand)]
+        action: CompanyAction,
     },
     #[command(about = "Future: Non-database administrative commands")]
     System {
@@ -71,6 +99,31 @@ enum UserAction {
 }
 
 #[derive(Subcommand)]
+enum CompanyAction {
+    #[command(about = "List companies, optionally filtered by search term")]
+    Ls {
+        #[arg(help = "Search term (regex by default, use -F for fixed string)")]
+        search_term: Option<String>,
+        #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
+        fixed_string: bool,
+    },
+    #[command(about = "Create a new company")]
+    Create {
+        #[arg(short, long, help = "Company name")]
+        name: String,
+    },
+    #[command(about = "Remove companies matching search term")]
+    Rm {
+        #[arg(help = "Search term to match companies for removal (regex by default, use -F for fixed string)")]
+        search_term: String,
+        #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
+        fixed_string: bool,
+        #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum SystemAction {
     #[command(about = "Display system status")]
     Status,
@@ -83,6 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::User { action } => handle_user_command(action)?,
+        Commands::Company { action } => handle_company_command(action)?,
         Commands::System { action } => handle_system_command(action)?,
     }
 
@@ -315,6 +369,180 @@ fn prompt_for_password() -> Result<String, Box<dyn std::error::Error>> {
     }
     
     Ok(password)
+}
+
+fn company_ls_impl(
+    conn: &mut SqliteConnection,
+    search_term: Option<String>,
+    fixed_string: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let companies = get_all_companies(conn)?;
+    
+    let filtered_companies = if let Some(term) = search_term {
+        if fixed_string {
+            companies.into_iter()
+                .filter(|company| company.name.contains(&term))
+                .collect::<Vec<_>>()
+        } else {
+            let regex = Regex::new(&term)
+                .map_err(|e| format!("Invalid regex pattern '{}': {}", term, e))?;
+            companies.into_iter()
+                .filter(|company| regex.is_match(&company.name))
+                .collect::<Vec<_>>()
+        }
+    } else {
+        companies
+    };
+    
+    if filtered_companies.is_empty() {
+        println!("No companies found.");
+    } else {
+        println!("Companies:");
+        for company in filtered_companies {
+            println!("  ID: {}, Name: {}, Created: {}", 
+                    company.id, company.name, company.created_at);
+        }
+    }
+    
+    Ok(())
+}
+
+fn company_create_impl(
+    conn: &mut SqliteConnection,
+    name: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let created_company = insert_company(conn, name)?;
+    
+    println!("Company created successfully!");
+    println!("ID: {}", created_company.id);
+    println!("Name: {}", created_company.name);
+    println!("Created: {}", created_company.created_at);
+    
+    Ok(())
+}
+
+fn company_rm_impl(
+    conn: &mut SqliteConnection,
+    search_term: String,
+    fixed_string: bool,
+    yes: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let companies = get_all_companies(conn)?;
+    
+    let matching_companies = if fixed_string {
+        companies.into_iter()
+            .filter(|company| company.name.contains(&search_term))
+            .collect::<Vec<_>>()
+    } else {
+        let regex = Regex::new(&search_term)
+            .map_err(|e| format!("Invalid regex pattern '{}': {}", search_term, e))?;
+        companies.into_iter()
+            .filter(|company| regex.is_match(&company.name))
+            .collect::<Vec<_>>()
+    };
+    
+    if matching_companies.is_empty() {
+        println!("No companies found matching the search term.");
+        return Ok(());
+    }
+    
+    println!("Found {} company(ies) matching the search term:", matching_companies.len());
+    for company in &matching_companies {
+        // Get associated users and sites counts
+        let users = get_users_by_company(conn, company.id)?;
+        let sites = get_sites_by_company(conn, company.id)?;
+        
+        println!("  ID: {}, Name: {}, Users: {}, Sites: {}", 
+                company.id, company.name, users.len(), sites.len());
+    }
+    
+    if !yes {
+        print!("Are you sure you want to delete these {} company(ies) and all associated users and sites? [y/N]: ", 
+               matching_companies.len());
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Operation cancelled.");
+            return Ok(());
+        }
+    }
+    
+    let mut deleted_count = 0;
+    let mut errors = Vec::new();
+    
+    for company in matching_companies {
+        match delete_company_with_cascade(conn, company.id) {
+            Ok(success) => {
+                if success {
+                    deleted_count += 1;
+                    println!("Deleted company: {} (ID: {})", company.name, company.id);
+                }
+            }
+            Err(e) => {
+                errors.push(format!("Failed to delete company {} (ID: {}): {}", company.name, company.id, e));
+            }
+        }
+    }
+    
+    println!("Successfully deleted {} company(ies).", deleted_count);
+    
+    if !errors.is_empty() {
+        println!("Errors encountered:");
+        for error in errors {
+            println!("  {}", error);
+        }
+        return Err("Some deletions failed".into());
+    }
+    
+    Ok(())
+}
+
+fn delete_company_with_cascade(
+    conn: &mut SqliteConnection,
+    company_id: i32,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // First delete all users in the company
+    let users = get_users_by_company(conn, company_id)?;
+    for user in users {
+        delete_user_with_cleanup(conn, user.id)?;
+    }
+    
+    // Then delete all sites in the company
+    let sites = get_sites_by_company(conn, company_id)?;
+    for site in sites {
+        delete_site(conn, site.id)?;
+    }
+    
+    // Finally delete the company itself
+    let deleted = delete_company(conn, company_id)?;
+    Ok(deleted)
+}
+
+fn handle_company_command(action: CompanyAction) -> Result<(), Box<dyn std::error::Error>> {
+    let mut conn = establish_connection()?;
+    handle_company_command_with_conn(&mut conn, action)
+}
+
+fn handle_company_command_with_conn(
+    conn: &mut SqliteConnection,
+    action: CompanyAction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        CompanyAction::Ls { search_term, fixed_string } => {
+            company_ls_impl(conn, search_term, fixed_string)?;
+        }
+        CompanyAction::Create { name } => {
+            company_create_impl(conn, name)?;
+        }
+        CompanyAction::Rm { search_term, fixed_string, yes } => {
+            company_rm_impl(conn, search_term, fixed_string, yes)?;
+        }
+    }
+    Ok(())
 }
 
 fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error::Error>> {
@@ -746,5 +974,133 @@ mod tests {
         assert_eq!(created_user.email, "create_test@example.com");
         assert_eq!(created_user.company_id, company.id);
         assert!(created_user.password_hash.starts_with("$argon2"));
+    }
+
+    #[test]
+    fn test_company_ls_impl_all() {
+        let mut conn = setup_test_db();
+        
+        insert_company(&mut conn, "Test Company 1".to_string())
+            .expect("Failed to create company 1");
+        insert_company(&mut conn, "Test Company 2".to_string())
+            .expect("Failed to create company 2");
+        
+        let result = company_ls_impl(&mut conn, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_company_ls_impl_with_search() {
+        let mut conn = setup_test_db();
+        
+        insert_company(&mut conn, "ACME Corp".to_string())
+            .expect("Failed to create company 1");
+        insert_company(&mut conn, "Tech Solutions".to_string())
+            .expect("Failed to create company 2");
+        
+        let result = company_ls_impl(&mut conn, Some("ACME".to_string()), true);
+        assert!(result.is_ok());
+        
+        let result = company_ls_impl(&mut conn, Some("^Tech".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_company_create_impl() {
+        let mut conn = setup_test_db();
+        
+        let result = company_create_impl(&mut conn, "New Test Company".to_string());
+        assert!(result.is_ok());
+        
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found = companies.iter().any(|c| c.name == "New Test Company");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_company_rm_impl_with_cascade() {
+        let mut conn = setup_test_db();
+        
+        // Create company with users and sites
+        let company = insert_company(&mut conn, "Delete Me Company".to_string())
+            .expect("Failed to create company");
+        let keep_company = insert_company(&mut conn, "Keep Me Company".to_string())
+            .expect("Failed to create company");
+        
+        // Create user in company to be deleted
+        create_user_impl(&mut conn, "user@deleteme.com", Some("password".to_string()), company.id, None)
+            .expect("Failed to create user");
+        
+        // Create user in company to keep
+        create_user_impl(&mut conn, "user@keepme.com", Some("password".to_string()), keep_company.id, None)
+            .expect("Failed to create user");
+        
+        // Delete company
+        let result = company_rm_impl(&mut conn, "Delete Me".to_string(), true, true);
+        assert!(result.is_ok());
+        
+        // Verify company was deleted
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found_deleted = companies.iter().any(|c| c.name == "Delete Me Company");
+        assert!(!found_deleted);
+        
+        // Verify other company still exists
+        let found_kept = companies.iter().any(|c| c.name == "Keep Me Company");
+        assert!(found_kept);
+        
+        // Verify users were deleted with company
+        let all_users = list_all_users(&mut conn).expect("Failed to get users");
+        let deleted_user_exists = all_users.iter().any(|u| u.email == "user@deleteme.com");
+        assert!(!deleted_user_exists);
+        
+        let kept_user_exists = all_users.iter().any(|u| u.email == "user@keepme.com");
+        assert!(kept_user_exists);
+    }
+
+    #[test]
+    fn test_handle_company_command_with_conn_ls() {
+        let mut conn = setup_test_db();
+        
+        let action = CompanyAction::Ls {
+            search_term: None,
+            fixed_string: false,
+        };
+        let result = handle_company_command_with_conn(&mut conn, action);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_handle_company_command_with_conn_create() {
+        let mut conn = setup_test_db();
+        
+        let action = CompanyAction::Create {
+            name: "CLI Test Company".to_string(),
+        };
+        let result = handle_company_command_with_conn(&mut conn, action);
+        assert!(result.is_ok());
+        
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found = companies.iter().any(|c| c.name == "CLI Test Company");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_handle_company_command_with_conn_rm() {
+        let mut conn = setup_test_db();
+        
+        insert_company(&mut conn, "Remove This Company".to_string())
+            .expect("Failed to create company");
+        
+        let action = CompanyAction::Rm {
+            search_term: "Remove This".to_string(),
+            fixed_string: true,
+            yes: true,
+        };
+        let result = handle_company_command_with_conn(&mut conn, action);
+        assert!(result.is_ok());
+        
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found = companies.iter().any(|c| c.name == "Remove This Company");
+        assert!(!found);
     }
 }
