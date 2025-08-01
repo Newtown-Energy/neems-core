@@ -8,6 +8,7 @@ use argon2::password_hash::{rand_core::OsRng, SaltString};
 use dotenvy::dotenv;
 use regex::Regex;
 use std::io::{self, Write};
+use rpassword::read_password;
 
 #[derive(Parser)]
 #[command(name = "neems-admin")]
@@ -37,8 +38,8 @@ enum UserAction {
     Create {
         #[arg(short, long, help = "Email address")]
         email: String,
-        #[arg(short, long, help = "Password")]
-        password: String,
+        #[arg(short, long, help = "Password (will be prompted securely if not provided)")]
+        password: Option<String>,
         #[arg(short, long, help = "Company ID")]
         company_id: i32,
         #[arg(long, help = "TOTP secret (optional)")]
@@ -48,8 +49,8 @@ enum UserAction {
     ChangePassword {
         #[arg(short, long, help = "Email address")]
         email: String,
-        #[arg(short, long, help = "New password")]
-        password: String,
+        #[arg(short, long, help = "New password (will be prompted securely if not provided)")]
+        password: Option<String>,
     },
     #[command(about = "List users, optionally filtered by search term")]
     Ls {
@@ -104,10 +105,10 @@ fn handle_user_command_with_conn(
             company_id,
             totp_secret,
         } => {
-            create_user_impl(conn, &email, &password, company_id, totp_secret)?;
+            create_user_impl(conn, &email, password, company_id, totp_secret)?;
         }
         UserAction::ChangePassword { email, password } => {
-            change_password_impl(conn, &email, &password)?;
+            change_password_impl(conn, &email, password)?;
         }
         UserAction::Ls { search_term, fixed_string } => {
             list_users_impl(conn, search_term, fixed_string)?;
@@ -122,11 +123,16 @@ fn handle_user_command_with_conn(
 fn create_user_impl(
     conn: &mut SqliteConnection,
     email: &str,
-    password: &str,
+    password: Option<String>,
     company_id: i32,
     totp_secret: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let password_hash = hash_password(password)
+    let password = match password {
+        Some(p) => p,
+        None => prompt_for_password()?,
+    };
+    
+    let password_hash = hash_password(&password)
         .map_err(|e| format!("Failed to hash password: {}", e))?;
     
     let new_user = UserNoTime {
@@ -149,9 +155,14 @@ fn create_user_impl(
 fn change_password_impl(
     conn: &mut SqliteConnection,
     email: &str,
-    password: &str,
+    password: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let password_hash = hash_password(password)
+    let password = match password {
+        Some(p) => p,
+        None => prompt_for_password()?,
+    };
+    
+    let password_hash = hash_password(&password)
         .map_err(|e| format!("Failed to hash password: {}", e))?;
     let user = get_user_by_email(conn, email)?;
     update_user(conn, user.id, None, Some(password_hash), None, None)?;
@@ -286,6 +297,26 @@ fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error>
     Ok(password_hash.to_string())
 }
 
+fn prompt_for_password() -> Result<String, Box<dyn std::error::Error>> {
+    print!("Enter new password: ");
+    io::stdout().flush()?;
+    let password = read_password()?;
+    
+    if password.is_empty() {
+        return Err("Password cannot be empty".into());
+    }
+    
+    print!("Confirm new password: ");
+    io::stdout().flush()?;
+    let confirm_password = read_password()?;
+    
+    if password != confirm_password {
+        return Err("Passwords do not match".into());
+    }
+    
+    Ok(password)
+}
+
 fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         SystemAction::Status => {
@@ -335,7 +366,7 @@ mod tests {
         let result = create_user_impl(
             &mut conn,
             "test@example.com",
-            "password123",
+            Some("password123".to_string()),
             company.id,
             Some("totp_secret".to_string()),
         );
@@ -363,11 +394,11 @@ mod tests {
             .expect("Failed to create test company");
         
         // Create first user
-        create_user_impl(&mut conn, "test@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "test@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create first user");
         
         // Try to create second user with same email
-        let result = create_user_impl(&mut conn, "test@example.com", "password2", company.id, None);
+        let result = create_user_impl(&mut conn, "test@example.com", Some("password2".to_string()), company.id, None);
         
         assert!(result.is_err());
     }
@@ -380,7 +411,7 @@ mod tests {
             .expect("Failed to create test company");
         
         // Create a user first
-        create_user_impl(&mut conn, "test@example.com", "original_password", company.id, None)
+        create_user_impl(&mut conn, "test@example.com", Some("original_password".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let original_user = get_user_by_email(&mut conn, "test@example.com")
@@ -388,7 +419,7 @@ mod tests {
         let original_hash = original_user.password_hash.clone();
         
         // Change password
-        let result = change_password_impl(&mut conn, "test@example.com", "new_password");
+        let result = change_password_impl(&mut conn, "test@example.com", Some("new_password".to_string()));
         assert!(result.is_ok());
         
         // Verify password was changed
@@ -409,7 +440,7 @@ mod tests {
     fn test_change_password_impl_nonexistent_user() {
         let mut conn = setup_test_db();
         
-        let result = change_password_impl(&mut conn, "nonexistent@example.com", "password");
+        let result = change_password_impl(&mut conn, "nonexistent@example.com", Some("password".to_string()));
         assert!(result.is_err());
     }
 
@@ -430,9 +461,9 @@ mod tests {
             .expect("Failed to create test company");
         
         // Create a few users
-        create_user_impl(&mut conn, "user1@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "user1@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "user2@example.com", "password2", company.id, None)
+        create_user_impl(&mut conn, "user2@example.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
         
         let result = list_users_impl(&mut conn, None, false);
@@ -454,7 +485,7 @@ mod tests {
         
         let action = UserAction::Create {
             email: "cli_test@example.com".to_string(),
-            password: "cli_password".to_string(),
+            password: Some("cli_password".to_string()),
             company_id: company.id,
             totp_secret: Some("cli_totp".to_string()),
         };
@@ -479,7 +510,7 @@ mod tests {
         // Create user first
         let create_action = UserAction::Create {
             email: "change_test@example.com".to_string(),
-            password: "original".to_string(),
+            password: Some("original".to_string()),
             company_id: company.id,
             totp_secret: None,
         };
@@ -493,7 +524,7 @@ mod tests {
         // Change password
         let change_action = UserAction::ChangePassword {
             email: "change_test@example.com".to_string(),
-            password: "new_password".to_string(),
+            password: Some("new_password".to_string()),
         };
         
         let result = handle_user_command_with_conn(&mut conn, change_action);
@@ -524,11 +555,11 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "alice@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "alice@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "bob@test.com", "password2", company.id, None)
+        create_user_impl(&mut conn, "bob@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
-        create_user_impl(&mut conn, "charlie@example.org", "password3", company.id, None)
+        create_user_impl(&mut conn, "charlie@example.org", Some("password3".to_string()), company.id, None)
             .expect("Failed to create user3");
         
         let result = list_users_impl(&mut conn, Some("example\\.com$".to_string()), false);
@@ -545,9 +576,9 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user.with.dots@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "user.with.dots@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "normaluser@test.com", "password2", company.id, None)
+        create_user_impl(&mut conn, "normaluser@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
         
         let result = list_users_impl(&mut conn, Some(".with.".to_string()), true);
@@ -569,7 +600,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "user@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let result = list_users_impl(&mut conn, Some("nonexistent".to_string()), false);
@@ -583,11 +614,11 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "alice@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "alice@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "bob@test.com", "password2", company.id, None)
+        create_user_impl(&mut conn, "bob@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
-        create_user_impl(&mut conn, "charlie@example.org", "password3", company.id, None)
+        create_user_impl(&mut conn, "charlie@example.org", Some("password3".to_string()), company.id, None)
             .expect("Failed to create user3");
         
         let result = remove_users_impl(&mut conn, "example\\.com$".to_string(), false, true);
@@ -606,9 +637,9 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user.with.dots@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "user.with.dots@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user1");
-        create_user_impl(&mut conn, "normaluser@test.com", "password2", company.id, None)
+        create_user_impl(&mut conn, "normaluser@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user2");
         
         let result = remove_users_impl(&mut conn, ".with.".to_string(), true, true);
@@ -626,7 +657,7 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "user@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "user@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let result = remove_users_impl(&mut conn, "nonexistent".to_string(), false, true);
@@ -651,9 +682,9 @@ mod tests {
         let company = insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to create test company");
         
-        create_user_impl(&mut conn, "delete_me@example.com", "password1", company.id, None)
+        create_user_impl(&mut conn, "delete_me@example.com", Some("password1".to_string()), company.id, None)
             .expect("Failed to create user");
-        create_user_impl(&mut conn, "keep_me@test.com", "password2", company.id, None)
+        create_user_impl(&mut conn, "keep_me@test.com", Some("password2".to_string()), company.id, None)
             .expect("Failed to create user");
         
         let action = UserAction::Rm {
@@ -667,5 +698,53 @@ mod tests {
         let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
         assert_eq!(remaining_users.len(), 1);
         assert_eq!(remaining_users[0].email, "keep_me@test.com");
+    }
+
+    #[test]
+    fn test_change_password_impl_with_provided_password() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "password_test@example.com", Some("original_password".to_string()), company.id, None)
+            .expect("Failed to create user");
+        
+        let original_user = get_user_by_email(&mut conn, "password_test@example.com")
+            .expect("Failed to get user");
+        let original_hash = original_user.password_hash.clone();
+        
+        let result = change_password_impl(&mut conn, "password_test@example.com", Some("new_password".to_string()));
+        assert!(result.is_ok());
+        
+        let updated_user = get_user_by_email(&mut conn, "password_test@example.com")
+            .expect("Failed to get updated user");
+        
+        assert_ne!(updated_user.password_hash, original_hash);
+        assert!(updated_user.password_hash.starts_with("$argon2"));
+    }
+
+    #[test]
+    fn test_create_user_impl_with_provided_password() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        let result = create_user_impl(
+            &mut conn,
+            "create_test@example.com",
+            Some("test_password".to_string()),
+            company.id,
+            None,
+        );
+        assert!(result.is_ok());
+        
+        let created_user = get_user_by_email(&mut conn, "create_test@example.com")
+            .expect("Failed to get created user");
+        
+        assert_eq!(created_user.email, "create_test@example.com");
+        assert_eq!(created_user.company_id, company.id);
+        assert!(created_user.password_hash.starts_with("$argon2"));
     }
 }

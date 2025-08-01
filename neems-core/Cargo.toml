@@ -13,6 +13,7 @@ required-features = ["admin-cli"]
 fixphrase = { path = "../crates/fixphrase", optional = true }  
 clap = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
+rpassword = { workspace = true, optional = true }
 
 argon2 = { workspace = true }
 chrono = { workspace = true }
@@ -30,7 +31,7 @@ ts-rs = { workspace = true }
 [features]
 default = []
 fixphrase = ["dep:fixphrase"]
-admin-cli = ["dep:clap", "dep:regex"]
+admin-cli = ["dep:clap", "dep:regex", "dep:rpassword"]
 test-staging = []
 
 [dev-dependencies]
