@@ -2,6 +2,8 @@ use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
 use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user, delete_user_with_cleanup, get_user};
 use neems_core::orm::company::get_company_by_id;
+use neems_core::orm::user_role::{assign_user_role_by_name, remove_user_role_by_name, get_user_roles, remove_all_user_roles};
+use neems_core::orm::role::get_role_by_name;
 use neems_core::models::UserNoTime;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
@@ -56,6 +58,27 @@ pub enum UserAction {
         #[arg(long, help = "New TOTP secret")]
         totp_secret: Option<String>,
     },
+    #[command(about = "Add a role to a user")]
+    AddRole {
+        #[arg(short, long, help = "User email address")]
+        email: String,
+        #[arg(short, long, help = "Role name to add")]
+        role: String,
+    },
+    #[command(about = "Remove a role from a user")]
+    RmRole {
+        #[arg(short, long, help = "User email address")]
+        email: String,
+        #[arg(short, long, help = "Role name to remove")]
+        role: String,
+    },
+    #[command(about = "Set all roles for a user (replaces existing roles)")]
+    SetRoles {
+        #[arg(short, long, help = "User email address")]
+        email: String,
+        #[arg(short, long, help = "Comma-separated list of role names")]
+        roles: String,
+    },
 }
 
 pub fn handle_user_command_with_conn(
@@ -82,6 +105,15 @@ pub fn handle_user_command_with_conn(
         }
         UserAction::Edit { id, email, company_id, totp_secret } => {
             user_edit_impl(conn, id, email, company_id, totp_secret)?;
+        }
+        UserAction::AddRole { email, role } => {
+            user_add_role_impl(conn, &email, &role)?;
+        }
+        UserAction::RmRole { email, role } => {
+            user_rm_role_impl(conn, &email, &role)?;
+        }
+        UserAction::SetRoles { email, roles } => {
+            user_set_roles_impl(conn, &email, &roles)?;
         }
     }
     Ok(())
@@ -312,4 +344,112 @@ pub fn prompt_for_password() -> Result<String, Box<dyn std::error::Error>> {
     }
     
     Ok(password)
+}
+
+pub fn user_add_role_impl(
+    conn: &mut SqliteConnection,
+    email: &str,
+    role_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if user exists
+    let user = get_user_by_email(conn, email)
+        .map_err(|_| format!("User with email '{}' not found", email))?;
+
+    // Check if role exists
+    let _role = get_role_by_name(conn, role_name)?
+        .ok_or_else(|| format!("Role '{}' not found", role_name))?;
+
+    // Check if user already has this role
+    let current_roles = get_user_roles(conn, user.id)?;
+    if current_roles.iter().any(|r| r.name == role_name) {
+        println!("User '{}' already has role '{}'", email, role_name);
+        return Ok(());
+    }
+
+    // Add the role
+    assign_user_role_by_name(conn, user.id, role_name)?;
+    println!("Successfully added role '{}' to user '{}'", role_name, email);
+
+    Ok(())
+}
+
+pub fn user_rm_role_impl(
+    conn: &mut SqliteConnection,
+    email: &str,
+    role_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if user exists
+    let user = get_user_by_email(conn, email)
+        .map_err(|_| format!("User with email '{}' not found", email))?;
+
+    // Check if role exists
+    let _role = get_role_by_name(conn, role_name)?
+        .ok_or_else(|| format!("Role '{}' not found", role_name))?;
+
+    // Check if user has this role
+    let current_roles = get_user_roles(conn, user.id)?;
+    if !current_roles.iter().any(|r| r.name == role_name) {
+        println!("User '{}' does not have role '{}'", email, role_name);
+        return Ok(());
+    }
+
+    // Check if this is the user's last role (enforce minimum 1 role constraint)
+    if current_roles.len() <= 1 {
+        return Err(format!("Cannot remove role '{}' from user '{}': users must have at least one role", role_name, email).into());
+    }
+
+    // Remove the role
+    remove_user_role_by_name(conn, user.id, role_name)?;
+    println!("Successfully removed role '{}' from user '{}'", role_name, email);
+
+    Ok(())
+}
+
+pub fn user_set_roles_impl(
+    conn: &mut SqliteConnection,
+    email: &str,
+    roles_str: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if user exists
+    let user = get_user_by_email(conn, email)
+        .map_err(|_| format!("User with email '{}' not found", email))?;
+
+    // Parse roles from comma-separated string
+    let role_names: Vec<&str> = roles_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    
+    if role_names.is_empty() {
+        return Err("Cannot set empty role list: users must have at least one role".into());
+    }
+
+    // Validate all roles exist
+    for role_name in &role_names {
+        let _role = get_role_by_name(conn, role_name)?
+            .ok_or_else(|| format!("Role '{}' not found", role_name))?;
+    }
+
+    // Remove duplicates from role list
+    let mut unique_roles: Vec<&str> = Vec::new();
+    for role_name in role_names {
+        if !unique_roles.contains(&role_name) {
+            unique_roles.push(role_name);
+        }
+    }
+
+    // Get current roles
+    let _current_roles = get_user_roles(conn, user.id)?;
+
+    // Remove all current roles
+    remove_all_user_roles(conn, user.id)?;
+
+    // Add new roles
+    for role_name in &unique_roles {
+        assign_user_role_by_name(conn, user.id, role_name)?;
+    }
+
+    println!("Successfully set roles for user '{}':", email);
+    for role_name in unique_roles {
+        println!("  - {}", role_name);
+    }
+
+    Ok(())
 }

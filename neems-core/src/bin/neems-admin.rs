@@ -25,6 +25,7 @@ mod admin_cli {
     pub mod user_commands;
     pub mod company_commands;
     pub mod site_commands;
+    pub mod role_commands;
     pub mod utils;
 }
 
@@ -32,6 +33,7 @@ use clap::{Parser, Subcommand};
 use admin_cli::user_commands::{UserAction, handle_user_command_with_conn};
 use admin_cli::company_commands::{CompanyAction, handle_company_command_with_conn};
 use admin_cli::site_commands::{SiteAction, handle_site_command_with_conn};
+use admin_cli::role_commands::{RoleAction, handle_role_command_with_conn};
 use admin_cli::utils::establish_connection;
 
 #[derive(Parser)]
@@ -58,6 +60,10 @@ enum Commands {
         #[command(subcommand)]
         action: SiteAction,
     },
+    Role {
+        #[command(subcommand)]
+        action: RoleAction,
+    },
     #[command(about = "Future: Non-database administrative commands")]
     System {
         #[command(subcommand)]
@@ -80,6 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::User { action } => handle_user_command(action)?,
         Commands::Company { action } => handle_company_command(action)?,
         Commands::Site { action } => handle_site_command(action)?,
+        Commands::Role { action } => handle_role_command(action)?,
         Commands::System { action } => handle_system_command(action)?,
     }
 
@@ -99,6 +106,11 @@ fn handle_company_command(action: CompanyAction) -> Result<(), Box<dyn std::erro
 fn handle_site_command(action: SiteAction) -> Result<(), Box<dyn std::error::Error>> {
     let mut conn = establish_connection()?;
     handle_site_command_with_conn(&mut conn, action)
+}
+
+fn handle_role_command(action: RoleAction) -> Result<(), Box<dyn std::error::Error>> {
+    let mut conn = establish_connection()?;
+    handle_role_command_with_conn(&mut conn, action)
 }
 
 fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error::Error>> {
@@ -125,9 +137,11 @@ mod tests {
     use neems_core::orm::user::{get_user_by_email, list_all_users, get_user};
     use neems_core::orm::company::{get_all_companies, get_company_by_id};
     use neems_core::orm::site::{get_all_sites, insert_site, get_site_by_id};
-    use admin_cli::user_commands::{add_user_impl, change_password_impl, list_users_impl, remove_users_impl, user_edit_impl, hash_password};
+    use neems_core::orm::role::get_all_roles;
+    use admin_cli::user_commands::{add_user_impl, change_password_impl, list_users_impl, remove_users_impl, user_edit_impl, hash_password, user_add_role_impl, user_rm_role_impl, user_set_roles_impl};
     use admin_cli::company_commands::{company_ls_impl, company_add_impl, company_rm_impl, company_edit_impl};
     use admin_cli::site_commands::{site_ls_impl, site_add_impl, site_rm_impl, site_edit_impl};
+    use admin_cli::role_commands::{role_ls_impl, role_add_impl, role_rm_impl, role_edit_impl};
     use argon2::{Argon2, PasswordVerifier, PasswordHash};
 
     #[test]
@@ -994,6 +1008,78 @@ mod tests {
             .expect("Failed to create site");
         
         let result = site_edit_impl(&mut conn, site.id, None, None, None, None, Some(99999));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_role_add_impl() {
+        let mut conn = setup_test_db();
+        
+        let result = role_add_impl(&mut conn, "Test Role".to_string(), Some("A test role".to_string()));
+        assert!(result.is_ok());
+        
+        // Verify role was created
+        let roles = get_all_roles(&mut conn).expect("Failed to get roles");
+        let found = roles.iter().any(|r| r.name == "Test Role");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_role_ls_impl() {
+        let mut conn = setup_test_db();
+        
+        let result = role_ls_impl(&mut conn, None, false);
+        assert!(result.is_ok());
+        
+        // Test with search
+        let result = role_ls_impl(&mut conn, Some("admin".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_user_add_role_impl() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create company");
+        
+        add_user_impl(&mut conn, "test@example.com", Some("password".to_string()), company.id, None)
+            .expect("Failed to create user");
+        
+        let result = user_add_role_impl(&mut conn, "test@example.com", "newtown-staff");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_user_set_roles_impl() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create company");
+        
+        add_user_impl(&mut conn, "test2@example.com", Some("password".to_string()), company.id, None)
+            .expect("Failed to create user");
+        
+        let result = user_set_roles_impl(&mut conn, "test2@example.com", "newtown-admin,newtown-staff");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_user_rm_role_impl_last_role_fails() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create company");
+        
+        add_user_impl(&mut conn, "test3@example.com", Some("password".to_string()), company.id, None)
+            .expect("Failed to create user");
+        
+        // First assign a role
+        user_add_role_impl(&mut conn, "test3@example.com", "newtown-admin")
+            .expect("Failed to add role");
+        
+        // Try to remove the only role - should fail
+        let result = user_rm_role_impl(&mut conn, "test3@example.com", "newtown-admin");
         assert!(result.is_err());
     }
 }
