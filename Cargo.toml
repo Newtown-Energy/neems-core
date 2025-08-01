@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "neems-core",      # Your main package (renamed from src/)
-    "crates/fixphrase"  # Your new fixphrase crate
+    "neems-core",
+    "crates/fixphrase"
 ]
 resolver = "2"  # Recommended for Rust 2021+ editions
 
