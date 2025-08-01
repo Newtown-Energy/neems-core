@@ -3,16 +3,16 @@
  * 
  * This is a command-line interface for administrative management of a neems-core 
  * instance's SQLite database. The utility provides comprehensive database management
- * capabilities including user management, company management, and system operations.
+ * capabilities including user, company, and site management, as well as system operations.
  * 
  * The CLI leverages the ORM functions located in @neems-core/src/orm/ for all database
  * manipulations, ensuring consistent data access patterns and maintaining referential
  * integrity across operations.
  * 
  * Key Features:
- * - User management (create, list, remove, password changes)  
- * - Company management (create, list, remove with cascading deletes)
- * - Site management (create, list, remove)
+ * - User management (create, list, edit, remove, password changes)  
+ * - Company management (create, list, edit, remove with cascading deletes)
+ * - Site management (create, list, edit, remove)
  * - Search functionality with regex and fixed-string support
  * - Secure password prompting without echo
  * - Cascading deletes to maintain data consistency
@@ -24,9 +24,9 @@
 use clap::{Parser, Subcommand};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user, delete_user_with_cleanup, get_users_by_company};
-use neems_core::orm::company::{get_all_companies, insert_company, delete_company};
-use neems_core::orm::site::{get_sites_by_company, delete_site, get_all_sites, insert_site};
+use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user, delete_user_with_cleanup, get_users_by_company, get_user};
+use neems_core::orm::company::{get_all_companies, insert_company, delete_company, get_company_by_id};
+use neems_core::orm::site::{get_sites_by_company, delete_site, get_all_sites, insert_site, update_site, get_site_by_id};
 use neems_core::models::UserNoTime;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
@@ -101,6 +101,17 @@ enum UserAction {
         #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
         yes: bool,
     },
+    #[command(about = "Edit user fields")]
+    Edit {
+        #[arg(short, long, help = "User ID to edit")]
+        id: i32,
+        #[arg(long, help = "New email address")]
+        email: Option<String>,
+        #[arg(long, help = "New company ID")]
+        company_id: Option<i32>,
+        #[arg(long, help = "New TOTP secret")]
+        totp_secret: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -125,6 +136,13 @@ enum CompanyAction {
         fixed_string: bool,
         #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
         yes: bool,
+    },
+    #[command(about = "Edit company fields")]
+    Edit {
+        #[arg(short, long, help = "Company ID to edit")]
+        id: i32,
+        #[arg(long, help = "New company name")]
+        name: Option<String>,
     },
 }
 
@@ -161,6 +179,21 @@ enum SiteAction {
         #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
         yes: bool,
         #[arg(short = 'c', long = "company", help = "Filter by company ID")]
+        company_id: Option<i32>,
+    },
+    #[command(about = "Edit site fields")]
+    Edit {
+        #[arg(short, long, help = "Site ID to edit")]
+        id: i32,
+        #[arg(long, help = "New site name")]
+        name: Option<String>,
+        #[arg(long, help = "New site address")]
+        address: Option<String>,
+        #[arg(long, help = "New latitude coordinate")]
+        latitude: Option<f64>,
+        #[arg(long, help = "New longitude coordinate")]
+        longitude: Option<f64>,
+        #[arg(long, help = "New company ID")]
         company_id: Option<i32>,
     },
 }
@@ -212,6 +245,9 @@ fn handle_user_command_with_conn(
         }
         UserAction::Rm { search_term, fixed_string, yes } => {
             remove_users_impl(conn, search_term, fixed_string, yes)?;
+        }
+        UserAction::Edit { id, email, company_id, totp_secret } => {
+            user_edit_impl(conn, id, email, company_id, totp_secret)?;
         }
     }
     Ok(())
@@ -414,6 +450,130 @@ fn prompt_for_password() -> Result<String, Box<dyn std::error::Error>> {
     Ok(password)
 }
 
+fn user_edit_impl(
+    conn: &mut SqliteConnection,
+    user_id: i32,
+    new_email: Option<String>,
+    new_company_id: Option<i32>,
+    new_totp_secret: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if user exists
+    let _user = get_user(conn, user_id)?;
+    
+    // Check if any fields need updating
+    if new_email.is_none() && new_company_id.is_none() && new_totp_secret.is_none() {
+        println!("No fields specified for update. Use --email, --company-id, or --totp-secret.");
+        return Ok(());
+    }
+    
+    // Validate company exists if specified
+    if let Some(comp_id) = new_company_id {
+        if get_company_by_id(conn, comp_id)?.is_none() {
+            return Err(format!("Company with ID {} does not exist", comp_id).into());
+        }
+    }
+    
+    let updated_user = update_user(conn, user_id, new_email, None, new_company_id, new_totp_secret)?;
+    
+    println!("User updated successfully!");
+    println!("ID: {}", updated_user.id);
+    println!("Email: {}", updated_user.email);
+    println!("Company ID: {}", updated_user.company_id);
+    if let Some(ref totp) = updated_user.totp_secret {
+        println!("TOTP Secret: {}", totp);
+    } else {
+        println!("TOTP Secret: None");
+    }
+    
+    Ok(())
+}
+
+fn update_company(
+    conn: &mut SqliteConnection,
+    company_id: i32,
+    new_name: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use neems_core::schema::companies::dsl::*;
+    
+    if let Some(name_val) = new_name {
+        let now = chrono::Utc::now().naive_utc();
+        
+        diesel::update(companies.filter(id.eq(company_id)))
+            .set((name.eq(name_val), updated_at.eq(now)))
+            .execute(conn)?;
+    }
+    
+    Ok(())
+}
+
+fn company_edit_impl(
+    conn: &mut SqliteConnection,
+    company_id: i32,
+    new_name: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if company exists
+    let company = get_company_by_id(conn, company_id)?;
+    if company.is_none() {
+        return Err(format!("Company with ID {} does not exist", company_id).into());
+    }
+    let company = company.unwrap();
+    
+    // Check if any fields need updating
+    if new_name.is_none() {
+        println!("No fields specified for update. Use --name.");
+        return Ok(());
+    }
+    
+    update_company(conn, company_id, new_name.clone())?;
+    
+    println!("Company updated successfully!");
+    println!("ID: {}", company.id);
+    println!("Name: {}", new_name.unwrap_or(company.name));
+    
+    Ok(())
+}
+
+fn site_edit_impl(
+    conn: &mut SqliteConnection,
+    site_id: i32,
+    new_name: Option<String>,
+    new_address: Option<String>,
+    new_latitude: Option<f64>,
+    new_longitude: Option<f64>,
+    new_company_id: Option<i32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if site exists
+    let site = get_site_by_id(conn, site_id)?;
+    if site.is_none() {
+        return Err(format!("Site with ID {} does not exist", site_id).into());
+    }
+    
+    // Check if any fields need updating
+    if new_name.is_none() && new_address.is_none() && new_latitude.is_none() 
+       && new_longitude.is_none() && new_company_id.is_none() {
+        println!("No fields specified for update. Use --name, --address, --latitude, --longitude, or --company-id.");
+        return Ok(());
+    }
+    
+    // Validate company exists if specified
+    if let Some(comp_id) = new_company_id {
+        if get_company_by_id(conn, comp_id)?.is_none() {
+            return Err(format!("Company with ID {} does not exist", comp_id).into());
+        }
+    }
+    
+    let updated_site = update_site(conn, site_id, new_name, new_address, new_latitude, new_longitude, new_company_id)?;
+    
+    println!("Site updated successfully!");
+    println!("ID: {}", updated_site.id);
+    println!("Name: {}", updated_site.name);
+    println!("Address: {}", updated_site.address);
+    println!("Company ID: {}", updated_site.company_id);
+    println!("Coordinates: ({}, {})", updated_site.latitude, updated_site.longitude);
+    
+    Ok(())
+}
+
 fn company_ls_impl(
     conn: &mut SqliteConnection,
     search_term: Option<String>,
@@ -584,6 +744,9 @@ fn handle_company_command_with_conn(
         CompanyAction::Rm { search_term, fixed_string, yes } => {
             company_rm_impl(conn, search_term, fixed_string, yes)?;
         }
+        CompanyAction::Edit { id, name } => {
+            company_edit_impl(conn, id, name)?;
+        }
     }
     Ok(())
 }
@@ -747,6 +910,9 @@ fn handle_site_command_with_conn(
         }
         SiteAction::Rm { search_term, fixed_string, yes, company_id } => {
             site_rm_impl(conn, search_term, fixed_string, yes, company_id)?;
+        }
+        SiteAction::Edit { id, name, address, latitude, longitude, company_id } => {
+            site_edit_impl(conn, id, name, address, latitude, longitude, company_id)?;
         }
     }
     Ok(())
@@ -1489,5 +1655,145 @@ mod tests {
         let sites = get_all_sites(&mut conn).expect("Failed to get sites");
         let found = sites.iter().any(|s| s.name == "Remove This Site");
         assert!(!found);
+    }
+
+    #[test]
+    fn test_user_edit_impl() {
+        let mut conn = setup_test_db();
+        
+        let company1 = insert_company(&mut conn, "Company 1".to_string())
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string())
+            .expect("Failed to create company 2");
+        
+        // Create a user
+        create_user_impl(&mut conn, "original@example.com", Some("password".to_string()), company1.id, Some("original_totp".to_string()))
+            .expect("Failed to create user");
+        
+        let user = get_user_by_email(&mut conn, "original@example.com")
+            .expect("Failed to get user");
+        
+        // Edit email
+        let result = user_edit_impl(&mut conn, user.id, Some("updated@example.com".to_string()), None, None);
+        assert!(result.is_ok());
+        
+        let updated_user = get_user(&mut conn, user.id).expect("Failed to get updated user");
+        assert_eq!(updated_user.email, "updated@example.com");
+        assert_eq!(updated_user.company_id, company1.id);
+        
+        // Edit company and TOTP
+        let result = user_edit_impl(&mut conn, user.id, None, Some(company2.id), Some("new_totp".to_string()));
+        assert!(result.is_ok());
+        
+        let updated_user = get_user(&mut conn, user.id).expect("Failed to get updated user");
+        assert_eq!(updated_user.company_id, company2.id);
+        assert_eq!(updated_user.totp_secret, Some("new_totp".to_string()));
+    }
+
+    #[test]
+    fn test_user_edit_impl_nonexistent_user() {
+        let mut conn = setup_test_db();
+        
+        let result = user_edit_impl(&mut conn, 99999, Some("new@example.com".to_string()), None, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_user_edit_impl_nonexistent_company() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create company");
+        
+        create_user_impl(&mut conn, "user@example.com", Some("password".to_string()), company.id, None)
+            .expect("Failed to create user");
+        
+        let user = get_user_by_email(&mut conn, "user@example.com")
+            .expect("Failed to get user");
+        
+        let result = user_edit_impl(&mut conn, user.id, None, Some(99999), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_company_edit_impl() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Original Company".to_string())
+            .expect("Failed to create company");
+        
+        let result = company_edit_impl(&mut conn, company.id, Some("Updated Company".to_string()));
+        assert!(result.is_ok());
+        
+        let updated_company = get_company_by_id(&mut conn, company.id)
+            .expect("Failed to get updated company")
+            .expect("Company should exist");
+        assert_eq!(updated_company.name, "Updated Company");
+    }
+
+    #[test]
+    fn test_company_edit_impl_nonexistent_company() {
+        let mut conn = setup_test_db();
+        
+        let result = company_edit_impl(&mut conn, 99999, Some("New Name".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_site_edit_impl() {
+        let mut conn = setup_test_db();
+        
+        let company1 = insert_company(&mut conn, "Company 1".to_string())
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string())
+            .expect("Failed to create company 2");
+        
+        let site = insert_site(&mut conn, "Original Site".to_string(), "Original Address".to_string(), 40.0, -74.0, company1.id)
+            .expect("Failed to create site");
+        
+        // Edit name and address
+        let result = site_edit_impl(&mut conn, site.id, Some("Updated Site".to_string()), Some("Updated Address".to_string()), None, None, None);
+        assert!(result.is_ok());
+        
+        let updated_site = get_site_by_id(&mut conn, site.id)
+            .expect("Failed to get updated site")
+            .expect("Site should exist");
+        assert_eq!(updated_site.name, "Updated Site");
+        assert_eq!(updated_site.address, "Updated Address");
+        assert_eq!(updated_site.latitude, 40.0);
+        assert_eq!(updated_site.longitude, -74.0);
+        
+        // Edit coordinates and company
+        let result = site_edit_impl(&mut conn, site.id, None, None, Some(41.0), Some(-75.0), Some(company2.id));
+        assert!(result.is_ok());
+        
+        let updated_site = get_site_by_id(&mut conn, site.id)
+            .expect("Failed to get updated site")
+            .expect("Site should exist");
+        assert_eq!(updated_site.latitude, 41.0);
+        assert_eq!(updated_site.longitude, -75.0);
+        assert_eq!(updated_site.company_id, company2.id);
+    }
+
+    #[test]
+    fn test_site_edit_impl_nonexistent_site() {
+        let mut conn = setup_test_db();
+        
+        let result = site_edit_impl(&mut conn, 99999, Some("New Name".to_string()), None, None, None, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_site_edit_impl_nonexistent_company() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create company");
+        
+        let site = insert_site(&mut conn, "Test Site".to_string(), "Address".to_string(), 40.0, -74.0, company.id)
+            .expect("Failed to create site");
+        
+        let result = site_edit_impl(&mut conn, site.id, None, None, None, None, Some(99999));
+        assert!(result.is_err());
     }
 }
