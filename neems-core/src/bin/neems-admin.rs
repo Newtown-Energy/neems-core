@@ -1,12 +1,13 @@
 use clap::{Parser, Subcommand};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user};
+use neems_core::orm::user::{insert_user, list_all_users, get_user_by_email, update_user, delete_user_with_cleanup};
 use neems_core::models::UserNoTime;
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 use dotenvy::dotenv;
 use regex::Regex;
+use std::io::{self, Write};
 
 #[derive(Parser)]
 #[command(name = "neems-admin")]
@@ -57,6 +58,15 @@ enum UserAction {
         #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
         fixed_string: bool,
     },
+    #[command(about = "Remove users matching search term")]
+    Rm {
+        #[arg(help = "Search term to match users for removal (regex by default, use -F for fixed string)")]
+        search_term: String,
+        #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
+        fixed_string: bool,
+        #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -101,6 +111,9 @@ fn handle_user_command_with_conn(
         }
         UserAction::Ls { search_term, fixed_string } => {
             list_users_impl(conn, search_term, fixed_string)?;
+        }
+        UserAction::Rm { search_term, fixed_string, yes } => {
+            remove_users_impl(conn, search_term, fixed_string, yes)?;
         }
     }
     Ok(())
@@ -178,6 +191,81 @@ fn list_users_impl(
             println!("  ID: {}, Email: {}, Company ID: {}, Created: {}", 
                     user.id, user.email, user.company_id, user.created_at);
         }
+    }
+    
+    Ok(())
+}
+
+fn remove_users_impl(
+    conn: &mut SqliteConnection,
+    search_term: String,
+    fixed_string: bool,
+    yes: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let users = list_all_users(conn)?;
+    
+    let matching_users = if fixed_string {
+        users.into_iter()
+            .filter(|user| user.email.contains(&search_term))
+            .collect::<Vec<_>>()
+    } else {
+        let regex = Regex::new(&search_term)
+            .map_err(|e| format!("Invalid regex pattern '{}': {}", search_term, e))?;
+        users.into_iter()
+            .filter(|user| regex.is_match(&user.email))
+            .collect::<Vec<_>>()
+    };
+    
+    if matching_users.is_empty() {
+        println!("No users found matching the search term.");
+        return Ok(());
+    }
+    
+    println!("Found {} user(s) matching the search term:", matching_users.len());
+    for user in &matching_users {
+        println!("  ID: {}, Email: {}, Company ID: {}", 
+                user.id, user.email, user.company_id);
+    }
+    
+    if !yes {
+        print!("Are you sure you want to delete these {} user(s)? [y/N]: ", matching_users.len());
+        io::stdout().flush()?;
+        
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        
+        if input != "y" && input != "yes" {
+            println!("Operation cancelled.");
+            return Ok(());
+        }
+    }
+    
+    let mut deleted_count = 0;
+    let mut errors = Vec::new();
+    
+    for user in matching_users {
+        match delete_user_with_cleanup(conn, user.id) {
+            Ok(rows_affected) => {
+                if rows_affected > 0 {
+                    deleted_count += 1;
+                    println!("Deleted user: {} (ID: {})", user.email, user.id);
+                }
+            }
+            Err(e) => {
+                errors.push(format!("Failed to delete user {} (ID: {}): {}", user.email, user.id, e));
+            }
+        }
+    }
+    
+    println!("Successfully deleted {} user(s).", deleted_count);
+    
+    if !errors.is_empty() {
+        println!("Errors encountered:");
+        for error in errors {
+            println!("  {}", error);
+        }
+        return Err("Some deletions failed".into());
     }
     
     Ok(())
@@ -486,5 +574,98 @@ mod tests {
         
         let result = list_users_impl(&mut conn, Some("nonexistent".to_string()), false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_remove_users_impl_with_regex() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "alice@example.com", "password1", company.id, None)
+            .expect("Failed to create user1");
+        create_user_impl(&mut conn, "bob@test.com", "password2", company.id, None)
+            .expect("Failed to create user2");
+        create_user_impl(&mut conn, "charlie@example.org", "password3", company.id, None)
+            .expect("Failed to create user3");
+        
+        let result = remove_users_impl(&mut conn, "example\\.com$".to_string(), false, true);
+        assert!(result.is_ok());
+        
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 2);
+        assert_eq!(remaining_users[0].email, "bob@test.com");
+        assert_eq!(remaining_users[1].email, "charlie@example.org");
+    }
+
+    #[test]
+    fn test_remove_users_impl_with_fixed_string() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "user.with.dots@example.com", "password1", company.id, None)
+            .expect("Failed to create user1");
+        create_user_impl(&mut conn, "normaluser@test.com", "password2", company.id, None)
+            .expect("Failed to create user2");
+        
+        let result = remove_users_impl(&mut conn, ".with.".to_string(), true, true);
+        assert!(result.is_ok());
+        
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 1);
+        assert_eq!(remaining_users[0].email, "normaluser@test.com");
+    }
+
+    #[test]
+    fn test_remove_users_impl_no_matches() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "user@example.com", "password1", company.id, None)
+            .expect("Failed to create user");
+        
+        let result = remove_users_impl(&mut conn, "nonexistent".to_string(), false, true);
+        assert!(result.is_ok());
+        
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_users_impl_invalid_regex() {
+        let mut conn = setup_test_db();
+        
+        let result = remove_users_impl(&mut conn, "[invalid".to_string(), false, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_handle_user_command_with_conn_rm() {
+        let mut conn = setup_test_db();
+        
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to create test company");
+        
+        create_user_impl(&mut conn, "delete_me@example.com", "password1", company.id, None)
+            .expect("Failed to create user");
+        create_user_impl(&mut conn, "keep_me@test.com", "password2", company.id, None)
+            .expect("Failed to create user");
+        
+        let action = UserAction::Rm {
+            search_term: "@example.com".to_string(),
+            fixed_string: true,
+            yes: true,
+        };
+        let result = handle_user_command_with_conn(&mut conn, action);
+        assert!(result.is_ok());
+        
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 1);
+        assert_eq!(remaining_users[0].email, "keep_me@test.com");
     }
 }
