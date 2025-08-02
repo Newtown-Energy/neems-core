@@ -2,6 +2,7 @@
 members = [
     "neems-core",
     "neems-admin",
+    "neems-data",
     "crates/fixphrase"
 ]
 resolver = "2"  # Recommended for Rust 2021+ editions
