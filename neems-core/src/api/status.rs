@@ -3,9 +3,9 @@
 //! This module provides health check and status endpoints for monitoring
 //! the application's operational state and availability.
 
-use serde::Serialize;
-use rocket::serde::json::Json;
 use rocket::Route;
+use rocket::serde::json::Json;
+use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(crate = "rocket::serde")]

@@ -1,8 +1,7 @@
 use diesel::connection::SimpleConnection;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use rocket::fairing::AdHoc;
 use rocket_sync_db_pools::{database, diesel};
-
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -30,11 +29,13 @@ pub fn set_foreign_keys(conn: &mut diesel::SqliteConnection) {
 /// are enabled for all database connections in the pool.
 pub fn set_foreign_keys_fairing() -> AdHoc {
     AdHoc::on_ignite("Set Foreign Keys", |rocket| async {
-        let conn = DbConn::get_one(&rocket).await
+        let conn = DbConn::get_one(&rocket)
+            .await
             .expect("database connection for migration");
         conn.run(|c| {
             set_foreign_keys(c);
-        }).await;
+        })
+        .await;
         rocket
     })
 }
@@ -58,12 +59,13 @@ pub fn run_pending_migrations(conn: &mut diesel::SqliteConnection) {
 pub fn run_migrations_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         // Get a database connection from Rocket's pool
-        let conn = DbConn::get_one(&rocket).await
+        let conn = DbConn::get_one(&rocket)
+            .await
             .expect("database connection for migration");
         conn.run(|c| {
             run_pending_migrations(c);
-        }).await;
+        })
+        .await;
         rocket
     })
 }
-

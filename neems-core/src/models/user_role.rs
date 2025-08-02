@@ -1,8 +1,8 @@
+use crate::models::Role;
+use crate::models::User;
 use crate::schema::user_roles;
 use diesel::{Associations, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use crate::models::User;
-use crate::models::Role;
 
 #[derive(Queryable, Associations, Debug, Serialize)]
 #[diesel(belongs_to(User, foreign_key = user_id))]
@@ -20,5 +20,3 @@ pub struct NewUserRole {
     pub user_id: i32,
     pub role_id: i32,
 }
-
-

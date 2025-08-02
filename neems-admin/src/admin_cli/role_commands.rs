@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_core::orm::role::{get_all_roles, insert_role, delete_role, update_role, get_role};
 use neems_core::models::{NewRole, Role};
+use neems_core::orm::role::{delete_role, get_all_roles, get_role, insert_role, update_role};
 use regex::Regex;
 use std::io::{self, Write};
 
@@ -11,7 +11,11 @@ pub enum RoleAction {
     Ls {
         #[arg(help = "Search term (regex by default, use -F for fixed string)")]
         search_term: Option<String>,
-        #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
+        #[arg(
+            short = 'F',
+            long = "fixed-string",
+            help = "Treat search term as fixed string instead of regex"
+        )]
         fixed_string: bool,
     },
     #[command(about = "Add a new role")]
@@ -23,9 +27,15 @@ pub enum RoleAction {
     },
     #[command(about = "Remove roles matching search term")]
     Rm {
-        #[arg(help = "Search term to match roles for removal (regex by default, use -F for fixed string)")]
+        #[arg(
+            help = "Search term to match roles for removal (regex by default, use -F for fixed string)"
+        )]
         search_term: String,
-        #[arg(short = 'F', long = "fixed-string", help = "Treat search term as fixed string instead of regex")]
+        #[arg(
+            short = 'F',
+            long = "fixed-string",
+            help = "Treat search term as fixed string instead of regex"
+        )]
         fixed_string: bool,
         #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
         yes: bool,
@@ -46,16 +56,27 @@ pub fn handle_role_command_with_conn(
     action: RoleAction,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        RoleAction::Ls { search_term, fixed_string } => {
+        RoleAction::Ls {
+            search_term,
+            fixed_string,
+        } => {
             role_ls_impl(conn, search_term, fixed_string)?;
         }
         RoleAction::Add { name, description } => {
             role_add_impl(conn, name, description)?;
         }
-        RoleAction::Rm { search_term, fixed_string, yes } => {
+        RoleAction::Rm {
+            search_term,
+            fixed_string,
+            yes,
+        } => {
             role_rm_impl(conn, search_term, fixed_string, yes)?;
         }
-        RoleAction::Edit { role_id, name, description } => {
+        RoleAction::Edit {
+            role_id,
+            name,
+            description,
+        } => {
             role_edit_impl(conn, role_id, name, description)?;
         }
     }
@@ -71,13 +92,15 @@ pub fn role_ls_impl(
 
     let filtered_roles: Vec<Role> = if let Some(term) = search_term {
         if fixed_string {
-            roles.into_iter()
+            roles
+                .into_iter()
                 .filter(|role| role.name.contains(&term))
                 .collect()
         } else {
-            let regex = Regex::new(&term)
-                .map_err(|e| format!("Invalid regex '{}': {}", term, e))?;
-            roles.into_iter()
+            let regex =
+                Regex::new(&term).map_err(|e| format!("Invalid regex '{}': {}", term, e))?;
+            roles
+                .into_iter()
                 .filter(|role| regex.is_match(&role.name))
                 .collect()
         }
@@ -91,7 +114,10 @@ pub fn role_ls_impl(
         println!("Roles:");
         for role in filtered_roles {
             let desc = role.description.as_deref().unwrap_or("(no description)");
-            println!("  ID: {}, Name: {}, Description: {}", role.id, role.name, desc);
+            println!(
+                "  ID: {}, Name: {}, Description: {}",
+                role.id, role.name, desc
+            );
         }
     }
 
@@ -103,9 +129,12 @@ pub fn role_add_impl(
     name: String,
     description: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let new_role = NewRole { name: name.clone(), description };
+    let new_role = NewRole {
+        name: name.clone(),
+        description,
+    };
     let created_role = insert_role(conn, new_role)?;
-    
+
     println!("Successfully added role:");
     println!("  ID: {}", created_role.id);
     println!("  Name: {}", created_role.name);
@@ -125,13 +154,15 @@ pub fn role_rm_impl(
     let roles = get_all_roles(conn)?;
 
     let matching_roles: Vec<Role> = if fixed_string {
-        roles.into_iter()
+        roles
+            .into_iter()
             .filter(|role| role.name.contains(&search_term))
             .collect()
     } else {
         let regex = Regex::new(&search_term)
             .map_err(|e| format!("Invalid regex '{}': {}", search_term, e))?;
-        roles.into_iter()
+        roles
+            .into_iter()
             .filter(|role| regex.is_match(&role.name))
             .collect()
     };
@@ -144,16 +175,22 @@ pub fn role_rm_impl(
     println!("Roles to be removed:");
     for role in &matching_roles {
         let desc = role.description.as_deref().unwrap_or("(no description)");
-        println!("  ID: {}, Name: {}, Description: {}", role.id, role.name, desc);
+        println!(
+            "  ID: {}, Name: {}, Description: {}",
+            role.id, role.name, desc
+        );
     }
 
     if !yes {
-        print!("Are you sure you want to remove {} role(s)? [y/N]: ", matching_roles.len());
+        print!(
+            "Are you sure you want to remove {} role(s)? [y/N]: ",
+            matching_roles.len()
+        );
         io::stdout().flush()?;
-        
+
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
-        
+
         if !input.trim().to_lowercase().starts_with('y') {
             println!("Cancelled.");
             return Ok(());
@@ -168,7 +205,10 @@ pub fn role_rm_impl(
                     println!("Removed role: {}", role.name);
                     removed_count += 1;
                 } else {
-                    println!("Warning: Role {} was not found (may have been removed already)", role.name);
+                    println!(
+                        "Warning: Role {} was not found (may have been removed already)",
+                        role.name
+                    );
                 }
             }
             Err(e) => {
@@ -188,8 +228,8 @@ pub fn role_edit_impl(
     new_description: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if role exists
-    let _role = get_role(conn, role_id)
-        .map_err(|_| format!("Role with ID {} not found", role_id))?;
+    let _role =
+        get_role(conn, role_id).map_err(|_| format!("Role with ID {} not found", role_id))?;
 
     if new_name.is_none() && new_description.is_none() {
         println!("No changes specified. Use --name or --description to specify changes.");

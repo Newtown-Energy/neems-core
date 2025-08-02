@@ -1,7 +1,7 @@
-use diesel::prelude::*;
 use chrono::Utc;
+use diesel::prelude::*;
 
-use crate::models::{Site, NewSite};
+use crate::models::{NewSite, Site};
 
 /// Gets all sites for a specific company ID.
 pub fn get_sites_by_company(
@@ -25,7 +25,7 @@ pub fn insert_site(
     site_company_id: i32,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
-    
+
     let now = Utc::now().naive_utc();
     let new_site = NewSite {
         name: site_name,
@@ -36,11 +36,9 @@ pub fn insert_site(
         created_at: now,
         updated_at: now,
     };
-    
-    diesel::insert_into(sites)
-        .values(&new_site)
-        .execute(conn)?;
-    
+
+    diesel::insert_into(sites).values(&new_site).execute(conn)?;
+
     // Return the inserted site
     sites.order(id.desc()).first::<Site>(conn)
 }
@@ -51,10 +49,7 @@ pub fn get_site_by_id(
     site_id: i32,
 ) -> Result<Option<Site>, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
-    sites
-        .filter(id.eq(site_id))
-        .first::<Site>(conn)
-        .optional()
+    sites.filter(id.eq(site_id)).first::<Site>(conn).optional()
 }
 
 /// Gets a site by company ID and name (case-insensitive).
@@ -72,9 +67,7 @@ pub fn get_site_by_company_and_name(
 }
 
 /// Gets all sites in the system.
-pub fn get_all_sites(
-    conn: &mut SqliteConnection,
-) -> Result<Vec<Site>, diesel::result::Error> {
+pub fn get_all_sites(conn: &mut SqliteConnection) -> Result<Vec<Site>, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
     sites.order(id.asc()).load::<Site>(conn)
 }
@@ -90,12 +83,12 @@ pub fn update_site(
     new_company_id: Option<i32>,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
-    
+
     let now = Utc::now().naive_utc();
-    
+
     // First, get the current site to preserve existing values
     let current_site = sites.filter(id.eq(site_id)).first::<Site>(conn)?;
-    
+
     // Update with new values or keep existing ones
     diesel::update(sites.filter(id.eq(site_id)))
         .set((
@@ -107,7 +100,7 @@ pub fn update_site(
             updated_at.eq(now),
         ))
         .execute(conn)?;
-    
+
     // Return the updated site
     sites.filter(id.eq(site_id)).first::<Site>(conn)
 }
@@ -141,7 +134,8 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
-        ).expect("Failed to insert site 1");
+        )
+        .expect("Failed to insert site 1");
 
         insert_site(
             &mut conn,
@@ -150,7 +144,8 @@ mod tests {
             40.7589,
             -73.9851,
             company.id,
-        ).expect("Failed to insert site 2");
+        )
+        .expect("Failed to insert site 2");
 
         let sites = get_sites_by_company(&mut conn, company.id).unwrap();
         assert_eq!(sites.len(), 2);
@@ -173,7 +168,8 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
-        ).expect("Failed to insert site");
+        )
+        .expect("Failed to insert site");
 
         assert_eq!(site.name, "Test Site");
         assert_eq!(site.address, "123 Test St");
@@ -197,7 +193,8 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
-        ).expect("Failed to insert site");
+        )
+        .expect("Failed to insert site");
 
         // Test getting existing site
         let retrieved_site = get_site_by_id(&mut conn, created_site.id)
@@ -209,8 +206,7 @@ mod tests {
         assert_eq!(retrieved_site.address, "123 Test St");
 
         // Test getting non-existent site
-        let non_existent = get_site_by_id(&mut conn, 99999)
-            .expect("Query should succeed");
+        let non_existent = get_site_by_id(&mut conn, 99999).expect("Query should succeed");
         assert!(non_existent.is_none());
     }
 
@@ -224,12 +220,33 @@ mod tests {
             .expect("Failed to insert company 2");
 
         // Insert sites for different companies
-        insert_site(&mut conn, "Site 1".to_string(), "Address 1".to_string(), 40.0, -74.0, company1.id)
-            .expect("Failed to insert site 1");
-        insert_site(&mut conn, "Site 2".to_string(), "Address 2".to_string(), 41.0, -75.0, company2.id)
-            .expect("Failed to insert site 2");
-        insert_site(&mut conn, "Site 3".to_string(), "Address 3".to_string(), 42.0, -76.0, company1.id)
-            .expect("Failed to insert site 3");
+        insert_site(
+            &mut conn,
+            "Site 1".to_string(),
+            "Address 1".to_string(),
+            40.0,
+            -74.0,
+            company1.id,
+        )
+        .expect("Failed to insert site 1");
+        insert_site(
+            &mut conn,
+            "Site 2".to_string(),
+            "Address 2".to_string(),
+            41.0,
+            -75.0,
+            company2.id,
+        )
+        .expect("Failed to insert site 2");
+        insert_site(
+            &mut conn,
+            "Site 3".to_string(),
+            "Address 3".to_string(),
+            42.0,
+            -76.0,
+            company1.id,
+        )
+        .expect("Failed to insert site 3");
 
         let all_sites = get_all_sites(&mut conn).expect("Failed to get all sites");
         assert_eq!(all_sites.len(), 3);
@@ -256,7 +273,8 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
-        ).expect("Failed to insert site");
+        )
+        .expect("Failed to insert site");
 
         let original_created_at = created_site.created_at;
         let original_updated_at = created_site.updated_at;
@@ -273,7 +291,8 @@ mod tests {
             None,
             None,
             None,
-        ).expect("Failed to update site");
+        )
+        .expect("Failed to update site");
 
         assert_eq!(updated_site.name, "Updated Site");
         assert_eq!(updated_site.address, "Original Address"); // Should remain unchanged
@@ -292,7 +311,8 @@ mod tests {
             Some(41.0),
             Some(-75.0),
             Some(company2.id),
-        ).expect("Failed to fully update site");
+        )
+        .expect("Failed to fully update site");
 
         assert_eq!(fully_updated_site.name, "Fully Updated Site");
         assert_eq!(fully_updated_site.address, "New Address");
@@ -325,10 +345,24 @@ mod tests {
         let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
             .expect("Failed to insert company");
 
-        let site1 = insert_site(&mut conn, "Site 1".to_string(), "Address 1".to_string(), 40.0, -74.0, company.id)
-            .expect("Failed to insert site 1");
-        let site2 = insert_site(&mut conn, "Site 2".to_string(), "Address 2".to_string(), 41.0, -75.0, company.id)
-            .expect("Failed to insert site 2");
+        let site1 = insert_site(
+            &mut conn,
+            "Site 1".to_string(),
+            "Address 1".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+        )
+        .expect("Failed to insert site 1");
+        let site2 = insert_site(
+            &mut conn,
+            "Site 2".to_string(),
+            "Address 2".to_string(),
+            41.0,
+            -75.0,
+            company.id,
+        )
+        .expect("Failed to insert site 2");
 
         // Verify both sites exist
         let all_sites_before = get_all_sites(&mut conn).expect("Failed to get sites");
@@ -371,14 +405,15 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
-        ).expect("Failed to insert site");
+        )
+        .expect("Failed to insert site");
 
         // Test case-insensitive lookup with different cases
         let test_cases = vec![
             "test site name",
-            "TEST SITE NAME", 
+            "TEST SITE NAME",
             "Test Site Name",
-            "tEsT sItE nAmE"
+            "tEsT sItE nAmE",
         ];
 
         for test_name in test_cases {

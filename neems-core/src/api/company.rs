@@ -4,21 +4,21 @@
 //! in the system. Companies represent organizations or entities that can
 //! be associated with users and roles.
 
-use rocket::serde::json::Json;
-use rocket::http::Status;
-use rocket::response::{status, self};
 use rocket::Route;
+use rocket::http::Status;
+use rocket::response::{self, status};
+use rocket::serde::json::Json;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::session_guards::AuthenticatedUser;
-use crate::orm::DbConn;
+use crate::company::{get_company_by_name_case_insensitive, insert_company};
+use crate::models::Site;
 use crate::models::{Company, CompanyName, UserWithRoles};
-use crate::company::{insert_company, get_company_by_name_case_insensitive};
-use crate::orm::company::{get_all_companies, delete_company};
+use crate::orm::DbConn;
+use crate::orm::company::{delete_company, get_all_companies};
 use crate::orm::site::get_sites_by_company;
 use crate::orm::user::get_users_by_company_with_roles;
-use crate::models::Site;
+use crate::session_guards::AuthenticatedUser;
 
 /// Error response structure for company API failures.
 #[derive(Serialize, TS)]
@@ -68,7 +68,7 @@ pub struct ErrorResponse {
 pub async fn create_company(
     db: DbConn,
     new_company: Json<CompanyName>,
-    _auth_user: AuthenticatedUser
+    _auth_user: AuthenticatedUser,
 ) -> Result<status::Created<Json<Company>>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         // First check if company with this name already exists (case-insensitive)
@@ -76,17 +76,17 @@ pub async fn create_company(
             Ok(Some(_existing_company)) => {
                 // Company with this name already exists
                 let err = Json(ErrorResponse {
-                    error: format!("Company with name '{}' already exists", new_company.name)
+                    error: format!("Company with name '{}' already exists", new_company.name),
                 });
                 return Err(response::status::Custom(Status::Conflict, err));
-            },
+            }
             Ok(None) => {
                 // Company doesn't exist, we can proceed
-            },
+            }
             Err(e) => {
                 eprintln!("Error checking for existing company: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "Database error while checking for existing company".to_string()
+                    error: "Database error while checking for existing company".to_string(),
                 });
                 return Err(response::status::Custom(Status::InternalServerError, err));
             }
@@ -98,11 +98,12 @@ pub async fn create_company(
             .map_err(|e| {
                 eprintln!("Error creating company: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "Database error while creating company".to_string()
+                    error: "Database error while creating company".to_string(),
                 });
                 response::status::Custom(Status::InternalServerError, err)
             })
-    }).await
+    })
+    .await
 }
 
 /// List Companies endpoint.
@@ -144,13 +145,14 @@ pub async fn create_company(
 #[get("/1/companies")]
 pub async fn list_companies(
     db: DbConn,
-    _auth_user: AuthenticatedUser
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Company>>, Status> {
     db.run(|conn| {
         get_all_companies(conn)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
-    }).await
+    })
+    .await
 }
 
 /// List Company Sites endpoint.
@@ -202,21 +204,22 @@ pub async fn list_companies(
 pub async fn list_company_sites(
     db: DbConn,
     company_id: i32,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Site>>, Status> {
     // Check authorization: user must be in the same company OR have newtown admin/staff roles
-    let has_access = auth_user.user.company_id == company_id 
+    let has_access = auth_user.user.company_id == company_id
         || auth_user.has_any_role(&["newtown-admin", "newtown-staff"]);
-    
+
     if !has_access {
         return Err(Status::Forbidden);
     }
-    
+
     db.run(move |conn| {
         get_sites_by_company(conn, company_id)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
-    }).await
+    })
+    .await
 }
 
 /// List Company Users endpoint.
@@ -267,21 +270,22 @@ pub async fn list_company_sites(
 pub async fn list_company_users(
     db: DbConn,
     company_id: i32,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<UserWithRoles>>, Status> {
     // Check authorization: user must be in the same company OR have newtown admin/staff roles
-    let has_access = auth_user.user.company_id == company_id 
+    let has_access = auth_user.user.company_id == company_id
         || auth_user.has_any_role(&["newtown-admin", "newtown-staff"]);
-    
+
     if !has_access {
         return Err(Status::Forbidden);
     }
-    
+
     db.run(move |conn| {
         get_users_by_company_with_roles(conn, company_id)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
-    }).await
+    })
+    .await
 }
 
 /// Delete Company endpoint.
@@ -315,7 +319,7 @@ pub async fn list_company_users(
 pub async fn delete_company_endpoint(
     db: DbConn,
     company_id: i32,
-    _auth_user: AuthenticatedUser
+    _auth_user: AuthenticatedUser,
 ) -> Result<Status, Status> {
     db.run(move |conn| {
         delete_company(conn, company_id)
@@ -330,7 +334,8 @@ pub async fn delete_company_endpoint(
                 eprintln!("Error deleting company: {:?}", e);
                 Status::InternalServerError
             })
-    }).await
+    })
+    .await
 }
 
 /// Returns a vector of all routes defined in this module.
@@ -341,5 +346,11 @@ pub async fn delete_company_endpoint(
 /// # Returns
 /// A vector containing all route handlers for company endpoints
 pub fn routes() -> Vec<Route> {
-    routes![create_company, list_companies, list_company_sites, list_company_users, delete_company_endpoint]
+    routes![
+        create_company,
+        list_companies,
+        list_company_sites,
+        list_company_users,
+        delete_company_endpoint
+    ]
 }

@@ -1,14 +1,14 @@
 use diesel::connection::SimpleConnection;
 use diesel::sqlite::SqliteConnection;
-use rocket::{Rocket, Build, fairing::AdHoc};
 use rocket::figment::{
     util::map,
     value::{Map, Value},
 };
+use rocket::{Build, Rocket, fairing::AdHoc};
 use rocket_sync_db_pools::diesel;
 
+use super::db::{DbConn, run_pending_migrations, set_foreign_keys};
 use crate::admin_init_fairing::admin_init_fairing;
-use super::db::{DbConn, set_foreign_keys, run_pending_migrations};
 
 /// Configures SQLite with performance-optimized settings for testing.
 ///
@@ -28,8 +28,9 @@ fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
         r#"
         PRAGMA synchronous = OFF;
         PRAGMA journal_mode = OFF;
-        "#
-    ).expect("Failed to set SQLite PRAGMAs");
+        "#,
+    )
+    .expect("Failed to set SQLite PRAGMAs");
 }
 
 /// Creates a Rocket fairing that sets SQLite testing pragmas.
@@ -38,11 +39,13 @@ fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
 /// suitable only for testing environments.
 fn set_sqlite_test_pragmas_fairing() -> AdHoc {
     AdHoc::on_ignite("Set SQLite Test Pragmas", |rocket| async {
-        let conn = DbConn::get_one(&rocket).await
+        let conn = DbConn::get_one(&rocket)
+            .await
             .expect("database connection for migration");
         conn.run(|c| {
             set_sqlite_test_pragmas(c);
-        }).await;
+        })
+        .await;
         rocket
     })
 }
@@ -71,8 +74,7 @@ pub fn test_rocket() -> Rocket<Build> {
     };
 
     // Merge DB config into Rocket's figment
-    let figment = rocket::Config::figment()
-        .merge(("databases", map!["sqlite_db" => db_config]));
+    let figment = rocket::Config::figment().merge(("databases", map!["sqlite_db" => db_config]));
 
     // Build the Rocket instance with the DB fairing attached
     let rocket = rocket::custom(figment)
@@ -134,7 +136,8 @@ impl<'a> FakeDbConn<'a> {
         // Safety: We need to get a mutable reference from an immutable reference
         // This is safe because we're in a test environment and we control the lifetime
         unsafe {
-            let conn_ptr = self.0 as *const diesel::SqliteConnection as *mut diesel::SqliteConnection;
+            let conn_ptr =
+                self.0 as *const diesel::SqliteConnection as *mut diesel::SqliteConnection;
             f(&mut *conn_ptr)
         }
     }
@@ -165,6 +168,5 @@ pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbCo
 /// - No database-related fairings
 #[cfg(feature = "fixphrase")]
 pub fn test_rocket_no_db() -> Rocket<Build> {
-    rocket::build()
-        .mount("/api", crate::api::fixphrase::routes())
+    rocket::build().mount("/api", crate::api::fixphrase::routes())
 }

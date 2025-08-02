@@ -4,15 +4,15 @@
 //! FixPhrase is a location encoding system that converts latitude/longitude coordinates
 //! into human-readable phrases.
 
-#[cfg(feature = "fixphrase")]
-use serde::{Deserialize, Serialize};
+use rocket::Route;
 #[cfg(feature = "fixphrase")]
 use rocket::http::Status as HttpStatus;
 #[cfg(feature = "fixphrase")]
+use rocket::response::status as rocket_status;
+#[cfg(feature = "fixphrase")]
 use rocket::serde::json::Json;
 #[cfg(feature = "fixphrase")]
-use rocket::response::status as rocket_status;
-use rocket::Route;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "fixphrase")]
 pub use fixphrase::{FixPhrase, FixPhraseError};
@@ -77,23 +77,19 @@ pub struct FixPhraseResponse {
 #[cfg(feature = "fixphrase")]
 #[rocket::get("/1/fixphrase/encode/<lat>/<lon>")]
 pub fn encode_fixphrase(
-    lat: f64, 
-    lon: f64
+    lat: f64,
+    lon: f64,
 ) -> Result<Json<FixPhraseResponse>, rocket_status::Custom<Json<FixPhraseError>>> {
     match FixPhrase::encode(lat, lon) {
-        Ok(phrase) => {
-            match FixPhrase::decode(&phrase) {
-                Ok((decoded_lat, decoded_lon, accuracy, _)) => {
-                    Ok(Json(FixPhraseResponse {
-                        phrase,
-                        latitude: decoded_lat,
-                        longitude: decoded_lon,
-                        accuracy,
-                    }))
-                }
-                Err(e) => Err(rocket_status::Custom(HttpStatus::BadRequest, Json(e))),
-            }
-        }
+        Ok(phrase) => match FixPhrase::decode(&phrase) {
+            Ok((decoded_lat, decoded_lon, accuracy, _)) => Ok(Json(FixPhraseResponse {
+                phrase,
+                latitude: decoded_lat,
+                longitude: decoded_lon,
+                accuracy,
+            })),
+            Err(e) => Err(rocket_status::Custom(HttpStatus::BadRequest, Json(e))),
+        },
         Err(e) => Err(rocket_status::Custom(HttpStatus::BadRequest, Json(e))),
     }
 }

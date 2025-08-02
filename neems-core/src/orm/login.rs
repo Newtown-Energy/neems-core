@@ -5,8 +5,8 @@
 //! to support both production and testing environments.
 
 use argon2::{
+    Argon2, PasswordHasher,
     password_hash::{PasswordHash, PasswordVerifier, SaltString, rand_core::OsRng},
-    Argon2, PasswordHasher
 };
 use chrono::Utc;
 use diesel::prelude::*;
@@ -14,9 +14,9 @@ use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use uuid::Uuid;
 
 use crate::DbConn;
+use crate::models::{NewSession, User};
 use crate::orm::testing::FakeDbConn;
-use crate::models::{User, NewSession};
-use crate::schema::{users, sessions};
+use crate::schema::{sessions, users};
 
 /// Trait for abstracting database operations to support both production and testing.
 ///
@@ -107,7 +107,9 @@ pub async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Opti
 /// * `false` - Password doesn't match or hash format is invalid
 fn verify_password(password: &str, stored_hash: &str) -> bool {
     let parsed_hash = PasswordHash::new(stored_hash).expect("Invalid hash format");
-    Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok()
 }
 
 /// Creates a new session and stores it in the database.
@@ -138,7 +140,9 @@ pub async fn create_and_store_session<D: DbRunner>(db: &D, user_id: i32) -> Resu
         diesel::insert_into(sessions::table)
             .values(&new_session)
             .execute(conn)
-    }).await.map_err(|_| Status::InternalServerError)?;
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)?;
 
     Ok(session_token)
 }
@@ -239,21 +243,21 @@ pub fn hash_password(password: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use rocket::http::Cookie;
-    use diesel::prelude::*;
-    use crate::orm::testing::{setup_test_db, setup_test_dbconn};
-    use crate::models::User;
-    use crate::orm::company::insert_company;
-    use crate::models::UserNoTime;
-    use crate::orm::user::insert_user;
     use super::*;
+    use crate::models::User;
+    use crate::models::UserNoTime;
+    use crate::orm::company::insert_company;
+    use crate::orm::testing::{setup_test_db, setup_test_dbconn};
+    use crate::orm::user::insert_user;
+    use diesel::prelude::*;
+    use rocket::http::Cookie;
 
     #[test]
     fn test_verify_password() {
         let password = "correct_password";
         let wrong_password = "wrong_password";
         let hash = hash_password(password);
-        
+
         let now = Utc::now().naive_utc();
         let user = User {
             id: 1,
@@ -267,15 +271,15 @@ mod tests {
 
         // Correct password should verify
         assert!(verify_password(password, &user.password_hash));
-        
+
         // Wrong password should fail
         assert!(!verify_password(wrong_password, &user.password_hash));
     }
 
     /// Inserts a dummy company and a dummy user, returning the inserted user.
     fn insert_dummy_user(conn: &mut diesel::SqliteConnection) -> User {
-        let company = insert_company(conn, "Open Tech Strategies".to_string())
-            .expect("insert dummy company");
+        let company =
+            insert_company(conn, "Open Tech Strategies".to_string()).expect("insert dummy company");
 
         let hash = hash_password("dummy password");
 
@@ -292,7 +296,7 @@ mod tests {
     async fn test_find_user_by_email() {
         // Set up in-memory test database and async-compatible wrapper
         let mut conn = setup_test_db();
-        
+
         // Insert dummy user
         let inserted_user = insert_dummy_user(&mut conn);
 
@@ -329,14 +333,15 @@ mod tests {
         let session_token_clone = session_token.clone();
 
         // Verify the session was stored in the database
-        let stored_session = fake_db.run(move |conn| {
-            sessions::table
-                .filter(sessions::id.eq(&session_token))
-                .first::<crate::models::Session>(conn)
-                .optional()
-        })
-        .await
-        .expect("db query should succeed");
+        let stored_session = fake_db
+            .run(move |conn| {
+                sessions::table
+                    .filter(sessions::id.eq(&session_token))
+                    .first::<crate::models::Session>(conn)
+                    .optional()
+            })
+            .await
+            .expect("db query should succeed");
 
         assert!(stored_session.is_some());
         let session = stored_session.unwrap();
@@ -360,7 +365,9 @@ mod tests {
 
     impl MockCookieJar {
         pub fn new() -> Self {
-            Self { cookies: Vec::new() }
+            Self {
+                cookies: Vec::new(),
+            }
         }
 
         pub fn add(&mut self, cookie: Cookie<'static>) {
@@ -376,7 +383,7 @@ mod tests {
     fn test_set_session_cookie_with_mock() {
         // Create mock jar
         let mut jar = MockCookieJar::new();
-        
+
         // Test data
         let session_token = "test_session_token_123";
 
@@ -385,10 +392,10 @@ mod tests {
 
         // Verify the cookie was set with correct properties
         let cookie = jar.get("session").expect("session cookie should be set");
-        
+
         assert_eq!(cookie.value(), session_token);
         assert!(cookie.http_only().unwrap_or(false));
-        assert_eq!(cookie.secure(), Some(!cfg!(test)));  // Should be false in tests, true in production
+        assert_eq!(cookie.secure(), Some(!cfg!(test))); // Should be false in tests, true in production
         assert_eq!(cookie.same_site(), Some(SameSite::Lax));
         assert_eq!(cookie.path(), Some("/"));
     }
@@ -396,7 +403,7 @@ mod tests {
     fn set_session_cookie_mock(cookies: &mut MockCookieJar, session_token: &str) {
         let cookie = Cookie::build(("session", session_token.to_string()))
             .http_only(true)
-            .secure(!cfg!(test))  // Only secure in production, not in tests
+            .secure(!cfg!(test)) // Only secure in production, not in tests
             .same_site(SameSite::Lax)
             .path("/")
             .build();

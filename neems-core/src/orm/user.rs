@@ -1,8 +1,8 @@
+use diesel::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
-use diesel::QueryableByName;
 
-use crate::models::{User, UserNoTime, NewUser, UserWithRoles};
+use crate::models::{NewUser, User, UserNoTime, UserWithRoles};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
@@ -35,15 +35,11 @@ pub fn insert_user(
         .get_result::<LastInsertRowId>(conn)?
         .last_insert_rowid;
 
-    users
-        .filter(id.eq(last_id as i32))
-        .first::<User>(conn)
+    users.filter(id.eq(last_id as i32)).first::<User>(conn)
 }
 
 /// Returns all users in ascending order by id.
-pub fn list_all_users(
-    conn: &mut SqliteConnection,
-) -> Result<Vec<User>, diesel::result::Error> {
+pub fn list_all_users(conn: &mut SqliteConnection) -> Result<Vec<User>, diesel::result::Error> {
     use crate::schema::users::dsl::*;
     users.order(id.asc()).load::<User>(conn)
 }
@@ -72,10 +68,7 @@ pub fn get_users_by_company(
 }
 
 /// Gets a single user by ID.
-pub fn get_user(
-    conn: &mut SqliteConnection,
-    user_id: i32,
-) -> Result<User, diesel::result::Error> {
+pub fn get_user(conn: &mut SqliteConnection, user_id: i32) -> Result<User, diesel::result::Error> {
     use crate::schema::users::dsl::*;
     users.filter(id.eq(user_id)).first::<User>(conn)
 }
@@ -87,7 +80,7 @@ pub fn get_user_by_email(
 ) -> Result<User, diesel::result::Error> {
     // Convert to lowercase for case-insensitive comparison
     let lowercase_email = user_email.to_lowercase();
-    
+
     // Use raw SQL with parameter binding for case-insensitive search
     diesel::sql_query("SELECT * FROM users WHERE LOWER(email) = LOWER(?)")
         .bind::<diesel::sql_types::Text, _>(&lowercase_email)
@@ -179,8 +172,7 @@ pub fn delete_user(
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::users::dsl::*;
 
-    diesel::delete(users.filter(id.eq(user_id)))
-        .execute(conn)
+    diesel::delete(users.filter(id.eq(user_id))).execute(conn)
 }
 
 /// Deletes a user and all associated data (roles, sessions) by ID.
@@ -201,8 +193,7 @@ pub fn delete_user_with_cleanup(
     user_id: i32,
 ) -> Result<usize, diesel::result::Error> {
     // Temporarily drop the trigger to allow deletion
-    diesel::sql_query("DROP TRIGGER IF EXISTS prevent_user_without_roles")
-        .execute(conn)?;
+    diesel::sql_query("DROP TRIGGER IF EXISTS prevent_user_without_roles").execute(conn)?;
 
     // Delete user_roles first
     diesel::sql_query("DELETE FROM user_roles WHERE user_id = ?1")
@@ -211,8 +202,7 @@ pub fn delete_user_with_cleanup(
 
     // Delete the user
     use crate::schema::users::dsl::*;
-    let result = diesel::delete(users.filter(id.eq(user_id)))
-        .execute(conn);
+    let result = diesel::delete(users.filter(id.eq(user_id))).execute(conn);
 
     // Recreate the trigger
     diesel::sql_query(r#"
@@ -348,20 +338,20 @@ pub fn get_users_by_company_with_roles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::testing::setup_test_db;
     use crate::orm::company::insert_company;
+    use crate::orm::testing::setup_test_db;
 
     #[test]
     fn test_insert_user() {
         let mut conn = setup_test_db();
 
-	let company = insert_company(&mut conn, "Test Company".to_string())
-	    .expect("Failed to insert company");
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to insert company");
 
         let new_user = UserNoTime {
             email: "test@example.com".to_string(),
             password_hash: "hashedpassword".to_string(),
-            company_id: company.id,    // Use a valid company id for your test db
+            company_id: company.id, // Use a valid company id for your test db
             totp_secret: Some("secret".to_string()),
         };
 
@@ -377,16 +367,24 @@ mod tests {
         let now = chrono::Utc::now().naive_utc();
         let diff_created = (user.created_at - now).num_seconds().abs();
         let diff_updated = (user.updated_at - now).num_seconds().abs();
-        assert!(diff_created <= 1, "created_at should be within 1 second of now (diff: {})", diff_created);
-        assert!(diff_updated <= 1, "updated_at should be within 1 second of now (diff: {})", diff_updated);
+        assert!(
+            diff_created <= 1,
+            "created_at should be within 1 second of now (diff: {})",
+            diff_created
+        );
+        assert!(
+            diff_updated <= 1,
+            "updated_at should be within 1 second of now (diff: {})",
+            diff_updated
+        );
     }
 
     #[test]
     fn test_list_all_users() {
         let mut conn = setup_test_db();
 
-	let company = insert_company(&mut conn, "Test Company".to_string())
-	    .expect("Failed to insert company");
+        let company = insert_company(&mut conn, "Test Company".to_string())
+            .expect("Failed to insert company");
 
         // Insert two users
         let user1 = UserNoTime {
@@ -464,7 +462,8 @@ mod tests {
             None,
             None,
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(updated_user.id, inserted_user.id);
         assert_eq!(updated_user.email, "newemail@example.com");
@@ -481,7 +480,8 @@ mod tests {
             Some("newhash".to_string()),
             None,
             Some("newsecret".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(updated_user2.email, "newemail@example.com"); // From previous update
         assert_eq!(updated_user2.password_hash, "newhash"); // Updated
@@ -545,9 +545,9 @@ mod tests {
         // Test case-insensitive lookup with different cases
         let test_cases = vec![
             "test.user@example.com",
-            "TEST.USER@EXAMPLE.COM", 
+            "TEST.USER@EXAMPLE.COM",
             "Test.User@Example.COM",
-            "tEsT.uSeR@eXaMpLe.CoM"
+            "tEsT.uSeR@eXaMpLe.CoM",
         ];
 
         for test_email in test_cases {
@@ -566,10 +566,10 @@ mod tests {
         let mut conn = setup_test_db();
 
         // Create two companies
-        let company1 = insert_company(&mut conn, "Company 1".to_string())
-            .expect("Failed to insert company 1");
-        let company2 = insert_company(&mut conn, "Company 2".to_string())
-            .expect("Failed to insert company 2");
+        let company1 =
+            insert_company(&mut conn, "Company 1".to_string()).expect("Failed to insert company 1");
+        let company2 =
+            insert_company(&mut conn, "Company 2".to_string()).expect("Failed to insert company 2");
 
         // Create users for company 1
         let user1_company1 = UserNoTime {

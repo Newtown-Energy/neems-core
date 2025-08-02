@@ -4,9 +4,9 @@
 //! and provides a unified interface for collecting all routes for registration
 //! with the Rocket web framework.
 
+pub mod company;
 #[cfg(feature = "fixphrase")]
 pub mod fixphrase;
-pub mod company;
 pub mod login;
 pub mod logout;
 pub mod role;

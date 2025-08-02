@@ -4,9 +4,12 @@
 //! logs the parsed JSON data for debugging purposes. It's a drop-in replacement
 //! for Json<T> in your API endpoints.
 
-use rocket::serde::{Deserialize, Serialize};
-use rocket::{Request, Data, data::{self, FromData}};
 use rocket::serde::json::Json;
+use rocket::serde::{Deserialize, Serialize};
+use rocket::{
+    Data, Request,
+    data::{self, FromData},
+};
 
 /// A wrapper around Rocket's Json that logs the request data.
 ///
@@ -46,16 +49,20 @@ impl<'r, T: Deserialize<'r> + Serialize> FromData<'r> for LoggedJson<T> {
                 // Log the parsed and re-serialized data
                 match serde_json::to_string(&json_data.0) {
                     Ok(json_string) => {
-                        let message = format!("API Request Body: {} {} | Data: {}", 
-                            req.method().as_str(), 
-                            req.uri().path(), 
+                        let message = format!(
+                            "API Request Body: {} {} | Data: {}",
+                            req.method().as_str(),
+                            req.uri().path(),
                             json_string
                         );
                         info!("{}", message);
                     }
                     Err(_) => {
-                        info!("API Request Body: {} {} | Data: <failed to serialize>", 
-                            req.method().as_str(), req.uri().path());
+                        info!(
+                            "API Request Body: {} {} | Data: <failed to serialize>",
+                            req.method().as_str(),
+                            req.uri().path()
+                        );
                     }
                 }
                 data::Outcome::Success(LoggedJson(json_data.into_inner()))

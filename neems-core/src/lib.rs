@@ -1,25 +1,25 @@
 #[macro_use]
 extern crate rocket;
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations};
-use rocket::{Rocket, Build};
-use rocket::fs::FileServer;
-use rocket::serde::json::{Json, json, Value};
+use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 use rocket::figment::value::Map;
+use rocket::fs::FileServer;
 use rocket::request::Request;
+use rocket::serde::json::{Json, Value, json};
+use rocket::{Build, Rocket};
 
 pub mod admin_init_fairing;
 pub mod api;
-pub mod company; 
+pub mod company;
 pub mod logged_json;
-pub mod models; 
+pub mod models;
 pub mod orm;
 pub use orm::DbConn;
-pub mod session_guards;
 pub mod schema;
+pub mod session_guards;
 
 #[cfg(test)]
-pub mod generate_types;  
+pub mod generate_types;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -78,8 +78,7 @@ fn default_catcher(status: rocket::http::Status, req: &Request) -> Json<Value> {
 }
 
 pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
-    rocket
-        .mount("/api", api::routes())
+    rocket.mount("/api", api::routes())
 }
 
 fn log_rocket_info(rocket: &Rocket<Build>) {
@@ -114,13 +113,22 @@ fn log_rocket_info(rocket: &Rocket<Build>) {
 /// set up the test_rocket in-memory db.  That is defined in db.rs.
 #[launch]
 pub fn rocket() -> Rocket<Build> {
-
     let rocket = rocket::build()
-	.attach(DbConn::fairing())
-	.attach(orm::set_foreign_keys_fairing())
-	.attach(orm::run_migrations_fairing())
-	.attach(admin_init_fairing::admin_init_fairing())
-        .register("/", catchers![unauthorized, forbidden, not_found, unprocessable_entity, internal_server_error, default_catcher]);
+        .attach(DbConn::fairing())
+        .attach(orm::set_foreign_keys_fairing())
+        .attach(orm::run_migrations_fairing())
+        .attach(admin_init_fairing::admin_init_fairing())
+        .register(
+            "/",
+            catchers![
+                unauthorized,
+                forbidden,
+                not_found,
+                unprocessable_entity,
+                internal_server_error,
+                default_catcher
+            ],
+        );
 
     log_rocket_info(&rocket);
 

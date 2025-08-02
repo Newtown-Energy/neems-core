@@ -3,9 +3,9 @@
 //! This module provides database layer functions for session termination,
 //! including session revocation and cleanup operations.
 
-use diesel::prelude::*;
 use crate::DbConn;
 use crate::schema::sessions::dsl::*;
+use diesel::prelude::*;
 
 /// Revokes a session by marking it as revoked in the database.
 ///
@@ -36,5 +36,6 @@ pub async fn revoke_session(db: &DbConn, session_id: &str) -> Result<usize, dies
         diesel::update(sessions.filter(id.eq(&session_id)))
             .set(revoked.eq(true))
             .execute(conn)
-    }).await
+    })
+    .await
 }

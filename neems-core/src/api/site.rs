@@ -8,19 +8,22 @@
 //! - newtown-staff and newtown-admin roles can perform CRUD operations on any site
 //! - Regular users cannot perform CRUD operations
 
-use rocket::serde::json::Json;
-use rocket::http::Status;
-use rocket::response::{status, self};
 use rocket::Route;
+use rocket::http::Status;
+use rocket::response::{self, status};
+use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::logged_json::LoggedJson;
-use crate::session_guards::AuthenticatedUser;
-use crate::orm::DbConn;
 use crate::models::Site;
-use crate::orm::site::{insert_site, get_site_by_id, get_site_by_company_and_name, update_site, delete_site, get_all_sites, get_sites_by_company};
+use crate::orm::DbConn;
 use crate::orm::company::get_company_by_id;
+use crate::orm::site::{
+    delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id, get_sites_by_company,
+    insert_site, update_site,
+};
+use crate::session_guards::AuthenticatedUser;
 
 /// Error response structure for site API failures.
 #[derive(Serialize, TS)]
@@ -105,12 +108,13 @@ fn can_crud_site(user: &AuthenticatedUser, site_company_id: i32) -> bool {
 pub async fn create_site(
     db: DbConn,
     new_site: LoggedJson<CreateSiteRequest>,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<status::Created<Json<Site>>, response::status::Custom<Json<ErrorResponse>>> {
     // Check authorization
     if !can_crud_site(&auth_user, new_site.company_id) {
         let err = Json(ErrorResponse {
-            error: "Forbidden: insufficient permissions to create site for this company".to_string(),
+            error: "Forbidden: insufficient permissions to create site for this company"
+                .to_string(),
         });
         return Err(response::status::Custom(Status::Forbidden, err));
     }
@@ -124,22 +128,25 @@ pub async fn create_site(
                     Ok(Some(_existing_site)) => {
                         // Site with this name already exists in this company
                         let err = Json(ErrorResponse {
-                            error: format!("Site with name '{}' already exists in this company", new_site.name)
+                            error: format!(
+                                "Site with name '{}' already exists in this company",
+                                new_site.name
+                            ),
                         });
                         return Err(response::status::Custom(Status::Conflict, err));
-                    },
+                    }
                     Ok(None) => {
                         // Site doesn't exist, we can proceed
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Error checking for existing site: {:?}", e);
                         let err = Json(ErrorResponse {
-                            error: "Database error while checking for existing site".to_string()
+                            error: "Database error while checking for existing site".to_string(),
                         });
                         return Err(response::status::Custom(Status::InternalServerError, err));
                     }
                 }
-                
+
                 // Proceed with site creation
                 insert_site(
                     conn,
@@ -159,7 +166,10 @@ pub async fn create_site(
                 })
             }
             Ok(None) => {
-                eprintln!("Error creating site: Company with ID {} does not exist", new_site.company_id);
+                eprintln!(
+                    "Error creating site: Company with ID {} does not exist",
+                    new_site.company_id
+                );
                 let err = Json(ErrorResponse {
                     error: format!("Company with ID {} does not exist", new_site.company_id),
                 });
@@ -173,7 +183,8 @@ pub async fn create_site(
                 Err(response::status::Custom(Status::InternalServerError, err))
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// Get Site endpoint.
@@ -187,7 +198,7 @@ pub async fn create_site(
 pub async fn get_site(
     db: DbConn,
     site_id: i32,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Site>, Status> {
     db.run(move |conn| {
         // First get the site to check its company
@@ -205,7 +216,8 @@ pub async fn get_site(
                 Err(Status::InternalServerError)
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// List Sites endpoint.
@@ -220,7 +232,7 @@ pub async fn get_site(
 #[get("/1/sites")]
 pub async fn list_sites(
     db: DbConn,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Site>>, Status> {
     db.run(move |conn| {
         if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
@@ -237,7 +249,8 @@ pub async fn list_sites(
             // Regular users cannot list sites
             Err(Status::Forbidden)
         }
-    }).await
+    })
+    .await
 }
 
 /// Update Site endpoint.
@@ -264,7 +277,7 @@ pub async fn update_site_endpoint(
     db: DbConn,
     site_id: i32,
     update_data: LoggedJson<UpdateSiteRequest>,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Site>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         // First get the site to check authorization
@@ -355,7 +368,7 @@ pub async fn update_site_endpoint(
 pub async fn delete_site_endpoint(
     db: DbConn,
     site_id: i32,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Status, Status> {
     db.run(move |conn| {
         // First get the site to check authorization
@@ -387,7 +400,8 @@ pub async fn delete_site_endpoint(
                 Err(Status::InternalServerError)
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// Returns a vector of all routes defined in this module.

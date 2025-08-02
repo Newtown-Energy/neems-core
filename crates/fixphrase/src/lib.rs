@@ -2,12 +2,12 @@
 FixPhrase implementation for converting between GPS coordinates and memorable phrases.
 */
 
-mod wordlist; 
+mod wordlist;
 
 use serde::{Deserialize, Serialize};
 
+use crate::wordlist::WORDLIST;
 use thiserror::Error;
-use crate::wordlist::WORDLIST; 
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum FixPhraseError {
     #[error("Latitude must be between -90 and 90")]
@@ -53,8 +53,12 @@ impl FixPhrase {
         let lon_str = format!("{:07}", lon);
 
         // Split into coordinate chunks
-        let lat1dec = lat_str[0..4].parse::<usize>().map_err(|_| FixPhraseError::InvalidPhrase)?;
-        let lon1dec = lon_str[0..4].parse::<usize>().map_err(|_| FixPhraseError::InvalidPhrase)?;
+        let lat1dec = lat_str[0..4]
+            .parse::<usize>()
+            .map_err(|_| FixPhraseError::InvalidPhrase)?;
+        let lon1dec = lon_str[0..4]
+            .parse::<usize>()
+            .map_err(|_| FixPhraseError::InvalidPhrase)?;
         let latlon2dec = format!("{}{}", &lat_str[4..6], &lon_str[4..5])
             .parse::<usize>()
             .map_err(|_| FixPhraseError::InvalidPhrase)?;
@@ -73,8 +77,8 @@ impl FixPhrase {
         // Get words from wordlist
         let words: Vec<&str> = groups
             .iter()
-	    .filter_map(|&i| WORDLIST.get(i))
-	    .copied()
+            .filter_map(|&i| WORDLIST.get(i))
+            .copied()
             .collect();
 
         if words.len() != 4 {
@@ -109,10 +113,7 @@ impl FixPhrase {
         }
 
         for (_i, word) in words.iter().enumerate().take(4) {
-            if let Some(pos) = WORDLIST
-                .iter()
-                .position(|w| w.eq_ignore_ascii_case(word))
-            {
+            if let Some(pos) = WORDLIST.iter().position(|w| w.eq_ignore_ascii_case(word)) {
                 if pos < 2000 {
                     indexes[0] = (pos - 0) as i32;
                     canonical_phrase[0] = WORDLIST[pos];
@@ -153,8 +154,16 @@ impl FixPhrase {
             lon.push_str(&latlon4dec[1..3]);
         }
 
-	let latitude = (lat.parse::<f64>().map_err(|_| FixPhraseError::InvalidPhrase)? / divby) - 90.0;
-	let longitude = (lon.parse::<f64>().map_err(|_| FixPhraseError::InvalidPhrase)? / divby) - 180.0;
+        let latitude = (lat
+            .parse::<f64>()
+            .map_err(|_| FixPhraseError::InvalidPhrase)?
+            / divby)
+            - 90.0;
+        let longitude = (lon
+            .parse::<f64>()
+            .map_err(|_| FixPhraseError::InvalidPhrase)?
+            / divby)
+            - 180.0;
 
         let accuracy = match divby {
             10.0 => 0.1,
@@ -168,7 +177,7 @@ impl FixPhrase {
             accuracy,
             canonical_phrase.join(" ").trim().to_string(),
         ))
-}
+    }
 }
 
 #[cfg(test)]
@@ -179,10 +188,10 @@ mod tests {
     fn test_encode_decode_roundtrip() {
         let lat = 42.3601;
         let lon = -71.0589;
-        
+
         let phrase = FixPhrase::encode(lat, lon).unwrap();
         let (decoded_lat, decoded_lon, accuracy, _) = FixPhrase::decode(&phrase).unwrap();
-        
+
         assert!((decoded_lat - lat).abs() < accuracy);
         assert!((decoded_lon - lon).abs() < accuracy);
     }
@@ -216,15 +225,16 @@ mod tests {
         let lat = 42.1409;
         let lon = -76.8518;
 
-	assert_eq!(
-	    FixPhrase::encode(lat, lon).unwrap(),
-	    "corrode ground slacks washbasin".to_string()
-	);
+        assert_eq!(
+            FixPhrase::encode(lat, lon).unwrap(),
+            "corrode ground slacks washbasin".to_string()
+        );
 
-	let (decoded_lat, decoded_lon, accuracy, phrase) = FixPhrase::decode("corrode ground slacks washbasin").unwrap();
-	
-	assert!((decoded_lat - lat).abs() < accuracy);
-	assert!((decoded_lon - lon).abs() < accuracy);
-	assert_eq!(phrase, "corrode ground slacks washbasin");
+        let (decoded_lat, decoded_lon, accuracy, phrase) =
+            FixPhrase::decode("corrode ground slacks washbasin").unwrap();
+
+        assert!((decoded_lat - lat).abs() < accuracy);
+        assert!((decoded_lon - lon).abs() < accuracy);
+        assert_eq!(phrase, "corrode ground slacks washbasin");
     }
 }

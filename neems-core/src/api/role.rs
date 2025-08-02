@@ -4,18 +4,18 @@
 //! in the system. Roles define permissions and access levels that can
 //! be assigned to users within companies.
 
-use rocket::serde::json::Json;
+use rocket::Route;
 use rocket::http::Status;
 use rocket::response::{self};
-use rocket::Route;
+use rocket::serde::json::Json;
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::logged_json::LoggedJson;
-use crate::session_guards::AuthenticatedUser;
+use crate::models::{NewRole, Role};
 use crate::orm::DbConn;
-use crate::orm::role::{insert_role, get_all_roles, get_role, update_role, delete_role};
-use crate::models::{Role, NewRole};
+use crate::orm::role::{delete_role, get_all_roles, get_role, insert_role, update_role};
+use crate::session_guards::AuthenticatedUser;
 
 /// Error response structure for role API failures.
 #[derive(Serialize, TS)]
@@ -70,12 +70,12 @@ pub struct ErrorResponse {
 pub async fn create_role(
     db: DbConn,
     new_role: LoggedJson<NewRole>,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Role>, response::status::Custom<Json<ErrorResponse>>> {
     // Only newtown-admin can create roles
     if !auth_user.has_role("newtown-admin") {
         let err = Json(ErrorResponse {
-            error: "Forbidden: only newtown-admin can create roles".to_string()
+            error: "Forbidden: only newtown-admin can create roles".to_string(),
         });
         return Err(response::status::Custom(Status::Forbidden, err));
     }
@@ -85,11 +85,12 @@ pub async fn create_role(
             .map_err(|e| {
                 eprintln!("Error creating role: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "Internal server error while creating role".to_string()
+                    error: "Internal server error while creating role".to_string(),
                 });
                 response::status::Custom(Status::InternalServerError, err)
             })
-    }).await
+    })
+    .await
 }
 
 /// List Roles endpoint.
@@ -131,20 +132,19 @@ pub async fn create_role(
 #[get("/1/roles")]
 pub async fn list_roles(
     db: DbConn,
-    _auth_user: AuthenticatedUser
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Role>>, response::status::Custom<Json<ErrorResponse>>> {
     // All authenticated users can list roles (needed for role assignment UIs)
     db.run(|conn| {
-        get_all_roles(conn)
-            .map(Json)
-            .map_err(|e| {
-                eprintln!("Error listing roles: {:?}", e);
-                let err = Json(ErrorResponse {
-                    error: "Internal server error while listing roles".to_string()
-                });
-                response::status::Custom(Status::InternalServerError, err)
-            })
-    }).await
+        get_all_roles(conn).map(Json).map_err(|e| {
+            eprintln!("Error listing roles: {:?}", e);
+            let err = Json(ErrorResponse {
+                error: "Internal server error while listing roles".to_string(),
+            });
+            response::status::Custom(Status::InternalServerError, err)
+        })
+    })
+    .await
 }
 
 /// Update Role Request structure for partial updates.
@@ -210,30 +210,27 @@ where
 pub async fn get_role_endpoint(
     db: DbConn,
     role_id: i32,
-    _auth_user: AuthenticatedUser
+    _auth_user: AuthenticatedUser,
 ) -> Result<Json<Role>, response::status::Custom<Json<ErrorResponse>>> {
     // All authenticated users can get individual roles (needed for role assignment UIs)
     db.run(move |conn| {
-        get_role(conn, role_id)
-            .map(Json)
-            .map_err(|e| {
-                match e {
-                    diesel::result::Error::NotFound => {
-                        let err = Json(ErrorResponse {
-                            error: format!("Role with ID {} not found", role_id)
-                        });
-                        response::status::Custom(Status::NotFound, err)
-                    },
-                    _ => {
-                        eprintln!("Error getting role: {:?}", e);
-                        let err = Json(ErrorResponse {
-                            error: "Internal server error while getting role".to_string()
-                        });
-                        response::status::Custom(Status::InternalServerError, err)
-                    }
-                }
-            })
-    }).await
+        get_role(conn, role_id).map(Json).map_err(|e| match e {
+            diesel::result::Error::NotFound => {
+                let err = Json(ErrorResponse {
+                    error: format!("Role with ID {} not found", role_id),
+                });
+                response::status::Custom(Status::NotFound, err)
+            }
+            _ => {
+                eprintln!("Error getting role: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error while getting role".to_string(),
+                });
+                response::status::Custom(Status::InternalServerError, err)
+            }
+        })
+    })
+    .await
 }
 
 /// Update Role endpoint.
@@ -290,12 +287,12 @@ pub async fn update_role_endpoint(
     db: DbConn,
     role_id: i32,
     request: Json<UpdateRoleRequest>,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Role>, response::status::Custom<Json<ErrorResponse>>> {
     // Only newtown-admin can update roles
     if !auth_user.has_role("newtown-admin") {
         let err = Json(ErrorResponse {
-            error: "Forbidden: only newtown-admin can update roles".to_string()
+            error: "Forbidden: only newtown-admin can update roles".to_string(),
         });
         return Err(response::status::Custom(Status::Forbidden, err));
     }
@@ -307,24 +304,23 @@ pub async fn update_role_endpoint(
             request.description.clone(),
         )
         .map(Json)
-        .map_err(|e| {
-            match e {
-                diesel::result::Error::NotFound => {
-                    let err = Json(ErrorResponse {
-                        error: format!("Role with ID {} not found", role_id)
-                    });
-                    response::status::Custom(Status::NotFound, err)
-                },
-                _ => {
-                    eprintln!("Error updating role: {:?}", e);
-                    let err = Json(ErrorResponse {
-                        error: "Internal server error while updating role".to_string()
-                    });
-                    response::status::Custom(Status::InternalServerError, err)
-                }
+        .map_err(|e| match e {
+            diesel::result::Error::NotFound => {
+                let err = Json(ErrorResponse {
+                    error: format!("Role with ID {} not found", role_id),
+                });
+                response::status::Custom(Status::NotFound, err)
+            }
+            _ => {
+                eprintln!("Error updating role: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error while updating role".to_string(),
+                });
+                response::status::Custom(Status::InternalServerError, err)
             }
         })
-    }).await
+    })
+    .await
 }
 
 /// Delete Role endpoint.
@@ -365,36 +361,35 @@ pub async fn update_role_endpoint(
 pub async fn delete_role_endpoint(
     db: DbConn,
     role_id: i32,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
     // Only newtown-admin can delete roles
     if !auth_user.has_role("newtown-admin") {
         let err = Json(ErrorResponse {
-            error: "Forbidden: only newtown-admin can delete roles".to_string()
+            error: "Forbidden: only newtown-admin can delete roles".to_string(),
         });
         return Err(response::status::Custom(Status::Forbidden, err));
     }
-    db.run(move |conn| {
-        match delete_role(conn, role_id) {
-            Ok(rows_affected) => {
-                if rows_affected > 0 {
-                    Ok(Status::NoContent)
-                } else {
-                    let err = Json(ErrorResponse {
-                        error: format!("Role with ID {} not found", role_id)
-                    });
-                    Err(response::status::Custom(Status::NotFound, err))
-                }
-            }
-            Err(e) => {
-                eprintln!("Error deleting role: {:?}", e);
+    db.run(move |conn| match delete_role(conn, role_id) {
+        Ok(rows_affected) => {
+            if rows_affected > 0 {
+                Ok(Status::NoContent)
+            } else {
                 let err = Json(ErrorResponse {
-                    error: "Internal server error while deleting role".to_string()
+                    error: format!("Role with ID {} not found", role_id),
                 });
-                Err(response::status::Custom(Status::InternalServerError, err))
+                Err(response::status::Custom(Status::NotFound, err))
             }
         }
-    }).await
+        Err(e) => {
+            eprintln!("Error deleting role: {:?}", e);
+            let err = Json(ErrorResponse {
+                error: "Internal server error while deleting role".to_string(),
+            });
+            Err(response::status::Custom(Status::InternalServerError, err))
+        }
+    })
+    .await
 }
 
 /// Returns a vector of all routes defined in this module.
@@ -405,5 +400,11 @@ pub async fn delete_role_endpoint(
 /// # Returns
 /// A vector containing all route handlers for role endpoints
 pub fn routes() -> Vec<Route> {
-    routes![create_role, list_roles, get_role_endpoint, update_role_endpoint, delete_role_endpoint]
+    routes![
+        create_role,
+        list_roles,
+        get_role_endpoint,
+        update_role_endpoint,
+        delete_role_endpoint
+    ]
 }

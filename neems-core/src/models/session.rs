@@ -1,6 +1,6 @@
 use crate::schema::sessions;
-use diesel::{Identifiable, Queryable, Insertable};
 use chrono::NaiveDateTime;
+use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Identifiable, Debug)]
 pub struct Session {
@@ -26,4 +26,3 @@ pub struct SessionNoTime {
     pub user_id: i32,
     pub revoked: bool,
 }
-

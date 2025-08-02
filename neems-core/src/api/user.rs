@@ -4,24 +4,27 @@
 //! along with utility functions for generating test data and helper functions
 //! for API testing.
 
-use rand::rng;
 use rand::prelude::IndexedRandom;
+use rand::rng;
+use rocket::Route;
 use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
-use rocket::response::{status, self};
-use rocket::Route;
-use rocket::serde::json::{json, Json};
+use rocket::response::{self, status};
 use rocket::serde::Serialize;
+use rocket::serde::json::{Json, json};
 
 use crate::logged_json::LoggedJson;
-use crate::session_guards::AuthenticatedUser;
+use crate::models::{CompanyNoTime, Role, UserNoTime, UserWithRoles};
 use crate::orm::DbConn;
-use ts_rs::TS;
-use crate::orm::user::{insert_user, get_user, get_user_by_email, update_user, delete_user_with_cleanup, list_all_users_with_roles, get_user_with_roles, get_users_by_company_with_roles};
-use crate::orm::user_role::{get_user_roles, assign_user_role_by_name, remove_user_role_by_name};
 use crate::orm::company::get_company_by_name;
 use crate::orm::role::get_role_by_name;
-use crate::models::{UserNoTime, Role, CompanyNoTime, UserWithRoles};
+use crate::orm::user::{
+    delete_user_with_cleanup, get_user, get_user_by_email, get_user_with_roles,
+    get_users_by_company_with_roles, insert_user, list_all_users_with_roles, update_user,
+};
+use crate::orm::user_role::{assign_user_role_by_name, get_user_roles, remove_user_role_by_name};
+use crate::session_guards::AuthenticatedUser;
+use ts_rs::TS;
 
 /// Error response structure for user API failures.
 #[derive(Serialize, TS)]
@@ -43,48 +46,206 @@ pub struct ErrorResponse {
 /// A vector of randomly selected username strings
 pub fn random_usernames(count: usize) -> Vec<&'static str> {
     let names = vec![
-	"a.johnson", "b.williams", "c.miller", "d.davis", "e.rodriguez",
-	"f.martinez", "g.lee", "h.wilson", "i.clark", "j.hernandez",
-	"k.young", "l.walker", "m.hall", "n.allen", "o.green", "p.adams",
-	"q.nelson", "r.mitchell", "s.carter", "t.roberts", "amandak",
-	"brandonp", "chrisl", "davidm", "ericb", "frankr", "garys",
-	"heathert", "ianw", "jenniferg", "kevinh", "lisac", "michaeld",
-	"nicolef", "oliverj", "patrickt", "quincyv", "rachelm", "stevenn",
-	"taylorq", "jameskw1", "sarahml2", "robertdf3", "laurajg4",
-	"thomasap5", "emilyrs6", "danielkt7", "megandw8", "ryanbh9",
-	"oliviamc10", "aljohnson", "bkmartin", "cjwilson", "dlthomas",
-	"emharris", "fnmoore", "gpgarcia", "hrjackson", "iswhite", "jdtaylor",
-	"browns", "moorej", "evansm", "kingr", "wrighta", "scottl", "riverak",
-	"hayesd", "collinsp", "murphyb", "mikescott", "aligray", "chrismyers",
-	"jenngreen", "robhall", "davecook", "sarahkim", "timnguyen",
-	"katediaz", "jimreed", "analyst_amy", "director_mark", "manager_lisa",
-	"tech_sam", "scientist_raj", "ops_carlos", "ceo_adam", "cto_priya",
-	"designer_tom", "specialist_lee", "wind_mike", "nuclear_dave",
-	"battery_lucy", "grid_omar", "fusion_anna", "hydro_ryan",
-	"solar_priya", "storage_paul", "transmission_ella", "renewables_jack",
-	"a.kumar24", "b.liang2024", "c.patel_eng", "d.yang_ops",
-	"e.choi_tech", "f.singh1", "g.wu2023", "h.garcia_ce", "i.vargas_pe",
-	"j.nguyen_lead", "alexclark", "briancook", "carolynlee", "davidbrown",
-	"ericawang", "franklinm", "gracehill", "henryford", "ivyzhang",
-	"jasonpark", "volts_ryan", "amp_anne", "watt_dan", "joule_mary",
-	"ohm_steve", "grid_master", "solar_expert", "wind_tech", "nuke_ops",
-	"fusion_research", "battery_ai", "smartgrid_pro", "renewables_lead",
-	"carbon_zero", "green_volt", "energy_analyst", "power_engineer",
-	"grid_designer", "sustainability_1", "clean_energy_22", "ceo_johnson",
-	"cfo_smith", "cto_lee", "vp_operations", "director_energy", "head_rd",
-	"manager_grid", "lead_engineer", "senior_designer", "principal_tech",
-	"engineer1", "systems_ops", "grid_analyst", "nuke_specialist",
-	"solar_tech", "wind_engineer", "battery_design", "transmission_pro",
-	"power_ops", "fusion_researcher", "hr_jane", "finance_mike",
-	"legal_lisa", "admin_alex", "it_support", "comms_dan", "pr_sarah",
-	"facilities_tom", "security_lead", "logistics_team", "jdoe_energy",
-	"asmith_power", "rlee_solar", "kwang_grid", "tchen_nuke",
-	"lrod_fusion", "pmartin_wind", "sgarcia_storage", "dwilson_ops",
-	"ajames_ce", "bkim_tech", "clopez_eng", "dhall_design",
-	"eyoung_analyst", "fscott_lead", "gadams_rd", "hbaker_sys",
-	"igray_ai", "jflores_data", "kharris_coo", "lmurphy_cfo",
-	"mrivera_cto", "npham_vp", "opark_dir", "pcole_mgr", "qedwards_hr",
-	"rfoster_fin", "snguyen_legal", "tross_it", "upatel_admin"
+        "a.johnson",
+        "b.williams",
+        "c.miller",
+        "d.davis",
+        "e.rodriguez",
+        "f.martinez",
+        "g.lee",
+        "h.wilson",
+        "i.clark",
+        "j.hernandez",
+        "k.young",
+        "l.walker",
+        "m.hall",
+        "n.allen",
+        "o.green",
+        "p.adams",
+        "q.nelson",
+        "r.mitchell",
+        "s.carter",
+        "t.roberts",
+        "amandak",
+        "brandonp",
+        "chrisl",
+        "davidm",
+        "ericb",
+        "frankr",
+        "garys",
+        "heathert",
+        "ianw",
+        "jenniferg",
+        "kevinh",
+        "lisac",
+        "michaeld",
+        "nicolef",
+        "oliverj",
+        "patrickt",
+        "quincyv",
+        "rachelm",
+        "stevenn",
+        "taylorq",
+        "jameskw1",
+        "sarahml2",
+        "robertdf3",
+        "laurajg4",
+        "thomasap5",
+        "emilyrs6",
+        "danielkt7",
+        "megandw8",
+        "ryanbh9",
+        "oliviamc10",
+        "aljohnson",
+        "bkmartin",
+        "cjwilson",
+        "dlthomas",
+        "emharris",
+        "fnmoore",
+        "gpgarcia",
+        "hrjackson",
+        "iswhite",
+        "jdtaylor",
+        "browns",
+        "moorej",
+        "evansm",
+        "kingr",
+        "wrighta",
+        "scottl",
+        "riverak",
+        "hayesd",
+        "collinsp",
+        "murphyb",
+        "mikescott",
+        "aligray",
+        "chrismyers",
+        "jenngreen",
+        "robhall",
+        "davecook",
+        "sarahkim",
+        "timnguyen",
+        "katediaz",
+        "jimreed",
+        "analyst_amy",
+        "director_mark",
+        "manager_lisa",
+        "tech_sam",
+        "scientist_raj",
+        "ops_carlos",
+        "ceo_adam",
+        "cto_priya",
+        "designer_tom",
+        "specialist_lee",
+        "wind_mike",
+        "nuclear_dave",
+        "battery_lucy",
+        "grid_omar",
+        "fusion_anna",
+        "hydro_ryan",
+        "solar_priya",
+        "storage_paul",
+        "transmission_ella",
+        "renewables_jack",
+        "a.kumar24",
+        "b.liang2024",
+        "c.patel_eng",
+        "d.yang_ops",
+        "e.choi_tech",
+        "f.singh1",
+        "g.wu2023",
+        "h.garcia_ce",
+        "i.vargas_pe",
+        "j.nguyen_lead",
+        "alexclark",
+        "briancook",
+        "carolynlee",
+        "davidbrown",
+        "ericawang",
+        "franklinm",
+        "gracehill",
+        "henryford",
+        "ivyzhang",
+        "jasonpark",
+        "volts_ryan",
+        "amp_anne",
+        "watt_dan",
+        "joule_mary",
+        "ohm_steve",
+        "grid_master",
+        "solar_expert",
+        "wind_tech",
+        "nuke_ops",
+        "fusion_research",
+        "battery_ai",
+        "smartgrid_pro",
+        "renewables_lead",
+        "carbon_zero",
+        "green_volt",
+        "energy_analyst",
+        "power_engineer",
+        "grid_designer",
+        "sustainability_1",
+        "clean_energy_22",
+        "ceo_johnson",
+        "cfo_smith",
+        "cto_lee",
+        "vp_operations",
+        "director_energy",
+        "head_rd",
+        "manager_grid",
+        "lead_engineer",
+        "senior_designer",
+        "principal_tech",
+        "engineer1",
+        "systems_ops",
+        "grid_analyst",
+        "nuke_specialist",
+        "solar_tech",
+        "wind_engineer",
+        "battery_design",
+        "transmission_pro",
+        "power_ops",
+        "fusion_researcher",
+        "hr_jane",
+        "finance_mike",
+        "legal_lisa",
+        "admin_alex",
+        "it_support",
+        "comms_dan",
+        "pr_sarah",
+        "facilities_tom",
+        "security_lead",
+        "logistics_team",
+        "jdoe_energy",
+        "asmith_power",
+        "rlee_solar",
+        "kwang_grid",
+        "tchen_nuke",
+        "lrod_fusion",
+        "pmartin_wind",
+        "sgarcia_storage",
+        "dwilson_ops",
+        "ajames_ce",
+        "bkim_tech",
+        "clopez_eng",
+        "dhall_design",
+        "eyoung_analyst",
+        "fscott_lead",
+        "gadams_rd",
+        "hbaker_sys",
+        "igray_ai",
+        "jflores_data",
+        "kharris_coo",
+        "lmurphy_cfo",
+        "mrivera_cto",
+        "npham_vp",
+        "opark_dir",
+        "pcole_mgr",
+        "qedwards_hr",
+        "rfoster_fin",
+        "snguyen_legal",
+        "tross_it",
+        "upatel_admin",
     ];
     let mut rng = rng();
     let selected: Vec<_> = names.choose_multiple(&mut rng, count).copied().collect();
@@ -107,17 +268,15 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
 /// # Panics
 /// This function will panic if the API request fails or returns invalid data,
 /// as it's intended for testing scenarios where such failures indicate test problems.
-pub async fn create_user_by_api(
-    client: &Client,
-    user: &UserNoTime,
-) -> UserWithRoles {
+pub async fn create_user_by_api(client: &Client, user: &UserNoTime) -> UserWithRoles {
     let body = json!({
         "email": &user.email,
         "password_hash": &user.password_hash,
         "company_id": user.company_id,
         "totp_secret": user.totp_secret,
         "role_names": ["staff"]
-    }).to_string();
+    })
+    .to_string();
     let response = client
         .post("/api/1/users")
         .header(ContentType::JSON)
@@ -160,7 +319,8 @@ pub async fn create_user_with_roles_by_api(
         "company_id": user.company_id,
         "totp_secret": user.totp_secret,
         "role_names": role_names
-    }).to_string();
+    })
+    .to_string();
     let response = client
         .post("/api/1/users")
         .header(ContentType::JSON)
@@ -261,7 +421,7 @@ pub async fn create_user_with_roles_by_api(
 pub async fn create_user(
     db: DbConn,
     new_user: LoggedJson<CreateUserWithRolesRequest>,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<status::Created<Json<UserWithRoles>>, response::status::Custom<Json<ErrorResponse>>> {
     // Check authorization: can create users for target company?
     let target_company_id = new_user.company_id;
@@ -278,7 +438,7 @@ pub async fn create_user(
 
     if !can_create {
         let err = Json(ErrorResponse {
-            error: "Insufficient permissions to create users".to_string()
+            error: "Insufficient permissions to create users".to_string(),
         });
         return Err(response::status::Custom(Status::Forbidden, err));
     }
@@ -286,7 +446,7 @@ pub async fn create_user(
     // Validate that at least one role is provided
     if new_user.role_names.is_empty() {
         let err = Json(ErrorResponse {
-            error: "At least one role must be provided".to_string()
+            error: "At least one role must be provided".to_string(),
         });
         return Err(response::status::Custom(Status::BadRequest, err));
     }
@@ -303,14 +463,14 @@ pub async fn create_user(
                 }
                 Ok(None) => {
                     let err = Json(ErrorResponse {
-                        error: format!("Role '{}' does not exist", role_name)
+                        error: format!("Role '{}' does not exist", role_name),
                     });
                     return Err(response::status::Custom(Status::BadRequest, err));
                 }
                 Err(e) => {
                     eprintln!("Error checking role existence: {:?}", e);
                     let err = Json(ErrorResponse {
-                        error: "Database error while validating roles".to_string()
+                        error: "Database error while validating roles".to_string(),
                     });
                     return Err(response::status::Custom(Status::InternalServerError, err));
                 }
@@ -332,7 +492,7 @@ pub async fn create_user(
 
             if !can_assign {
                 let err = Json(ErrorResponse {
-                    error: format!("Insufficient permissions to assign role '{}'", role_name)
+                    error: format!("Insufficient permissions to assign role '{}'", role_name),
                 });
                 return Err(response::status::Custom(Status::Forbidden, err));
             }
@@ -347,14 +507,14 @@ pub async fn create_user(
                     Ok(None) => {
                         eprintln!("Newtown Energy company not found");
                         let err = Json(ErrorResponse {
-                            error: "Newtown Energy company not found".to_string()
+                            error: "Newtown Energy company not found".to_string(),
                         });
                         return Err(response::status::Custom(Status::InternalServerError, err));
                     }
                     Err(e) => {
                         eprintln!("Error getting Newtown Energy company: {:?}", e);
                         let err = Json(ErrorResponse {
-                            error: "Database error while validating company".to_string()
+                            error: "Database error while validating company".to_string(),
                         });
                         return Err(response::status::Custom(Status::InternalServerError, err));
                     }
@@ -362,7 +522,10 @@ pub async fn create_user(
 
                 if user_request.company_id != newtown_company.id {
                     let err = Json(ErrorResponse {
-                        error: format!("Role '{}' is restricted to Newtown Energy company", role_name)
+                        error: format!(
+                            "Role '{}' is restricted to Newtown Energy company",
+                            role_name
+                        ),
                     });
                     return Err(response::status::Custom(Status::Forbidden, err));
                 }
@@ -374,17 +537,17 @@ pub async fn create_user(
             Ok(_existing_user) => {
                 // User with this email already exists
                 let err = Json(ErrorResponse {
-                    error: "User with this email already exists".to_string()
+                    error: "User with this email already exists".to_string(),
                 });
                 return Err(response::status::Custom(Status::Conflict, err));
-            },
+            }
             Err(diesel::result::Error::NotFound) => {
                 // User doesn't exist, we can proceed
-            },
+            }
             Err(e) => {
                 eprintln!("Error checking for existing user: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "Database error while checking for existing user".to_string()
+                    error: "Database error while checking for existing user".to_string(),
                 });
                 return Err(response::status::Custom(Status::InternalServerError, err));
             }
@@ -403,7 +566,7 @@ pub async fn create_user(
             Err(e) => {
                 eprintln!("Error creating user: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "Database error while creating user".to_string()
+                    error: "Database error while creating user".to_string(),
                 });
                 return Err(response::status::Custom(Status::InternalServerError, err));
             }
@@ -415,7 +578,7 @@ pub async fn create_user(
             if let Err(e) = assign_user_role_by_name(conn, created_user.id, role_name) {
                 eprintln!("Error assigning role {}: {:?}", role_name, e);
                 let err = Json(ErrorResponse {
-                    error: format!("Failed to assign role '{}' to user", role_name)
+                    error: format!("Failed to assign role '{}' to user", role_name),
                 });
                 return Err(response::status::Custom(Status::InternalServerError, err));
             }
@@ -427,12 +590,13 @@ pub async fn create_user(
             Err(e) => {
                 eprintln!("Error getting created user with roles: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "User created but failed to retrieve with roles".to_string()
+                    error: "User created but failed to retrieve with roles".to_string(),
                 });
                 Err(response::status::Custom(Status::InternalServerError, err))
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// List Users endpoint.
@@ -481,19 +645,18 @@ pub async fn create_user(
 #[get("/1/users")]
 pub async fn list_users(
     db: DbConn,
-    auth_user: AuthenticatedUser
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<UserWithRoles>>, Status> {
     // Authorization: determine which users this user can see
     if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
         // newtown-admin and newtown-staff can see all users
         db.run(|conn| {
-            list_all_users_with_roles(conn)
-                .map(Json)
-                .map_err(|e| {
-                    eprintln!("Error listing all users: {:?}", e);
-                    Status::InternalServerError
-                })
-        }).await
+            list_all_users_with_roles(conn).map(Json).map_err(|e| {
+                eprintln!("Error listing all users: {:?}", e);
+                Status::InternalServerError
+            })
+        })
+        .await
     } else if auth_user.has_role("admin") {
         // admin can only see users from their own company
         let company_id = auth_user.user.company_id;
@@ -504,7 +667,8 @@ pub async fn list_users(
                     eprintln!("Error listing company users: {:?}", e);
                     Status::InternalServerError
                 })
-        }).await
+        })
+        .await
     } else {
         // Regular users cannot list users
         Err(Status::Forbidden)
@@ -621,28 +785,29 @@ pub async fn get_user_endpoint(
 
                 if !can_view {
                     let err = Json(ErrorResponse {
-                        error: "Insufficient permissions to view this user".to_string()
+                        error: "Insufficient permissions to view this user".to_string(),
                     });
                     return Err(response::status::Custom(Status::Forbidden, err));
                 }
 
                 Ok(Json(user))
-            },
+            }
             Err(diesel::result::Error::NotFound) => {
                 let err = Json(ErrorResponse {
-                    error: "User not found".to_string()
+                    error: "User not found".to_string(),
                 });
                 Err(response::status::Custom(Status::NotFound, err))
-            },
+            }
             Err(e) => {
                 eprintln!("Error getting user: {:?}", e);
                 let err = Json(ErrorResponse {
-                    error: "Database error while retrieving user".to_string()
+                    error: "Database error while retrieving user".to_string(),
                 });
                 Err(response::status::Custom(Status::InternalServerError, err))
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// Get User Roles endpoint.
@@ -709,19 +874,19 @@ pub async fn get_user_roles_endpoint(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Role>>, Status> {
     // Users can view their own roles, admins can view any user's roles
-    if auth_user.user.id != user_id &&
-       !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
+    if auth_user.user.id != user_id
+        && !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"])
+    {
         return Err(Status::Forbidden);
     }
 
     db.run(move |conn| {
-        get_user_roles(conn, user_id)
-            .map(Json)
-            .map_err(|e| {
-                eprintln!("Error getting user roles: {:?}", e);
-                Status::InternalServerError
-            })
-    }).await
+        get_user_roles(conn, user_id).map(Json).map_err(|e| {
+            eprintln!("Error getting user roles: {:?}", e);
+            Status::InternalServerError
+        })
+    })
+    .await
 }
 
 /// Add User Role endpoint.
@@ -799,12 +964,13 @@ pub async fn add_user_role(
     let role_name = request.role_name.clone();
 
     // Get target user's company for validation
-    let target_user = db.run(move |conn| {
-        get_user(conn, target_user_id)
-    }).await.map_err(|e| {
-        eprintln!("Error getting target user: {:?}", e);
-        Status::InternalServerError
-    })?;
+    let target_user = db
+        .run(move |conn| get_user(conn, target_user_id))
+        .await
+        .map_err(|e| {
+            eprintln!("Error getting target user: {:?}", e);
+            Status::InternalServerError
+        })?;
 
     // Authorization check based on business rules
     let can_assign = if auth_user.has_role("newtown-admin") {
@@ -829,12 +995,13 @@ pub async fn add_user_role(
         let newtown_company_search = CompanyNoTime {
             name: "Newtown Energy".to_string(),
         };
-        let newtown_company = db.run(move |conn| {
-            get_company_by_name(conn, &newtown_company_search)
-        }).await.map_err(|e| {
-            eprintln!("Error getting Newtown Energy company: {:?}", e);
-            Status::InternalServerError
-        })?;
+        let newtown_company = db
+            .run(move |conn| get_company_by_name(conn, &newtown_company_search))
+            .await
+            .map_err(|e| {
+                eprintln!("Error getting Newtown Energy company: {:?}", e);
+                Status::InternalServerError
+            })?;
 
         let newtown_company = match newtown_company {
             Some(inst) => inst,
@@ -851,12 +1018,12 @@ pub async fn add_user_role(
 
     // Assign the role
     db.run(move |conn| {
-        assign_user_role_by_name(conn, target_user_id, &role_name)
-            .map_err(|e| {
-                eprintln!("Error assigning user role: {:?}", e);
-                Status::InternalServerError
-            })
-    }).await?;
+        assign_user_role_by_name(conn, target_user_id, &role_name).map_err(|e| {
+            eprintln!("Error assigning user role: {:?}", e);
+            Status::InternalServerError
+        })
+    })
+    .await?;
 
     Ok(Status::Ok)
 }
@@ -932,20 +1099,22 @@ pub async fn remove_user_role(
     let role_name = request.role_name.clone();
 
     // Get target user's company for validation
-    let target_user = db.run(move |conn| {
-        get_user(conn, target_user_id)
-    }).await.map_err(|e| {
-        eprintln!("Error getting target user: {:?}", e);
-        Status::InternalServerError
-    })?;
+    let target_user = db
+        .run(move |conn| get_user(conn, target_user_id))
+        .await
+        .map_err(|e| {
+            eprintln!("Error getting target user: {:?}", e);
+            Status::InternalServerError
+        })?;
 
     // Check if user would have any roles left after removal
-    let current_roles = db.run(move |conn| {
-        get_user_roles(conn, target_user_id)
-    }).await.map_err(|e| {
-        eprintln!("Error getting current user roles: {:?}", e);
-        Status::InternalServerError
-    })?;
+    let current_roles = db
+        .run(move |conn| get_user_roles(conn, target_user_id))
+        .await
+        .map_err(|e| {
+            eprintln!("Error getting current user roles: {:?}", e);
+            Status::InternalServerError
+        })?;
 
     // Rule 5: Users must have at least one role
     if current_roles.len() <= 1 {
@@ -969,12 +1138,12 @@ pub async fn remove_user_role(
 
     // Remove the role
     db.run(move |conn| {
-        remove_user_role_by_name(conn, target_user_id, &role_name)
-            .map_err(|e| {
-                eprintln!("Error removing user role: {:?}", e);
-                Status::InternalServerError
-            })
-    }).await?;
+        remove_user_role_by_name(conn, target_user_id, &role_name).map_err(|e| {
+            eprintln!("Error removing user role: {:?}", e);
+            Status::InternalServerError
+        })
+    })
+    .await?;
 
     Ok(Status::Ok)
 }
@@ -1089,14 +1258,15 @@ pub async fn update_user_endpoint(
                         Err(Status::InternalServerError)
                     }
                 }
-            },
+            }
             Err(diesel::result::Error::NotFound) => Err(Status::NotFound),
             Err(e) => {
                 eprintln!("Error updating user: {:?}", e);
                 Err(Status::InternalServerError)
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// Delete User endpoint.
@@ -1182,7 +1352,8 @@ pub async fn delete_user_endpoint(
                 Err(Status::InternalServerError)
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// Returns a vector of all routes defined in this module.

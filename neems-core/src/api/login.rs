@@ -4,17 +4,17 @@
 //! and secure API access. It handles user login requests, generates session tokens,
 //! and provides authenticated endpoints.
 
-use rocket::{post, get, Route, http::CookieJar, serde::json::Json};
 use crate::logged_json::LoggedJson;
 use rocket::response;
-use rocket::serde::{Serialize, Deserialize};
+use rocket::serde::{Deserialize, Serialize};
+use rocket::{Route, get, http::CookieJar, post, serde::json::Json};
 use ts_rs::TS;
 
-use crate::session_guards::AuthenticatedUser;
 use crate::DbConn;
+use crate::orm::company::get_company_by_id;
 use crate::orm::login::process_login;
 use crate::orm::user_role::get_user_roles;
-use crate::orm::company::get_company_by_id;
+use crate::session_guards::AuthenticatedUser;
 
 /// Error response structure for authentication failures.
 #[derive(Serialize, TS)]
@@ -51,18 +51,17 @@ async fn build_user_response(
 ) -> Result<LoginSuccessResponse, response::status::Custom<Json<ErrorResponse>>> {
     // Get user roles
     let user_id = user.id;
-    let roles = match db.run(move |conn| {
-        get_user_roles(conn, user_id)
-    }).await {
+    let roles = match db.run(move |conn| get_user_roles(conn, user_id)).await {
         Ok(user_roles) => user_roles.into_iter().map(|role| role.name).collect(),
         Err(_) => vec![], // Return empty roles on error rather than failing
     };
 
     // Get company name
     let company_id = user.company_id;
-    let company_name = match db.run(move |conn| {
-        get_company_by_id(conn, company_id)
-    }).await {
+    let company_name = match db
+        .run(move |conn| get_company_by_id(conn, company_id))
+        .await
+    {
         Ok(Some(company)) => company.name,
         Ok(None) => "Unknown Company".to_string(),
         Err(_) => "Unknown Company".to_string(),
@@ -148,14 +147,14 @@ pub async fn login(
     login: LoggedJson<LoginRequest>,
 ) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
     match process_login(&db, cookies, &login).await {
-        Ok((_status, user)) => {
-            match build_user_response(&db, user).await {
-                Ok(response) => Ok(Json(response)),
-                Err(err_response) => Err(err_response),
-            }
-        }
+        Ok((_status, user)) => match build_user_response(&db, user).await {
+            Ok(response) => Ok(Json(response)),
+            Err(err_response) => Err(err_response),
+        },
         Err(status) => {
-            let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
+            let err_json = Json(ErrorResponse {
+                error: "Invalid credentials".to_string(),
+            });
             Err(response::status::Custom(status, err_json))
         }
     }
@@ -204,7 +203,10 @@ pub async fn login(
 /// });
 /// ```
 #[get("/1/hello")]
-pub async fn secure_hello(auth_user: AuthenticatedUser, db: DbConn) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
+pub async fn secure_hello(
+    auth_user: AuthenticatedUser,
+    db: DbConn,
+) -> Result<Json<LoginSuccessResponse>, response::status::Custom<Json<ErrorResponse>>> {
     build_user_response(&db, auth_user.user).await.map(Json)
 }
 

@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
-use diesel::{Identifiable, Queryable, Insertable, QueryableByName};
-use serde::{Serialize, Deserialize};
+use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Deserialize, Queryable, Identifiable, QueryableByName, Debug, Serialize, TS)]

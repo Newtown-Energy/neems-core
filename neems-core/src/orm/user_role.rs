@@ -1,5 +1,5 @@
+use crate::models::{NewUserRole, Role};
 use diesel::prelude::*;
-use crate::models::{Role, NewUserRole};
 
 /// Assigns a role to a user
 pub fn assign_user_role(
@@ -32,7 +32,7 @@ pub fn remove_user_role(
     diesel::delete(
         user_roles
             .filter(user_id.eq(user_id_param))
-            .filter(role_id.eq(role_id_param))
+            .filter(role_id.eq(role_id_param)),
     )
     .execute(conn)?;
 
@@ -81,9 +81,7 @@ pub fn assign_user_role_by_name(
 ) -> Result<(), diesel::result::Error> {
     use crate::schema::roles::dsl::*;
 
-    let role = roles
-        .filter(name.eq(role_name))
-        .first::<Role>(conn)?;
+    let role = roles.filter(name.eq(role_name)).first::<Role>(conn)?;
 
     assign_user_role(conn, user_id_param, role.id)
 }
@@ -96,15 +94,13 @@ pub fn remove_user_role_by_name(
 ) -> Result<(), diesel::result::Error> {
     use crate::schema::roles::dsl::*;
 
-    let role = roles
-        .filter(name.eq(role_name))
-        .first::<Role>(conn)?;
+    let role = roles.filter(name.eq(role_name)).first::<Role>(conn)?;
 
     remove_user_role(conn, user_id_param, role.id)
 }
 
 /// Removes all roles from a user
-/// 
+///
 /// This function removes all role assignments for a specific user.
 /// Used primarily when deleting a user to ensure referential integrity.
 ///
@@ -121,35 +117,38 @@ pub fn remove_all_user_roles(
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::user_roles::dsl::*;
 
-    diesel::delete(user_roles.filter(user_id.eq(user_id_param)))
-        .execute(conn)
+    diesel::delete(user_roles.filter(user_id.eq(user_id_param))).execute(conn)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::testing::setup_test_db;
-    use crate::orm::role::get_all_roles;
-    use crate::orm::user::insert_user;
     use crate::models::UserNoTime;
     use crate::orm::login::hash_password;
+    use crate::orm::role::get_all_roles;
+    use crate::orm::testing::setup_test_db;
+    use crate::orm::user::insert_user;
 
     #[test]
     fn test_assign_and_get_user_roles() {
         let mut conn = setup_test_db();
-        
+
         // Get available roles
         let roles = get_all_roles(&mut conn).unwrap();
         let admin_role = roles.iter().find(|r| r.name == "newtown-admin").unwrap();
         let staff_role = roles.iter().find(|r| r.name == "newtown-staff").unwrap();
 
         // Create a test user
-        let user = insert_user(&mut conn, UserNoTime {
-            email: "test@example.com".to_string(),
-            password_hash: hash_password("password"),
-            company_id: 1,
-            totp_secret: Some("secret".to_string()),
-        }).unwrap();
+        let user = insert_user(
+            &mut conn,
+            UserNoTime {
+                email: "test@example.com".to_string(),
+                password_hash: hash_password("password"),
+                company_id: 1,
+                totp_secret: Some("secret".to_string()),
+            },
+        )
+        .unwrap();
 
         // Assign roles
         assign_user_role(&mut conn, user.id, admin_role.id).unwrap();
@@ -158,7 +157,7 @@ mod tests {
         // Get user roles
         let user_roles = get_user_roles(&mut conn, user.id).unwrap();
         assert_eq!(user_roles.len(), 2);
-        
+
         let role_names: Vec<&str> = user_roles.iter().map(|r| r.name.as_str()).collect();
         assert!(role_names.contains(&"newtown-admin"));
         assert!(role_names.contains(&"newtown-staff"));
@@ -167,14 +166,18 @@ mod tests {
     #[test]
     fn test_user_has_role() {
         let mut conn = setup_test_db();
-        
+
         // Create a test user
-        let user = insert_user(&mut conn, UserNoTime {
-            email: "test2@example.com".to_string(),
-            password_hash: hash_password("password"),
-            company_id: 1,
-            totp_secret: Some("secret".to_string()),
-        }).unwrap();
+        let user = insert_user(
+            &mut conn,
+            UserNoTime {
+                email: "test2@example.com".to_string(),
+                password_hash: hash_password("password"),
+                company_id: 1,
+                totp_secret: Some("secret".to_string()),
+            },
+        )
+        .unwrap();
 
         // Initially user has no roles
         assert!(!user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
@@ -190,14 +193,18 @@ mod tests {
     #[test]
     fn test_remove_user_role() {
         let mut conn = setup_test_db();
-        
+
         // Create a test user
-        let user = insert_user(&mut conn, UserNoTime {
-            email: "test3@example.com".to_string(),
-            password_hash: hash_password("password"),
-            company_id: 1,
-            totp_secret: Some("secret".to_string()),
-        }).unwrap();
+        let user = insert_user(
+            &mut conn,
+            UserNoTime {
+                email: "test3@example.com".to_string(),
+                password_hash: hash_password("password"),
+                company_id: 1,
+                totp_secret: Some("secret".to_string()),
+            },
+        )
+        .unwrap();
 
         // Assign multiple roles so we can safely remove one
         assign_user_role_by_name(&mut conn, user.id, "newtown-admin").unwrap();
@@ -214,14 +221,18 @@ mod tests {
     #[test]
     fn test_cannot_remove_last_role() {
         let mut conn = setup_test_db();
-        
+
         // Create a test user
-        let user = insert_user(&mut conn, UserNoTime {
-            email: "test4@example.com".to_string(),
-            password_hash: hash_password("password"),
-            company_id: 1,
-            totp_secret: Some("secret".to_string()),
-        }).unwrap();
+        let user = insert_user(
+            &mut conn,
+            UserNoTime {
+                email: "test4@example.com".to_string(),
+                password_hash: hash_password("password"),
+                company_id: 1,
+                totp_secret: Some("secret".to_string()),
+            },
+        )
+        .unwrap();
 
         // Assign only one role
         assign_user_role_by_name(&mut conn, user.id, "newtown-admin").unwrap();
@@ -230,7 +241,7 @@ mod tests {
         // Try to remove the last role - this should fail due to our constraint
         let result = remove_user_role_by_name(&mut conn, user.id, "newtown-admin");
         assert!(result.is_err());
-        
+
         // User should still have the role
         assert!(user_has_role(&mut conn, user.id, "newtown-admin").unwrap());
     }

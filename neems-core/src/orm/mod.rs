@@ -1,5 +1,5 @@
-mod db;
 pub mod company;
+mod db;
 pub mod login;
 pub mod logout;
 pub mod role;

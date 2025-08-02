@@ -23,7 +23,4 @@ diesel::table! {
 
 diesel::joinable!(readings -> sources (source_id));
 
-diesel::allow_tables_to_appear_in_same_query!(
-    readings,
-    sources,
-);
+diesel::allow_tables_to_appear_in_same_query!(readings, sources,);

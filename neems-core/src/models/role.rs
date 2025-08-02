@@ -1,6 +1,6 @@
-use diesel::{Queryable, Identifiable, Insertable};
-use serde::{Serialize, Deserialize};
 use crate::schema::roles;
+use diesel::{Identifiable, Insertable, Queryable};
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Queryable, Identifiable, Debug, Serialize, Deserialize, TS)]
@@ -18,4 +18,3 @@ pub struct NewRole {
     pub name: String,
     pub description: Option<String>,
 }
-

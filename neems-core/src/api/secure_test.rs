@@ -12,20 +12,22 @@
 //! ```
 
 #[cfg(feature = "test-staging")]
-use rocket::serde::json::{Json, json, Value};
-#[cfg(feature = "test-staging")]
 use rocket::Route;
 #[cfg(feature = "test-staging")]
 use rocket::http::Status;
 #[cfg(feature = "test-staging")]
 use rocket::response::{self};
 #[cfg(feature = "test-staging")]
+use rocket::serde::json::{Json, Value, json};
+#[cfg(feature = "test-staging")]
 use serde::Serialize;
 #[cfg(feature = "test-staging")]
 use ts_rs::TS;
 
 #[cfg(feature = "test-staging")]
-use crate::session_guards::{AuthenticatedUser, AdminUser, StaffUser, NewtownAdminUser, NewtownStaffUser};
+use crate::session_guards::{
+    AdminUser, AuthenticatedUser, NewtownAdminUser, NewtownStaffUser, StaffUser,
+};
 
 /// Error response structure for secure test API failures.
 #[cfg(feature = "test-staging")]
@@ -193,7 +195,9 @@ pub fn newtown_staff_only(newtown_staff_user: NewtownStaffUser) -> Json<Value> {
 /// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/admin-and-staff")]
-pub fn admin_and_staff(auth_user: AuthenticatedUser) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
+pub fn admin_and_staff(
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
     if auth_user.has_all_roles(&["admin", "staff"]) {
         Ok(Json(json!({
             "message": format!("Multi-role access granted to {}", auth_user.user.email),
@@ -203,7 +207,7 @@ pub fn admin_and_staff(auth_user: AuthenticatedUser) -> Result<Json<Value>, resp
         })))
     } else {
         let err = Json(ErrorResponse {
-            error: "Forbidden: requires both admin and staff roles".to_string()
+            error: "Forbidden: requires both admin and staff roles".to_string(),
         });
         Err(response::status::Custom(Status::Forbidden, err))
     }
@@ -237,7 +241,9 @@ pub fn admin_and_staff(auth_user: AuthenticatedUser) -> Result<Json<Value>, resp
 /// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/no-admin-allowed")]
-pub fn no_admin_allowed(auth_user: AuthenticatedUser) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
+pub fn no_admin_allowed(
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
     if auth_user.has_no_roles(&["admin"]) {
         Ok(Json(json!({
             "message": format!("Non-admin access granted to {}", auth_user.user.email),
@@ -247,7 +253,7 @@ pub fn no_admin_allowed(auth_user: AuthenticatedUser) -> Result<Json<Value>, res
         })))
     } else {
         let err = Json(ErrorResponse {
-            error: "Forbidden: admin role is not allowed for this endpoint".to_string()
+            error: "Forbidden: admin role is not allowed for this endpoint".to_string(),
         });
         Err(response::status::Custom(Status::Forbidden, err))
     }
@@ -280,7 +286,9 @@ pub fn no_admin_allowed(auth_user: AuthenticatedUser) -> Result<Json<Value>, res
 /// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/any-admin-or-staff")]
-pub fn any_admin_or_staff(auth_user: AuthenticatedUser) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
+pub fn any_admin_or_staff(
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, response::status::Custom<Json<ErrorResponse>>> {
     if auth_user.has_any_role(&["admin", "staff", "newtown-admin"]) {
         Ok(Json(json!({
             "message": format!("Flexible role access granted to {}", auth_user.user.email),
@@ -290,7 +298,7 @@ pub fn any_admin_or_staff(auth_user: AuthenticatedUser) -> Result<Json<Value>, r
         })))
     } else {
         let err = Json(ErrorResponse {
-            error: "Forbidden: requires admin, staff, or newtown-admin role".to_string()
+            error: "Forbidden: requires admin, staff, or newtown-admin role".to_string(),
         });
         Err(response::status::Custom(Status::Forbidden, err))
     }

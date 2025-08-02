@@ -3,18 +3,19 @@
 // This file is for testing the schema and relationships in the database.
 // Do not use it to test the actual application logic.
 //
-#![cfg(run_schema_tests)]  // Entire file will be skipped if this cfg isn't set. See build.rs
+#![cfg(run_schema_tests)] // Entire file will be skipped if this cfg isn't set. See build.rs
 
-
-use neems_core::orm::testing::setup_test_db;
-use neems_core::models::*;
-use neems_core::schema::*;
-use diesel::prelude::*;
 use chrono::Utc;
-use diesel::result::{Error, DatabaseErrorKind};
+use diesel::prelude::*;
+use diesel::result::{DatabaseErrorKind, Error};
+use neems_core::models::*;
+use neems_core::orm::testing::setup_test_db;
+use neems_core::schema::*;
 
-
-fn create_test_company(conn: &mut SqliteConnection, name: &str) -> Result<Company, diesel::result::Error> {
+fn create_test_company(
+    conn: &mut SqliteConnection,
+    name: &str,
+) -> Result<Company, diesel::result::Error> {
     let now = Some(Utc::now().naive_utc());
     let new_company = NewCompany {
         name: name.to_string(),
@@ -26,9 +27,7 @@ fn create_test_company(conn: &mut SqliteConnection, name: &str) -> Result<Compan
         .values(&new_company)
         .execute(conn)?;
 
-    let company = companies::table
-        .order(companies::id.desc())
-        .first(conn)?;
+    let company = companies::table.order(companies::id.desc()).first(conn)?;
 
     Ok(company)
 }
@@ -47,9 +46,7 @@ fn create_test_role(
         .values(&new_role)
         .execute(conn)?;
 
-    roles::table
-        .order(roles::id.desc())
-        .first(conn)
+    roles::table.order(roles::id.desc()).first(conn)
 }
 
 fn create_test_site(
@@ -74,9 +71,7 @@ fn create_test_site(
         .values(&new_site)
         .execute(conn)?;
 
-    sites::table
-        .order(sites::id.desc())
-        .first(conn)
+    sites::table.order(sites::id.desc()).first(conn)
 }
 
 fn create_test_user(
@@ -97,9 +92,7 @@ fn create_test_user(
         .values(&new_user)
         .execute(conn)?;
 
-    let user = users::table
-        .order(users::id.desc())
-        .first(conn)?;
+    let user = users::table.order(users::id.desc()).first(conn)?;
 
     Ok(user)
 }
@@ -112,9 +105,14 @@ fn test_company_restrict_delete_with_existing_sites() {
     let mut conn = setup_test_db();
     let comp = create_test_company(&mut conn, "Site Parent").unwrap();
     create_test_site(&mut conn, comp.id, "Main", "1 Any St", 1.0, 2.0).unwrap();
-    let res = diesel::delete(companies::table.filter(companies::id.eq(comp.id)))
-        .execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+    let res = diesel::delete(companies::table.filter(companies::id.eq(comp.id))).execute(&mut conn);
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            _
+        ))
+    ));
 }
 
 /// Ensures that companies with dependent users cannot be deleted.
@@ -124,9 +122,14 @@ fn test_company_restrict_delete_with_existing_users() {
     let mut conn = setup_test_db();
     let comp = create_test_company(&mut conn, "Restrict Co").unwrap();
     let _u = create_test_user(&mut conn, comp.id, "restrict@test.com").unwrap();
-    let res = diesel::delete(companies::table.filter(companies::id.eq(comp.id)))
-        .execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+    let res = diesel::delete(companies::table.filter(companies::id.eq(comp.id))).execute(&mut conn);
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            _
+        ))
+    ));
 }
 
 /// Asserts that no two companies may share the same name (database-level uniqueness constraint).
@@ -152,28 +155,22 @@ fn test_company_name_uniqueness() {
 #[test]
 fn test_email_uniqueness_constraints() {
     let mut conn = setup_test_db();
-    let inst = create_test_company(&mut conn, "Test Inst")
-        .expect("First company insert should succeed");
+    let inst =
+        create_test_company(&mut conn, "Test Inst").expect("First company insert should succeed");
 
     // First user should succeed
-    create_test_user(
-        &mut conn,
-        inst.id,
-        "user1@test.com"
-    ).expect("First user insert should succeed");
+    create_test_user(&mut conn, inst.id, "user1@test.com")
+        .expect("First user insert should succeed");
 
     // Second user with different email should succeed
-    create_test_user(
-        &mut conn,
-        inst.id,
-        "user2@test.com"
-    ).expect("Second user insert should succeed");
+    create_test_user(&mut conn, inst.id, "user2@test.com")
+        .expect("Second user insert should succeed");
 
     // Third user with duplicate email should fail
     let result = create_test_user(
         &mut conn,
         inst.id,
-        "user1@test.com" // duplicate email
+        "user1@test.com", // duplicate email
     );
     assert!(matches!(
         result,
@@ -186,14 +183,14 @@ fn test_email_uniqueness_constraints() {
 #[test]
 fn test_company_to_users_relationship() {
     let mut conn = setup_test_db();
-    let inst = create_test_company(&mut conn, "Test Inst")
-        .expect("First company insert should succeed");
+    let inst =
+        create_test_company(&mut conn, "Test Inst").expect("First company insert should succeed");
 
     // Create users for this company
-    let user1 = create_test_user(&mut conn, inst.id, "user1@test.com")
-        .expect("user1 should be created");
-    let user2 = create_test_user(&mut conn, inst.id, "user2@test.com")
-        .expect("user2 should be created");
+    let user1 =
+        create_test_user(&mut conn, inst.id, "user1@test.com").expect("user1 should be created");
+    let user2 =
+        create_test_user(&mut conn, inst.id, "user2@test.com").expect("user2 should be created");
 
     // Verify relationship
     let users = users::table
@@ -209,11 +206,14 @@ fn test_company_to_users_relationship() {
     let result = create_test_user(
         &mut conn,
         99999, // Invalid FK
-        "new@test.com"
+        "new@test.com",
     );
     assert!(matches!(
         result,
-        Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))
+        Err(Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            _
+        ))
     ));
 }
 
@@ -222,8 +222,8 @@ fn test_company_to_users_relationship() {
 #[test]
 fn test_company_to_sites_relationship() {
     let mut conn = setup_test_db();
-    let inst = create_test_company(&mut conn, "Test Inst")
-        .expect("First company insert should succeed");
+    let inst =
+        create_test_company(&mut conn, "Test Inst").expect("First company insert should succeed");
 
     // Create sites for this company
     create_test_site(
@@ -233,7 +233,8 @@ fn test_company_to_sites_relationship() {
         "123 Main St",
         40.7128,
         -74.0060,
-    ).expect("Failed to create site");
+    )
+    .expect("Failed to create site");
 
     // Verify relationship
     let sites = sites::table
@@ -249,10 +250,10 @@ fn test_company_to_sites_relationship() {
 #[test]
 fn test_site_name_uniqueness_per_company() {
     let mut conn = setup_test_db();
-    let inst1 = create_test_company(&mut conn, "Inst 1")
-        .expect("First company insert should succeed");
-    let inst2 = create_test_company(&mut conn, "Inst 2")
-        .expect("Second company insert should succeed");
+    let inst1 =
+        create_test_company(&mut conn, "Inst 1").expect("First company insert should succeed");
+    let inst2 =
+        create_test_company(&mut conn, "Inst 2").expect("Second company insert should succeed");
 
     // Create site for first company
     create_test_site(
@@ -307,7 +308,10 @@ fn test_sessions_revoked_defaults_to_false() {
         .execute(&mut conn)
         .unwrap();
 
-    let session: Session = sessions::table.filter(sessions::id.eq("defsession")).first(&mut conn).unwrap();
+    let session: Session = sessions::table
+        .filter(sessions::id.eq("defsession"))
+        .first(&mut conn)
+        .unwrap();
     assert_eq!(session.revoked, false);
 }
 
@@ -319,10 +323,22 @@ fn test_user_restrict_delete_with_existing_roles() {
     let inst = create_test_company(&mut conn, "Role Parent").unwrap();
     let user = create_test_user(&mut conn, inst.id, "roleuser@test.com").unwrap();
     let role = create_test_role(&mut conn, "deletetestrole", Some("A role")).unwrap();
-    let assoc = NewUserRole { user_id: user.id, role_id: role.id };
-    diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
+    let assoc = NewUserRole {
+        user_id: user.id,
+        role_id: role.id,
+    };
+    diesel::insert_into(user_roles::table)
+        .values(&assoc)
+        .execute(&mut conn)
+        .unwrap();
     let res = diesel::delete(users::table.filter(users::id.eq(user.id))).execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            _
+        ))
+    ));
 }
 
 /// Ensures that users with dependent sessions cannot be deleted.
@@ -342,7 +358,13 @@ fn test_user_restrict_delete_with_existing_sessions() {
         .execute(&mut conn)
         .unwrap();
     let res = diesel::delete(users::table.filter(users::id.eq(user.id))).execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            _
+        ))
+    ));
 }
 
 /// Verifies that the users.email column is NOT NULL, providing a DB-level guarantee that all user records are addressable by email.
@@ -369,7 +391,10 @@ fn test_user_email_not_null_constraint() {
             users::updated_at.eq(new_user.updated_at),
         ))
         .execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::NotNullViolation, _))));
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(DatabaseErrorKind::NotNullViolation, _))
+    ));
 }
 
 /// Asserts AUTOINCREMENT behavior for user primary key for integrity and predictability.
@@ -465,10 +490,22 @@ fn test_role_restrict_delete_in_use_by_user() {
     let inst = create_test_company(&mut conn, "Role RESTRICT Institution").unwrap();
     let user = create_test_user(&mut conn, inst.id, "restrictrole@test.com").unwrap();
     let role = create_test_role(&mut conn, "restrictrole", Some("A role")).unwrap();
-    let assoc = NewUserRole { user_id: user.id, role_id: role.id };
-    diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
+    let assoc = NewUserRole {
+        user_id: user.id,
+        role_id: role.id,
+    };
+    diesel::insert_into(user_roles::table)
+        .values(&assoc)
+        .execute(&mut conn)
+        .unwrap();
     let res = diesel::delete(roles::table.filter(roles::id.eq(role.id))).execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _))));
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(
+            DatabaseErrorKind::ForeignKeyViolation,
+            _
+        ))
+    ));
 }
 
 /// Ensures that role names remain globally unique in the database.
@@ -484,7 +521,10 @@ fn test_role_name_uniqueness_constraint() {
     // Second role with the same name should fail due to unique constraint
     let result = create_test_role(&mut conn, "unique-role", Some("Should fail"));
     assert!(
-        matches!(result, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))),
+        matches!(
+            result,
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))
+        ),
         "Expected UNIQUE violation when inserting duplicate role name"
     );
 }
@@ -497,9 +537,20 @@ fn test_user_roles_composite_primary_key_uniqueness() {
     let inst = create_test_company(&mut conn, "Composite PK Test").unwrap();
     let user = create_test_user(&mut conn, inst.id, "m2m@test.com").unwrap();
     let role = create_test_role(&mut conn, "user_roles_pk", None).unwrap();
-    let assoc = NewUserRole { user_id: user.id, role_id: role.id };
-    diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn).unwrap();
+    let assoc = NewUserRole {
+        user_id: user.id,
+        role_id: role.id,
+    };
+    diesel::insert_into(user_roles::table)
+        .values(&assoc)
+        .execute(&mut conn)
+        .unwrap();
     // Attempt to re-insert the same association
-    let res = diesel::insert_into(user_roles::table).values(&assoc).execute(&mut conn);
-    assert!(matches!(res, Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))));
+    let res = diesel::insert_into(user_roles::table)
+        .values(&assoc)
+        .execute(&mut conn);
+    assert!(matches!(
+        res,
+        Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _))
+    ));
 }

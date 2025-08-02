@@ -44,7 +44,11 @@ impl NewReading {
     }
 
     /// Create a new reading with quality flags
-    pub fn with_quality(source_id: i32, data: &JsonValue, quality_flags: i32) -> Result<Self, serde_json::Error> {
+    pub fn with_quality(
+        source_id: i32,
+        data: &JsonValue,
+        quality_flags: i32,
+    ) -> Result<Self, serde_json::Error> {
         Ok(Self {
             source_id,
             timestamp: None,

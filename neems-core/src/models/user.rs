@@ -1,8 +1,8 @@
-use crate::schema::users;
 use crate::models::Role;
-use diesel::{Identifiable, Queryable, Insertable, QueryableByName};
-use serde::{Serialize, Deserialize};
+use crate::schema::users;
 use chrono::NaiveDateTime;
+use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Deserialize, Queryable, Identifiable, QueryableByName, Debug, Serialize, TS)]
@@ -10,7 +10,7 @@ use ts_rs::TS;
 #[ts(export)]
 pub struct User {
     pub id: i32,
-    pub email: String,     // Will be unique
+    pub email: String, // Will be unique
     pub password_hash: String,
     #[ts(type = "string")]
     pub created_at: NaiveDateTime,
