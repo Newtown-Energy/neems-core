@@ -90,7 +90,7 @@ fn create_test_user(
         company_id: comp_id,
         created_at: Utc::now().naive_utc(),
         updated_at: Utc::now().naive_utc(),
-        totp_secret: "testsecret".to_string(),
+        totp_secret: Some("testsecret".to_string()),
     };
 
     diesel::insert_into(users::table)
@@ -357,7 +357,7 @@ fn test_user_email_not_null_constraint() {
         company_id: inst.id,
         created_at: Utc::now().naive_utc(),
         updated_at: Utc::now().naive_utc(),
-        totp_secret: "secret".to_string(),
+        totp_secret: Some("secret".to_string()),
     };
     // Intentionally using raw Diesel to try to insert None for email (Rust won't let us send Option::None to required field)
     let res = diesel::insert_into(users::table)

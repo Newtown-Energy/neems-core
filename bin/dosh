@@ -86,11 +86,15 @@ fmt() {
 }
 
 migrate() {
+    echo Running migrations for neems-core
+
     # Install diesel command line tool
     which diesel > /dev/null || cargo binstall diesel_cli
 
     # Make sure we have a database url
     if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL not set"; exit 0; fi
+
+    cd neems-core
 
     # Create database if needed
     [ ! -f "$DATABASE_URL" ] && diesel setup

@@ -4,7 +4,7 @@ use rocket::fairing::AdHoc;
 use rocket_sync_db_pools::{database, diesel};
 
 
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 #[database("sqlite_db")]
 pub struct DbConn(diesel::SqliteConnection);

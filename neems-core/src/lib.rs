@@ -21,7 +21,7 @@ pub mod schema;
 #[cfg(test)]
 pub mod generate_types;  
 
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("../migrations");
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 #[catch(401)]
 fn unauthorized(req: &Request) -> Json<Value> {
