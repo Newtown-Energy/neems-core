@@ -1,0 +1,4 @@
+#!/bin/sh
+
+FORCE_TEST_ALL=1 cargo nextest --features fixphrase --features test-staging "$@"
+

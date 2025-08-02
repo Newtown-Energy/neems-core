@@ -7,6 +7,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASEDIR=$(dirname -- "$SCRIPT_DIR")
 NIGHTLY="+nightly"
 DEV_TEST_FLAGS="--color=always"
+CARGO=~/.cargo/bin/cargo
 
 # Function to find the project root
 _find_project_root() {
@@ -47,17 +48,21 @@ cd ${BASEDIR}/${PROJECT_NAME}
 if [[ -n "$1" && -f "$DOSH_PROJECT/bin/dosh.$1" ]]; then
     command="$1"
     shift
+    echo "$DOSH_PROJECT/bin/dosh.$command $@"
     exec "$DOSH_PROJECT/bin/dosh.$command" "$@"
 fi
 
-# Check for task-override in project dosh
-if [[ -n "$1" && -x "$DOSH_PROJECT/bin/dosh" ]]; then
-    # Get the list of supported commands from the project dosh
-    supported_commands=$("$DOSH_PROJECT/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
+if [[ ! "$DOSH_PROJECT" == "." ]]; then
+    # Check for task-override in project dosh
+    if [[ -n "$1" && -x "$DOSH_PROJECT/bin/dosh" ]]; then
+        # Get the list of supported commands from the project dosh
+        supported_commands=$("$DOSH_PROJECT/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
 
-    # Check if our command is in the supported list
-    if [[ " $supported_commands " =~ " $1 " ]]; then
-        exec "$DOSH_PROJECT/bin/dosh" "$@"
+        # Check if our command is in the supported list
+        if [[ " $supported_commands " =~ " $1 " ]]; then
+            echo "$DOSH_PROJECT/bin/dosh $@"
+            exec "$DOSH_PROJECT/bin/dosh" "$@"
+        fi
     fi
 fi
 
@@ -94,7 +99,7 @@ _install-cranelift() {
         # Verify installation succeeded
 	if [ -z "$(ls $cranelift_path 2>/dev/null)" ]; then
             echo "⚠️ Cranelift installation failed. Falling back to regular build..."
-            cargo build "$@"
+            ${CARGO} build "$@"
             return
         fi
     fi
@@ -105,7 +110,7 @@ build() {
 
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY build --features test-staging $TARGET_PROJ "$@" || {
+    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY build --features test-staging $TARGET_PROJ "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	return 1
     }
@@ -113,11 +118,7 @@ build() {
 
 check() {
     local cmd="check $DEV_TEST_FLAGS $TARGET_PROJECT"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
-}
-
-clippy() {
-    cargo clippy "@"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 depends() {
@@ -129,34 +130,30 @@ depends() {
   [ "$(id -u)" -eq 0 ] && { echo "Do NOT run as root. Script uses sudo as needed." >&2; exit 1; }
   sudo apt install -y colorized-logs libsqlite3-dev
   rustup update
-  cargo nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }
+  ${CARGO} nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }
   _install-cranelift
-}
-
-fmt() {
-    cargo fmt "@"
 }
 
 migrate() {
     echo Running migrations for neems-core
 
     # Install diesel command line tool
-    which diesel > /dev/null || cargo binstall diesel_cli
+    which diesel > /dev/null || ${CARGO} binstall diesel_cli
 
+    # Our different projects have different sqlite db envars, so commenting this
+    # out for now...
     # Make sure we have a database url
-    if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL not set"; exit 0; fi
-
-    cd neems-core
+    # if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL not set"; exit 0; fi
 
     # Create database if needed
-    [ ! -f "$DATABASE_URL" ] && diesel setup
+    # [ ! -f "$DATABASE_URL" ] && diesel setup
 
     diesel migration run
 }
 
 nextest() {
     local cmd="nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 push() {
@@ -169,11 +166,11 @@ release() {
     echo "🚀 Building release version..."
     # The test-staging feature just makes sure we run some security tests.
     local flags="--features fixphrase --features test-staging"
-    FORCE_TEST_ALL=1 cargo $NIGHTLY test --quiet --release $flags "$@" || {
+    FORCE_TEST_ALL=1 ${CARGO} $NIGHTLY test --quiet --release $flags "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
 	exit 1
     }
-    cargo $NIGHTLY build --release $flags "$@" || {
+    ${CARGO} $NIGHTLY build --release $flags "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	exit 1
     }
@@ -183,25 +180,37 @@ test() {
     nextest "$@"
 }
 
-test-all() {
-    FORCE_TEST_ALL=1 nextest --features fixphrase --features test-staging "$@"
-}
-
 test-trad() {
     local cmd="test $DEV_TEST_FLAGS --quiet"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 
 watch() {
     echo "Running Neems Core for development purposes..."
-    cargo --list | grep -Eq '^    watch$' || cargo install cargo-watch
+    ${CARGO} --list | grep -Eq '^    watch$' || cargo install cargo-watch
 
     # Maybe copy our test db to /tmp
     [ -f neems-core.sqlite ] && cp neems-core.sqlite /tmp
 
-    cargo watch --ignore "neems-core.sqlite*" -x run
+    ${CARGO} watch --ignore "neems-core.sqlite*" -x run
 }
 
+# If this script is called as cargo, let it act as a cargo wrapper, even for
+# cargo commands we haven't expicitly wrapped.  This is useful for when llm
+# agents insist on running their own cargo commands
+if [ $SCRIPTNAME = "cargo" ]; then
+    if ! declare -F "$1" 2> /dev/null > /dev/null; then
+    if [[ "$1" =~ ^- ]] || $CARGO --list | grep -q " *$1" ; then 
+            $CARGO "$@"
+            exit
+        fi
+    fi
+fi
+
+# If this script is called as dosh OR as cargo and we have a function that
+# matches, run it.  If we are dosh, complain if the command isn't found.
 "$@" # <- execute the task
+
+# If this script is called as dosh but not args are provided, print usage
 [ "$#" -gt 0 ] || printf "Usage:\n\t./${SCRIPTNAME} %s\n" "($(compgen -A function | grep '^[^_]' | paste -sd '|' -))"
