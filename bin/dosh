@@ -3,13 +3,65 @@
 # Documentation and examples see https://github.com/8gears/do
 #
 SCRIPTNAME=`basename "$0"`
-BASEDIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )/..
-cd ${BASEDIR}
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+BASEDIR=$(dirname -- "$SCRIPT_DIR")
 NIGHTLY="+nightly"
+DEV_TEST_FLAGS="--color=always"
 
+# Function to find the project root
+_find_project_root() {
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        local base=$(basename "$dir")
+        case "$base" in
+            "neems-admin"|"neems-core"|"neems-data")
+                echo "$dir"
+                return 0
+                ;;
+        esac
+        dir=$(dirname "$dir")
+    done
+    # If we get here, we're at top level
+    echo "."
+}
 
-DEV_TEST_FLAGS="--color=always -p neems-core"
+# Set DOSH_PROJECT
+DOSH_PROJECT=$(_find_project_root)
 
+# Set TARGET_PROJ and TARGET_BIN based on DOSH_PROJECT
+if [[ "$DOSH_PROJECT" == "." ]]; then
+    # Top level - target all projects
+    PROJECT_NAME="."
+    export TARGET_PROJ=("-p neems-admin -p neems-core -p neems-data")
+    export TARGET_BIN=("--bin neems-admin --bin neems-core --bin neems-data")
+else
+    # Specific project - target just this one
+    PROJECT_NAME=$(basename "$DOSH_PROJECT")
+    export TARGET_PROJ=("-p  $PROJECT_NAME")
+    export TARGET_BIN=("--bin  $PROJECT_NAME")
+fi
+
+cd ${BASEDIR}/${PROJECT_NAME}
+
+# Check for project-specific task-override script
+if [[ -n "$1" && -f "$DOSH_PROJECT/bin/dosh.$1" ]]; then
+    command="$1"
+    shift
+    exec "$DOSH_PROJECT/bin/dosh.$command" "$@"
+fi
+
+# Check for task-override in project dosh
+if [[ -n "$1" && -x "$DOSH_PROJECT/bin/dosh" ]]; then
+    # Get the list of supported commands from the project dosh
+    supported_commands=$("$DOSH_PROJECT/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
+
+    # Check if our command is in the supported list
+    if [[ " $supported_commands " =~ " $1 " ]]; then
+        exec "$DOSH_PROJECT/bin/dosh" "$@"
+    fi
+fi
+
+# No project-specific override of dosh command, so we handle it here.
 _install-ansi2txt() {
     which ansi2txt > /dev/null && return 0
     echo Please install ansi2txt, which is available on devian in the colorized-logs package.
@@ -50,22 +102,22 @@ _install-cranelift() {
 
 build() {
     # Build a dev bin
-    
+
     # Build the dev project.  Don't use cranelift for release builds.
     echo "🚀 Building with Cranelift for faster dev compilation..."
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY build --features test-staging --p neems-core "$@" || {
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY build --features test-staging $TARGET_PROJ "$@" || {
 	echo "❌ Build failed. Please check the output above."
 	return 1
     }
 }
 
 check() {
-    local cmd="check $DEV_TEST_FLAGS"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+    local cmd="check $DEV_TEST_FLAGS $TARGET_PROJECT"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 clippy() {
-    cargo clippy "@" 
+    cargo clippy "@"
 }
 
 depends() {
@@ -82,7 +134,7 @@ depends() {
 }
 
 fmt() {
-    cargo fmt "@" 
+    cargo fmt "@"
 }
 
 migrate() {
@@ -103,8 +155,8 @@ migrate() {
 }
 
 nextest() {
-    local cmd="nextest run $DEV_TEST_FLAGS"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+    local cmd="nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 push() {
@@ -137,7 +189,7 @@ test-all() {
 
 test-trad() {
     local cmd="test $DEV_TEST_FLAGS --quiet"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy) 
+    RUSTFLAGS="-Zcodegen-backend=cranelift" cargo $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 
@@ -153,4 +205,3 @@ watch() {
 
 "$@" # <- execute the task
 [ "$#" -gt 0 ] || printf "Usage:\n\t./${SCRIPTNAME} %s\n" "($(compgen -A function | grep '^[^_]' | paste -sd '|' -))"
-
