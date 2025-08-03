@@ -64,7 +64,14 @@ impl DataAggregator {
     }
 
     async fn collect_data(database_url: &str, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Self::collect_from_sources(database_url, verbose).await
+        if verbose {
+            println!("Starting collect_data...");
+        }
+        let result = Self::collect_from_sources(database_url, verbose).await;
+        if verbose {
+            println!("Finished collect_data");
+        }
+        result
     }
 
     async fn collect_from_sources(
@@ -72,6 +79,10 @@ impl DataAggregator {
         verbose: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         use schema::sources::dsl::*;
+
+        if verbose {
+            println!("Querying database for active sources...");
+        }
 
         // Establish connection in a blocking task for database operations
         let (active_sources, db_path) = task::spawn_blocking({
