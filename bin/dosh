@@ -42,6 +42,14 @@ else
     export TARGET_BIN=("--bin $PROJ_NAME")
 fi
 
+# Check if "$@" contains --bin.  If it does, then just use that.
+for arg in "$@"; do
+    if [[ "$arg" == "--bin" ]]; then
+        TARGET_BIN=""
+        break
+    fi
+done
+
 cd ${BASEDIR}/${PROJ_NAME}
 
 # Check for project-specific task-override script
