@@ -14,6 +14,8 @@ if [ -z "$DB_PATH" ]; then
     exit 1
 fi
 
+diesel --database-url=${DB_PATH} setup
+
 # Figure out where neems-admin is
 if [ -n "$NEEMS_ADMIN_BIN" ]; then
     if [ -x "$NEEMS_ADMIN_BIN" ]; then
