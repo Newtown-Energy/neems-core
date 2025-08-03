@@ -21,11 +21,12 @@ pub mod data_sources {
         }))
     }
 
-    /// Ping localhost 3 times and get average response time
+    /// Ping localhost several  times and get average response time
     pub async fn ping_localhost() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let mut times = Vec::new();
+        let attempts = 50;
 
-        for _ in 0..3 {
+        for _ in 0..attempts {
             let start = Instant::now();
 
             // Try to connect to localhost on port 22 (SSH) as a simple connectivity test
@@ -67,7 +68,7 @@ pub mod data_sources {
             "ping_times_ms": times,
             "average_ms": average,
             "successful_pings": times.len(),
-            "total_attempts": 3
+            "total_attempts": attempts
         }))
     }
 

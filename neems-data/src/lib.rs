@@ -3,7 +3,10 @@ use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::env;
 use std::error::Error;
+use std::collections::{HashSet};
+use std::sync::Arc;
 use tokio::task;
+use tokio::sync::{mpsc, Mutex};
 use collectors::DataCollector;
 
 pub mod collectors;
@@ -16,6 +19,12 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 pub struct DataAggregator {
     database_url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingReading {
+    pub reading: NewReading,
+    pub source_name: String,
 }
 
 impl DataAggregator {
@@ -42,105 +51,92 @@ impl DataAggregator {
     pub async fn start_aggregation(&self, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
         let database_url = self.database_url.clone();
 
-        let _handle = task::spawn(async move {
-            loop {
-                match Self::collect_data(&database_url, verbose).await {
-                    Ok(_) => {
-                        if verbose {
-                            println!("Data collection cycle completed");
-                        }
-                    },
-                    Err(e) => eprintln!("Error during data collection: {}", e),
-                }
+        // Create a channel for collecting readings
+        let (tx, rx) = mpsc::unbounded_channel::<PendingReading>();
+        
+        // Shared state to track sources with pending writes
+        let pending_sources = Arc::new(Mutex::new(HashSet::<i32>::new()));
 
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            }
-        });
+        // Start the writer task that batches writes every second
+        let writer_handle = Self::start_writer_task(database_url.clone(), rx, pending_sources.clone(), verbose);
 
-        // Keep the main thread alive to let the background task run
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        }
+        // Start the reader tasks
+        let reader_handle = Self::start_reader_tasks(database_url, tx, pending_sources, verbose);
+
+        // Wait for both tasks
+        tokio::try_join!(writer_handle, reader_handle)?;
+
+        Ok(())
     }
 
-    async fn collect_data(database_url: &str, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if verbose {
-            println!("Starting collect_data...");
-        }
-        let result = Self::collect_from_sources(database_url, verbose).await;
-        if verbose {
-            println!("Finished collect_data");
-        }
-        result
-    }
-
-    async fn collect_from_sources(
-        database_url: &str,
+    async fn start_writer_task(
+        database_url: String,
+        mut rx: mpsc::UnboundedReceiver<PendingReading>,
+        pending_sources: Arc<Mutex<HashSet<i32>>>,
         verbose: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        use schema::sources::dsl::*;
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        let mut batch: Vec<PendingReading> = Vec::new();
 
-        if verbose {
-            println!("Querying database for active sources...");
-        }
-
-        // Establish connection in a blocking task for database operations
-        let (active_sources, db_path) = task::spawn_blocking({
-            let database_url = database_url.to_string();
-            move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
-                let mut connection = SqliteConnection::establish(&database_url)?;
-                
-                // Get all active sources
-                let active_sources: Vec<Source> = sources
-                    .filter(active.eq(true))
-                    .select(Source::as_select())
-                    .load(&mut connection)?;
-
-                // Extract database path for collectors that need it
-                let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
-                
-                Ok((active_sources, db_path))
-            }
-        }).await??;
-
-        if verbose {
-            println!("Found {} active data sources to poll", active_sources.len());
-        }
-
-        for source in active_sources {
-            if let Some(source_id) = source.id {
-                if verbose {
-                    println!("Polling data source: {} (ID: {})", source.name, source_id);
-                }
-
-                // Create collector and collect data
-                let collector = DataCollector::new(source.name.clone(), source_id, db_path.clone());
-                
-                match collector.collect().await {
-                    Ok(data) => {
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if !batch.is_empty() {
                         if verbose {
-                            println!("  → Collected data: {}", serde_json::to_string_pretty(&data).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                            println!("Writing batch of {} readings to database", batch.len());
                         }
 
-                        // Insert the collected data
-                        let new_reading = NewReading::with_json_data(source_id, &data)?;
-                        
-                        task::spawn_blocking({
-                            let database_url = database_url.to_string();
-                            move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                                let mut connection = SqliteConnection::establish(&database_url)?;
-                                insert_reading(&mut connection, new_reading)?;
-                                Ok(())
+                        // Extract readings and source IDs for cleanup
+                        let readings: Vec<NewReading> = batch.iter().map(|pr| pr.reading.clone()).collect();
+                        let source_ids: HashSet<i32> = batch.iter().map(|pr| pr.reading.source_id).collect();
+
+                        // Write batch to database
+                        let database_url_clone = database_url.clone();
+                        let write_result = task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                            let mut connection = SqliteConnection::establish(&database_url_clone)?;
+                            insert_readings_batch(&mut connection, readings)?;
+                            Ok(())
+                        }).await?;
+
+                        match write_result {
+                            Ok(_) => {
+                                if verbose {
+                                    println!("Successfully wrote batch of {} readings", batch.len());
+                                }
+                                // Remove source IDs from pending set
+                                let mut pending = pending_sources.lock().await;
+                                for source_id in source_ids {
+                                    pending.remove(&source_id);
+                                }
                             }
-                        }).await??;
-
-                        if verbose {
-                            println!("  → Successfully stored data from {}", source.name);
+                            Err(e) => {
+                                eprintln!("Error writing batch: {}", e);
+                                // Keep the source IDs in pending set so they won't be read again immediately
+                            }
                         }
+
+                        batch.clear();
                     }
-                    Err(e) => {
-                        if verbose {
-                            println!("  → Failed to collect data from {}: {}", source.name, e);
+                }
+                reading = rx.recv() => {
+                    match reading {
+                        Some(pending_reading) => {
+                            if verbose {
+                                println!("Received reading from source: {}", pending_reading.source_name);
+                            }
+                            batch.push(pending_reading);
+                        }
+                        None => {
+                            // Channel closed, write final batch and exit
+                            if !batch.is_empty() {
+                                let readings: Vec<NewReading> = batch.iter().map(|pr| pr.reading.clone()).collect();
+                                let _ = task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                                    let mut connection = SqliteConnection::establish(&database_url)?;
+                                    insert_readings_batch(&mut connection, readings)?;
+                                    Ok(())
+                                }).await;
+                            }
+                            break;
                         }
                     }
                 }
@@ -148,6 +144,120 @@ impl DataAggregator {
         }
 
         Ok(())
+    }
+
+    async fn start_reader_tasks(
+        database_url: String,
+        tx: mpsc::UnboundedSender<PendingReading>,
+        pending_sources: Arc<Mutex<HashSet<i32>>>,
+        verbose: bool,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        loop {
+            // Get active sources
+            let (active_sources, db_path) = task::spawn_blocking({
+                let database_url = database_url.clone();
+                move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
+                    let mut connection = SqliteConnection::establish(&database_url)?;
+                    
+                    use schema::sources::dsl::*;
+                    let active_sources: Vec<Source> = sources
+                        .filter(active.eq(true))
+                        .select(Source::as_select())
+                        .load(&mut connection)?;
+
+                    let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
+                    
+                    Ok((active_sources, db_path))
+                }
+            }).await??;
+
+            if verbose && !active_sources.is_empty() {
+                println!("Found {} active data sources to poll", active_sources.len());
+            }
+
+            // Spawn a task for each source that doesn't have pending writes
+            let mut tasks = Vec::new();
+            
+            for source in active_sources {
+                if let Some(source_id) = source.id {
+                    let pending = pending_sources.lock().await;
+                    if pending.contains(&source_id) {
+                        if verbose {
+                            //println!("Skipping source '{}' (ID: {}) - write pending", source.name, source_id);
+                        }
+                        continue;
+                    }
+                    drop(pending);
+
+                    let tx_clone = tx.clone();
+                    let pending_sources_clone = pending_sources.clone();
+                    let db_path_clone = db_path.clone();
+                    let source_name = source.name.clone();
+
+                    let task = task::spawn(async move {
+                        // Mark source as having a pending write
+                        {
+                            let mut pending = pending_sources_clone.lock().await;
+                            pending.insert(source_id);
+                        }
+
+                        if verbose {
+                            println!("Polling data source: {} (ID: {})", source_name, source_id);
+                        }
+
+                        let collector = DataCollector::new(source_name.clone(), source_id, db_path_clone);
+                        
+                        match collector.collect().await {
+                            Ok(data) => {
+                                if verbose {
+                                    println!("  → Collected data from {}: {}", source_name, serde_json::to_string_pretty(&data).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                                }
+
+                                match NewReading::with_json_data(source_id, &data) {
+                                    Ok(new_reading) => {
+                                        let pending_reading = PendingReading {
+                                            reading: new_reading,
+                                            source_name: source_name.clone(),
+                                        };
+
+                                        if let Err(e) = tx_clone.send(pending_reading) {
+                                            eprintln!("Failed to send reading for {}: {}", source_name, e);
+                                            // Remove from pending set if send failed
+                                            let mut pending = pending_sources_clone.lock().await;
+                                            pending.remove(&source_id);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to create reading for {}: {}", source_name, e);
+                                        // Remove from pending set if reading creation failed
+                                        let mut pending = pending_sources_clone.lock().await;
+                                        pending.remove(&source_id);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if verbose {
+                                    println!("  → Failed to collect data from {}: {}", source_name, e);
+                                }
+                                // Remove from pending set if collection failed
+                                let mut pending = pending_sources_clone.lock().await;
+                                pending.remove(&source_id);
+                            }
+                        }
+                    });
+
+                    tasks.push(task);
+                }
+            }
+
+            // Wait for all collection tasks to complete
+            for task in tasks {
+                let _ = task.await;
+            }
+
+            // Small delay before starting next collection cycle
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
     }
 }
 
