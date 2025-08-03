@@ -152,33 +152,33 @@ impl DataAggregator {
         pending_sources: Arc<Mutex<HashSet<i32>>>,
         verbose: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        loop {
-            // Get active sources
-            let (active_sources, db_path) = task::spawn_blocking({
-                let database_url = database_url.clone();
-                move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
-                    let mut connection = SqliteConnection::establish(&database_url)?;
-                    
-                    use schema::sources::dsl::*;
-                    let active_sources: Vec<Source> = sources
-                        .filter(active.eq(true))
-                        .select(Source::as_select())
-                        .load(&mut connection)?;
+        // Get active sources once at startup - only one database connection needed
+        let (active_sources, db_path) = task::spawn_blocking({
+            let database_url = database_url.clone();
+            move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
+                let mut connection = SqliteConnection::establish(&database_url)?;
+                
+                use schema::sources::dsl::*;
+                let active_sources: Vec<Source> = sources
+                    .filter(active.eq(true))
+                    .select(Source::as_select())
+                    .load(&mut connection)?;
 
-                    let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
-                    
-                    Ok((active_sources, db_path))
-                }
-            }).await??;
-
-            if verbose && !active_sources.is_empty() {
-                println!("Found {} active data sources to poll", active_sources.len());
+                let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
+                
+                Ok((active_sources, db_path))
             }
+        }).await??;
 
+        if verbose {
+            println!("Found {} active data sources to poll", active_sources.len());
+        }
+
+        loop {
             // Spawn a task for each source that doesn't have pending writes
             let mut tasks = Vec::new();
             
-            for source in active_sources {
+            for source in &active_sources {
                 if let Some(source_id) = source.id {
                     let pending = pending_sources.lock().await;
                     if pending.contains(&source_id) {

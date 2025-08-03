@@ -24,7 +24,7 @@ pub mod data_sources {
     /// Ping localhost several  times and get average response time
     pub async fn ping_localhost() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let mut times = Vec::new();
-        let attempts = 50;
+        let attempts = 3;
 
         for _ in 0..attempts {
             let start = Instant::now();
