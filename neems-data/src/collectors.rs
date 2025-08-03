@@ -1,13 +1,12 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use rand::Rng;
 use serde_json::{json, Value as JsonValue};
 use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
-use std::process::Command;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use sha1::Digest;
 
 pub mod data_sources {
     use super::*;
@@ -72,9 +71,9 @@ pub mod data_sources {
     pub async fn random_digits() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let mut rng = rand::thread_rng();
         
-        let random_int: u32 = rng.gen_range(0..10000);
-        let random_float: f64 = rng.gen();
-        let random_bytes: Vec<u8> = (0..8).map(|_| rng.gen()).collect();
+        let random_int: u32 = rng.random_range(0..10000);
+        let random_float: f64 = rng.random();
+        let random_bytes: Vec<u8> = (0..8).map(|_| rng.random()).collect();
         
         Ok(json!({
             "random_integer": random_int,
@@ -134,6 +133,42 @@ pub mod data_sources {
             }))
         }
     }
+
+    /// Determine the charging state based on the current time.
+    /// This is the public-facing collector function.
+    pub async fn charging_state() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+        let now = Utc::now();
+        let state = charging_state_logic(now);
+        Ok(json!({
+            "state": state,
+            "timestamp_utc": now.to_rfc3339()
+        }))
+    }
+
+    /// This function contains the core logic for determining the charging state.
+    /// It's separate from the async collector function to make it easily testable.
+    pub fn charging_state_logic(now: DateTime<Utc>) -> &'static str {
+        let weekday = now.weekday();
+        let hour = now.hour();
+
+        // Discharging: M-F, 4 PM to 8 PM (16:00 - 19:59)
+        if weekday.number_from_monday() >= 1
+            && weekday.number_from_monday() <= 5
+            && hour >= 16
+            && hour < 20
+        {
+            return "discharging";
+        }
+
+        // Charging: Sat-Thurs, 12 AM to 8 AM (00:00 - 07:59)
+        // Note: This includes Saturday, Sunday, Monday, Tuesday, Wednesday, Thursday
+        if weekday != Weekday::Fri && hour < 8 {
+            return "charging";
+        }
+
+        // Hold: All other times
+        "hold"
+    }
 }
 
 /// Data collector that manages async polling of various data sources
@@ -160,6 +195,7 @@ impl DataCollector {
             "random_digits" => data_sources::random_digits().await,
             "database_modtime" => data_sources::database_modtime(&self.db_path).await,
             "database_sha1" => data_sources::database_sha1(&self.db_path).await,
+            "charging_state" => data_sources::charging_state().await,
             _ => Err(format!("Unknown collector type: {}", self.name).into()),
         }
     }

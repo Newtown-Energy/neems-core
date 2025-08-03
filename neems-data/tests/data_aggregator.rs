@@ -2,6 +2,8 @@
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
+use diesel_migrations::MigrationHarness;
+use neems_data::collectors::DataCollector;
 use neems_data::models::{NewReading, NewSource, UpdateSource};
 use neems_data::{
     create_source, get_recent_readings, get_source_by_name, insert_reading, list_sources,
@@ -126,4 +128,43 @@ fn test_insert_and_get_reading() {
     // 4. Verify the data
     let parsed_data: serde_json::Value = serde_json::from_str(&reading.data).unwrap();
     assert_eq!(parsed_data, data);
+}
+
+#[tokio::test]
+async fn test_charging_state_source_integration() {
+    let mut conn = setup_test_db();
+
+    // 1. Create the "charging_state" source
+    let source_name = "charging_state";
+    let new_source = NewSource {
+        name: source_name.to_string(),
+        description: Some("Test charging state".to_string()),
+        active: Some(true),
+    };
+    let source = create_source(&mut conn, new_source).expect("Failed to create source");
+    let source_id = source.id.unwrap();
+
+    // 2. Use the DataCollector to get data for this source
+    let collector = DataCollector::new(source_name.to_string(), source_id, "".to_string());
+    let collected_data = collector.collect().await.expect("Collector failed");
+
+    // 3. Insert the collected data as a new reading
+    let new_reading = NewReading::with_json_data(source_id, &collected_data).unwrap();
+    insert_reading(&mut conn, new_reading).expect("Failed to insert reading");
+
+    // 4. Retrieve the reading and verify its contents
+    let readings =
+        get_recent_readings(&mut conn, source_id, 1).expect("Failed to get recent readings");
+    assert_eq!(readings.len(), 1);
+
+    let reading = &readings[0];
+    let parsed_data: serde_json::Value = serde_json::from_str(&reading.data).unwrap();
+
+    // Check that the data has the expected structure
+    assert!(parsed_data.get("state").is_some());
+    assert!(parsed_data.get("timestamp_utc").is_some());
+
+    // Check that the state is one of the valid options
+    let state = parsed_data["state"].as_str().unwrap();
+    assert!(["charging", "discharging", "hold"].contains(&state));
 }

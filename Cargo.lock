@@ -1418,7 +1418,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "dotenvy",
- "rand 0.8.5",
+ "rand 0.9.1",
  "serde",
  "serde_json",
  "sha1",

@@ -1,5 +1,6 @@
 //! tests/collectors.rs
 
+use chrono::{NaiveDate, Timelike, TimeZone, Utc};
 use neems_data::collectors::{data_sources, DataCollector};
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -93,4 +94,64 @@ async fn test_data_collector_dispatch() {
     let collector_unknown = DataCollector::new("unknown_collector".to_string(), 3, "".to_string());
     let result_unknown = collector_unknown.collect().await;
     assert!(result_unknown.is_err());
+}
+
+#[test]
+fn test_charging_state_logic() {
+    // Test cases for the "discharging" state: Mon-Fri, 4 PM - 8 PM
+    let monday_afternoon = NaiveDate::from_ymd_opt(2025, 8, 4) // A Monday
+        .unwrap()
+        .and_hms_opt(16, 0, 0)
+        .unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&monday_afternoon)),
+        "discharging"
+    );
+
+    let friday_evening = NaiveDate::from_ymd_opt(2025, 8, 8) // A Friday
+        .unwrap()
+        .and_hms_opt(19, 59, 59)
+        .unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&friday_evening)),
+        "discharging"
+    );
+
+    // Test cases for the "charging" state: Sat-Thurs, 12 AM - 8 AM
+    let saturday_morning = NaiveDate::from_ymd_opt(2025, 8, 9) // A Saturday
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&saturday_morning)),
+        "charging"
+    );
+
+    let thursday_morning = NaiveDate::from_ymd_opt(2025, 8, 7) // A Thursday
+        .unwrap()
+        .and_hms_opt(7, 59, 59)
+        .unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&thursday_morning)),
+        "charging"
+    );
+
+    // Test cases for the "hold" state (outside of other windows)
+    let monday_morning = monday_afternoon.with_hour(9).unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&monday_morning)),
+        "hold"
+    );
+
+    let friday_night = friday_evening.with_hour(20).unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&friday_night)),
+        "hold"
+    );
+
+    let friday_morning = friday_evening.with_hour(4).unwrap();
+    assert_eq!(
+        data_sources::charging_state_logic(Utc.from_utc_datetime(&friday_morning)),
+        "hold" // Friday is not in the "charging" day set
+    );
 }

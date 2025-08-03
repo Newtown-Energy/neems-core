@@ -1,9 +1,10 @@
 use dotenvy::dotenv;
 use neems_data::{create_source, DataAggregator, NewSource};
 use std::env;
+use std::error::Error;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     dotenv().ok();
 
     let database_path =
@@ -13,7 +14,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Database path: {}", database_path);
 
     let aggregator = DataAggregator::new(Some(&database_path));
-    let mut connection = aggregator.establish_connection()?;
+    let mut connection = aggregator
+        .establish_connection()
+        .map_err(|e| e.to_string())?;
 
     // Define the data sources we want to collect from
     let sources = vec![
@@ -42,15 +45,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             description: Some("SHA1 hash of the database file".to_string()),
             active: Some(true),
         },
+        NewSource {
+            name: "charging_state".to_string(),
+            description: Some(
+                "Calculates the current charging state (charging, discharging, hold)".to_string(),
+            ),
+            active: Some(true),
+        },
     ];
 
     for new_source in sources {
-        match neems_data::get_source_by_name(&mut connection, &new_source.name)? {
+        match neems_data::get_source_by_name(&mut connection, &new_source.name)
+            .map_err(|e| e.to_string())?
+        {
             Some(existing) => {
-                println!("Source '{}' already exists (ID: {:?})", new_source.name, existing.id);
+                println!(
+                    "Source '{}' already exists (ID: {:?})",
+                    new_source.name, existing.id
+                );
             }
             None => {
-                let created = create_source(&mut connection, new_source.clone())?;
+                let created = create_source(&mut connection, new_source.clone())
+                    .map_err(|e| e.to_string())?;
                 println!("Created source '{}' (ID: {:?})", created.name, created.id);
             }
         }
@@ -59,3 +75,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Data source setup complete!");
     Ok(())
 }
+

@@ -1,10 +1,11 @@
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use std::env;
 use std::error::Error;
 use tokio::task;
 
+pub mod collectors;
 pub mod models;
 pub mod schema;
 
@@ -94,40 +95,40 @@ impl DataAggregator {
                 });
 
                 let new_reading = NewReading::with_json_data(source_id, &sample_data)?;
-                Self::insert_reading(connection, new_reading)?;
+                insert_reading(connection, new_reading)?;
             }
         }
 
         Ok(())
     }
+}
 
-    /// Insert a single reading
-    pub fn insert_reading(
-        connection: &mut SqliteConnection,
-        reading: NewReading,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        use schema::readings;
+/// Insert a single reading
+pub fn insert_reading(
+    connection: &mut SqliteConnection,
+    reading: NewReading,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use schema::readings;
 
-        diesel::insert_into(readings::table)
-            .values(&reading)
-            .execute(connection)?;
+    diesel::insert_into(readings::table)
+        .values(&reading)
+        .execute(connection)?;
 
-        Ok(())
-    }
+    Ok(())
+}
 
-    /// Insert multiple readings in a batch for better performance
-    pub fn insert_readings_batch(
-        connection: &mut SqliteConnection,
-        readings: Vec<NewReading>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        use schema::readings;
+/// Insert multiple readings in a batch for better performance
+pub fn insert_readings_batch(
+    connection: &mut SqliteConnection,
+    readings: Vec<NewReading>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use schema::readings;
 
-        diesel::insert_into(readings::table)
-            .values(&readings)
-            .execute(connection)?;
+    diesel::insert_into(readings::table)
+        .values(&readings)
+        .execute(connection)?;
 
-        Ok(())
-    }
+    Ok(())
 }
 
 /// Source Management Functions
