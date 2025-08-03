@@ -117,8 +117,16 @@ build() {
 }
 
 check() {
-    local cmd="check $DEV_TEST_FLAGS $TARGET_PROJECT"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    local cmd="$CARGO $NIGHTLY check $DEV_TEST_FLAGS $TARGET_PROJECT"
+    echo "${cmd} $@"
+    RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+}
+
+run() {
+    echo "TP: $TARGET_PROJECT"
+    local cmd="$CARGO $NIGHTLY run $TARGET_PROJECT"
+    echo "${cmd} $@"
+    $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
 }
 
 depends() {

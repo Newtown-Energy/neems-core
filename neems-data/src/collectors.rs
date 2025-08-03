@@ -1,9 +1,10 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde_json::{json, Value as JsonValue};
-use sha1::{Digest, Sha1};
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -72,8 +73,8 @@ pub mod data_sources {
         let mut rng = rand::thread_rng();
         
         let random_int: u32 = rng.gen_range(0..10000);
-        let random_float: f64 = rng.r#gen::<f64>();
-        let random_bytes: Vec<u8> = (0..8).map(|_| rng.r#gen::<u8>()).collect();
+        let random_float: f64 = rng.gen();
+        let random_bytes: Vec<u8> = (0..8).map(|_| rng.gen()).collect();
         
         Ok(json!({
             "random_integer": random_int,
@@ -114,7 +115,7 @@ pub mod data_sources {
         
         if path.exists() {
             let contents = tokio::fs::read(path).await?;
-            let mut hasher = Sha1::new();
+            let mut hasher = sha1::Sha1::new();
             hasher.update(&contents);
             let hash = hasher.finalize();
             let hash_hex = format!("{:x}", hash);
@@ -136,7 +137,6 @@ pub mod data_sources {
 }
 
 /// Data collector that manages async polling of various data sources
-#[derive(Clone)]
 pub struct DataCollector {
     pub name: String,
     pub source_id: i32,

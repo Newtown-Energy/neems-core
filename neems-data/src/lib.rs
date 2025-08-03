@@ -1,15 +1,10 @@
-use crate::collectors::DataCollector;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::env;
 use std::error::Error;
-use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
 use tokio::task;
-use tokio::time;
 
-pub mod collectors;
 pub mod models;
 pub mod schema;
 
@@ -34,127 +29,74 @@ impl DataAggregator {
         Self { database_url }
     }
 
-    pub fn establish_connection(&self) -> Result<SqliteConnection, Box<dyn Error + Send + Sync>> {
+    pub fn establish_connection(&self) -> Result<SqliteConnection, Box<dyn Error>> {
         let mut connection = SqliteConnection::establish(&self.database_url)?;
-        connection.run_pending_migrations(MIGRATIONS)?;
+        connection
+            .run_pending_migrations(MIGRATIONS)
+            .map_err(|e| format!("Error running migrations: {}", e))?;
         Ok(connection)
     }
 
     pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let (data_tx, mut data_rx) = mpsc::channel::<NewReading>(1024);
-        let (signal_tx, _) = broadcast::channel::<()>(1);
-
         let database_url = self.database_url.clone();
-        let db_path = self
-            .database_url
-            .strip_prefix("sqlite://")
-            .unwrap_or(&self.database_url)
-            .to_string();
 
-        let signal_tx_clone = signal_tx.clone();
-        let writer_task = task::spawn(async move {
-            let mut interval = time::interval(Duration::from_secs(1));
-            let mut readings_batch = Vec::new();
-
+        task::spawn(async move {
             loop {
-                interval.tick().await;
-
-                // Signal collectors to start polling for the next cycle.
-                // This allows collection to happen in parallel with the DB write.
-                if signal_tx_clone.send(()).is_err() {
-                    println!("All collector receivers dropped. Writer will continue to process remaining data.");
+                match Self::collect_data(&database_url).await {
+                    Ok(_) => println!("Data collection cycle completed"),
+                    Err(e) => eprintln!("Error during data collection: {}", e),
                 }
 
-                // Drain any data that has arrived since the last tick.
-                while let Ok(reading) = data_rx.try_recv() {
-                    readings_batch.push(reading);
-                }
-
-                if !readings_batch.is_empty() {
-                    let batch_to_write = std::mem::take(&mut readings_batch);
-                    println!("Writing batch of {} readings to DB.", batch_to_write.len());
-
-                    let db_url_clone = database_url.clone();
-                    task::spawn_blocking(move || {
-                        let path = db_url_clone.strip_prefix("sqlite://").unwrap_or(&db_url_clone);
-                        let aggregator = DataAggregator::new(Some(path));
-                        match aggregator.establish_connection() {
-                            Ok(mut conn) => {
-                                if let Err(e) = DataAggregator::insert_readings_batch(&mut conn, batch_to_write) {
-                                    eprintln!("Failed to write batch to DB: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to establish connection for batch write: {}", e);
-                            }
-                        }
-                    });
-                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             }
-        });
+        })
+        .await?;
 
-        let mut conn = self.establish_connection()?;
-        let active_sources: Vec<Source> = {
-            use crate::schema::sources::dsl::*;
-            sources
-                .filter(active.eq(true))
-                .select(Source::as_select())
-                .load(&mut conn)?
-        };
+        Ok(())
+    }
 
-        println!("Found {} active sources", active_sources.len());
+    async fn collect_data(database_url: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        task::spawn_blocking({
+            let database_url = database_url.to_string();
+            move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                let mut connection = SqliteConnection::establish(&database_url)?;
 
-        let _collector_handles: Vec<_> = active_sources
-            .into_iter()
-            .filter_map(|source| source.id.map(|sid| (source.name, sid)))
-            .map(|(name, source_id)| {
-                let collector = DataCollector::new(name, source_id, db_path.clone());
-                let data_tx_clone = data_tx.clone();
-                let mut signal_rx = signal_tx.subscribe();
+                // Example: Insert sample readings for testing
+                // In practice, this would collect from actual data sources
+                Self::collect_from_sources(&mut connection)?;
 
-                task::spawn(async move {
-                    loop {
-                        // Wait for the signal from the writer to start polling.
-                        match signal_rx.recv().await {
-                            Ok(_) => {
-                                // Got the signal, proceed to collect.
-                                match collector.collect().await {
-                                    Ok(json_data) => {
-                                        match NewReading::with_json_data(collector.source_id, &json_data) {
-                                            Ok(reading) => {
-                                                if data_tx_clone.send(reading).await.is_err() {
-                                                    eprintln!("Data channel closed, collector for source {} shutting down.", collector.source_id);
-                                                    break;
-                                                }
-                                            }
-                                            Err(e) => eprintln!("Error creating reading from json for source {}: {}", collector.source_id, e),
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Collector '{}' for source id {} failed: {}", collector.name, collector.source_id, e);
-                                    }
-                                }
-                            }
-                            Err(broadcast::error::RecvError::Lagged(_)) => {
-                                // This is okay. The collector was too slow and missed a signal.
-                                // It will just wait for the next one.
-                                eprintln!("Collector for source {} lagged, skipping a cycle.", collector.source_id);
-                            }
-                            Err(broadcast::error::RecvError::Closed) => {
-                                // The writer task has shut down.
-                                eprintln!("Signal channel closed, collector for source {} shutting down.", collector.source_id);
-                                break;
-                            }
-                        }
-                    }
-                })
-            })
-            .collect();
+                Ok(())
+            }
+        })
+        .await??;
 
-        drop(data_tx); // Drop original sender for the data channel.
+        Ok(())
+    }
 
-        // Await the writer task. It runs indefinitely unless it panics.
-        writer_task.await?;
+    fn collect_from_sources(
+        connection: &mut SqliteConnection,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        use schema::sources::dsl::*;
+
+        // Get all active sources
+        let active_sources: Vec<Source> = sources
+            .filter(active.eq(true))
+            .select(Source::as_select())
+            .load(connection)?;
+
+        for source in active_sources {
+            if let Some(source_id) = source.id {
+                // This is where you'd implement actual data collection per source
+                // For now, just create a placeholder reading
+                let sample_data = serde_json::json!({
+                    "placeholder": true,
+                    "source": source.name
+                });
+
+                let new_reading = NewReading::with_json_data(source_id, &sample_data)?;
+                Self::insert_reading(connection, new_reading)?;
+            }
+        }
 
         Ok(())
     }
@@ -194,7 +136,7 @@ impl DataAggregator {
 pub fn create_source(
     connection: &mut SqliteConnection,
     new_source: NewSource,
-) -> Result<Source, Box<dyn Error + Send + Sync>> {
+) -> Result<Source, Box<dyn Error>> {
     use schema::sources;
 
     diesel::insert_into(sources::table)
@@ -211,7 +153,7 @@ pub fn create_source(
 }
 
 /// List all sources
-pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
+pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error>> {
     use schema::sources::dsl::*;
 
     let source_list = sources.select(Source::as_select()).load(connection)?;
@@ -223,7 +165,7 @@ pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Bo
 pub fn get_source_by_name(
     connection: &mut SqliteConnection,
     source_name: &str,
-) -> Result<Option<Source>, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Source>, Box<dyn Error>> {
     use schema::sources::dsl::*;
 
     let source = sources
@@ -240,7 +182,7 @@ pub fn update_source(
     connection: &mut SqliteConnection,
     source_id: i32,
     updates: UpdateSource,
-) -> Result<Source, Box<dyn Error + Send + Sync>> {
+) -> Result<Source, Box<dyn Error>> {
     use schema::sources::dsl::*;
 
     diesel::update(sources.filter(id.eq(source_id)))
@@ -260,7 +202,7 @@ pub fn get_recent_readings(
     connection: &mut SqliteConnection,
     src_id: i32,
     limit: i64,
-) -> Result<Vec<Reading>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<Reading>, Box<dyn Error>> {
     use schema::readings::dsl::*;
 
     let recent_readings = readings
@@ -276,7 +218,7 @@ pub fn get_recent_readings(
 /// Read aggregated data - main interface for neems-api
 pub fn read_aggregated_data(
     database_path: Option<&str>,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error>> {
     let aggregator = DataAggregator::new(database_path);
     let mut connection = aggregator.establish_connection()?;
 
