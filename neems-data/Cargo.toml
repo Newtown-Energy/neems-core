@@ -21,6 +21,7 @@ path = "src/lib.rs"
 
 [dependencies]
 chrono = { workspace = true }
+clap = { workspace = true }
 diesel = { workspace = true }
 diesel_migrations = { workspace = true }
 dotenvy = { workspace = true }

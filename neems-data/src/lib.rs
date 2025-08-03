@@ -4,6 +4,7 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::env;
 use std::error::Error;
 use tokio::task;
+use collectors::DataCollector;
 
 pub mod collectors;
 pub mod models;
@@ -38,64 +39,100 @@ impl DataAggregator {
         Ok(connection)
     }
 
-    pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn start_aggregation(&self, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
         let database_url = self.database_url.clone();
 
-        task::spawn(async move {
+        let _handle = task::spawn(async move {
             loop {
-                match Self::collect_data(&database_url).await {
-                    Ok(_) => println!("Data collection cycle completed"),
+                match Self::collect_data(&database_url, verbose).await {
+                    Ok(_) => {
+                        if verbose {
+                            println!("Data collection cycle completed");
+                        }
+                    },
                     Err(e) => eprintln!("Error during data collection: {}", e),
                 }
 
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
-        })
-        .await?;
+        });
 
-        Ok(())
+        // Keep the main thread alive to let the background task run
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        }
     }
 
-    async fn collect_data(database_url: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        task::spawn_blocking({
-            let database_url = database_url.to_string();
-            move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                let mut connection = SqliteConnection::establish(&database_url)?;
-
-                // Example: Insert sample readings for testing
-                // In practice, this would collect from actual data sources
-                Self::collect_from_sources(&mut connection)?;
-
-                Ok(())
-            }
-        })
-        .await??;
-
-        Ok(())
+    async fn collect_data(database_url: &str, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Self::collect_from_sources(database_url, verbose).await
     }
 
-    fn collect_from_sources(
-        connection: &mut SqliteConnection,
+    async fn collect_from_sources(
+        database_url: &str,
+        verbose: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         use schema::sources::dsl::*;
 
-        // Get all active sources
-        let active_sources: Vec<Source> = sources
-            .filter(active.eq(true))
-            .select(Source::as_select())
-            .load(connection)?;
+        // Establish connection in a blocking task for database operations
+        let (active_sources, db_path) = task::spawn_blocking({
+            let database_url = database_url.to_string();
+            move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
+                let mut connection = SqliteConnection::establish(&database_url)?;
+                
+                // Get all active sources
+                let active_sources: Vec<Source> = sources
+                    .filter(active.eq(true))
+                    .select(Source::as_select())
+                    .load(&mut connection)?;
+
+                // Extract database path for collectors that need it
+                let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
+                
+                Ok((active_sources, db_path))
+            }
+        }).await??;
+
+        if verbose {
+            println!("Found {} active data sources to poll", active_sources.len());
+        }
 
         for source in active_sources {
             if let Some(source_id) = source.id {
-                // This is where you'd implement actual data collection per source
-                // For now, just create a placeholder reading
-                let sample_data = serde_json::json!({
-                    "placeholder": true,
-                    "source": source.name
-                });
+                if verbose {
+                    println!("Polling data source: {} (ID: {})", source.name, source_id);
+                }
 
-                let new_reading = NewReading::with_json_data(source_id, &sample_data)?;
-                insert_reading(connection, new_reading)?;
+                // Create collector and collect data
+                let collector = DataCollector::new(source.name.clone(), source_id, db_path.clone());
+                
+                match collector.collect().await {
+                    Ok(data) => {
+                        if verbose {
+                            println!("  → Collected data: {}", serde_json::to_string_pretty(&data).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                        }
+
+                        // Insert the collected data
+                        let new_reading = NewReading::with_json_data(source_id, &data)?;
+                        
+                        task::spawn_blocking({
+                            let database_url = database_url.to_string();
+                            move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                                let mut connection = SqliteConnection::establish(&database_url)?;
+                                insert_reading(&mut connection, new_reading)?;
+                                Ok(())
+                            }
+                        }).await??;
+
+                        if verbose {
+                            println!("  → Successfully stored data from {}", source.name);
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            println!("  → Failed to collect data from {}: {}", source.name, e);
+                        }
+                    }
+                }
             }
         }
 

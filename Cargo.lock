@@ -1415,6 +1415,7 @@ name = "neems-data"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "clap",
  "diesel",
  "diesel_migrations",
  "dotenvy",
