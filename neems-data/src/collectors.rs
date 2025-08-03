@@ -1,12 +1,12 @@
 use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use rand::Rng;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
+use sha1::Digest;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use sha1::Digest;
 
 pub mod data_sources {
     use super::*;
@@ -24,25 +24,29 @@ pub mod data_sources {
     /// Ping localhost 3 times and get average response time
     pub async fn ping_localhost() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let mut times = Vec::new();
-        
+
         for _ in 0..3 {
             let start = Instant::now();
-            
+
             // Try to connect to localhost on port 22 (SSH) as a simple connectivity test
-            let connect_result = timeout(Duration::from_millis(500), TcpStream::connect("127.0.0.1:22")).await;
-            
+            let connect_result = timeout(
+                Duration::from_millis(500),
+                TcpStream::connect("127.0.0.1:22"),
+            )
+            .await;
+
             match connect_result {
                 Ok(Ok(_)) => {
                     let duration = start.elapsed();
                     times.push(duration.as_micros() as f64 / 1000.0); // Convert to milliseconds
-                },
+                }
                 Ok(Err(_)) | Err(_) => {
                     // If SSH port is not available, try a simple ping using system command
                     let output = tokio::process::Command::new("ping")
                         .args(&["-c", "1", "-W", "500", "127.0.0.1"])
                         .output()
                         .await;
-                    
+
                     if let Ok(output) = output {
                         if output.status.success() {
                             let duration = start.elapsed();
@@ -69,12 +73,12 @@ pub mod data_sources {
 
     /// Generate some random digits
     pub async fn random_digits() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let mut rng = rand::thread_rng();
-        
+        let mut rng = rand::rng();
+
         let random_int: u32 = rng.random_range(0..10000);
         let random_float: f64 = rng.random();
         let random_bytes: Vec<u8> = (0..8).map(|_| rng.random()).collect();
-        
+
         Ok(json!({
             "random_integer": random_int,
             "random_float": random_float,
@@ -84,14 +88,16 @@ pub mod data_sources {
     }
 
     /// Get modification time of the database file
-    pub async fn database_modtime(db_path: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn database_modtime(
+        db_path: &str,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let path = Path::new(db_path);
-        
+
         if path.exists() {
             let metadata = fs::metadata(path)?;
             let modified = metadata.modified()?;
             let system_time_modified = modified.duration_since(std::time::UNIX_EPOCH)?;
-            
+
             Ok(json!({
                 "file_exists": true,
                 "modified_timestamp": system_time_modified.as_secs(),
@@ -109,16 +115,18 @@ pub mod data_sources {
     }
 
     /// Get SHA1 hash of the database file
-    pub async fn database_sha1(db_path: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn database_sha1(
+        db_path: &str,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let path = Path::new(db_path);
-        
+
         if path.exists() {
             let contents = tokio::fs::read(path).await?;
             let mut hasher = sha1::Sha1::new();
             hasher.update(&contents);
             let hash = hasher.finalize();
             let hash_hex = format!("{:x}", hash);
-            
+
             Ok(json!({
                 "file_exists": true,
                 "sha1_hash": hash_hex,

@@ -6,8 +6,8 @@ use diesel_migrations::MigrationHarness;
 use neems_data::collectors::DataCollector;
 use neems_data::models::{NewReading, NewSource, UpdateSource};
 use neems_data::{
-    create_source, get_recent_readings, get_source_by_name, insert_reading, list_sources,
-    update_source, MIGRATIONS,
+    MIGRATIONS, create_source, get_recent_readings, get_source_by_name, insert_reading,
+    list_sources, update_source,
 };
 
 /// Helper function to set up an in-memory SQLite database for testing.

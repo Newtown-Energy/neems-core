@@ -1,5 +1,5 @@
 use dotenvy::dotenv;
-use neems_data::{create_source, DataAggregator, NewSource};
+use neems_data::{DataAggregator, NewSource, create_source};
 use std::env;
 use std::error::Error;
 
@@ -75,4 +75,3 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("Data source setup complete!");
     Ok(())
 }
-

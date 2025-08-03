@@ -1,7 +1,7 @@
 //! tests/collectors.rs
 
-use chrono::{NaiveDate, Timelike, TimeZone, Utc};
-use neems_data::collectors::{data_sources, DataCollector};
+use chrono::{NaiveDate, TimeZone, Timelike, Utc};
+use neems_data::collectors::{DataCollector, data_sources};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -46,11 +46,7 @@ async fn test_database_file_collectors() {
     let modtime_json = modtime_result.unwrap();
     assert_eq!(modtime_json["file_exists"], true);
     assert!(modtime_json["modified_timestamp_ms"].is_u64());
-    assert_eq!(
-        modtime_json["file_path"],
-        path_str,
-        "modtime path mismatch"
-    );
+    assert_eq!(modtime_json["file_path"], path_str, "modtime path mismatch");
 
     // Test database_sha1 collector
     let sha1_result = data_sources::database_sha1(&path_str).await;
@@ -85,7 +81,8 @@ async fn test_data_collector_dispatch() {
     assert!(result_time.unwrap().get("unix_timestamp").is_some());
 
     // Test a collector that requires a db_path
-    let collector_sha = DataCollector::new("database_sha1".to_string(), 2, "dummy_path".to_string());
+    let collector_sha =
+        DataCollector::new("database_sha1".to_string(), 2, "dummy_path".to_string());
     let result_sha = collector_sha.collect().await;
     assert!(result_sha.is_ok()); // The collector itself handles the error gracefully
     assert_eq!(result_sha.unwrap()["file_exists"], false);
