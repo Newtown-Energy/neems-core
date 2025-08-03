@@ -154,6 +154,31 @@ pub mod data_sources {
         }))
     }
 
+    /// Run `time sleep 3` and measure how long it takes
+    pub async fn time_sleep_3() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+        let start = Instant::now();
+        
+        let output = tokio::process::Command::new("bash")
+            .args(&["-c", "time sleep 3"])
+            .output()
+            .await?;
+
+        let duration = start.elapsed();
+        let duration_ms = duration.as_millis() as f64;
+        
+        // Parse the time command output (stderr contains the timing info)
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        
+        Ok(json!({
+            "command": "time sleep 3",
+            "duration_ms": duration_ms,
+            "duration_secs": duration.as_secs_f64(),
+            "exit_code": output.status.code(),
+            "stderr": stderr.trim(),
+            "timestamp_utc": Utc::now().to_rfc3339()
+        }))
+    }
+
     /// This function contains the core logic for determining the charging state.
     /// It's separate from the async collector function to make it easily testable.
     pub fn charging_state_logic(now: DateTime<Utc>) -> &'static str {
@@ -205,6 +230,7 @@ impl DataCollector {
             "database_modtime" => data_sources::database_modtime(&self.db_path).await,
             "database_sha1" => data_sources::database_sha1(&self.db_path).await,
             "charging_state" => data_sources::charging_state().await,
+            "time_sleep_3" => data_sources::time_sleep_3().await,
             _ => Err(format!("Unknown collector type: {}", self.name).into()),
         }
     }

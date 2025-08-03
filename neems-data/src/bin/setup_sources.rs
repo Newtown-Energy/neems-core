@@ -52,6 +52,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             ),
             active: Some(true),
         },
+        NewSource {
+            name: "time_sleep_3".to_string(),
+            description: Some(
+                "Times how long it takes to run 'time sleep 3' command - slow 3+ second task".to_string(),
+            ),
+            active: Some(true),
+        },
     ];
 
     for new_source in sources {

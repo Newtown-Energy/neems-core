@@ -4,116 +4,230 @@ This document details the process of how `neems-data` polls data sources and wri
 
 ## The Aggregation Loop
 
-The core of the data collection is the `start_aggregation` method in the `DataAggregator` struct (`src/lib.rs`).
+The core of the data collection is the `start_aggregation` method in the `DataAggregator` struct (`src/lib.rs`). The current implementation uses a channel-based architecture with separate reader and writer tasks.
 
 ```rust
 // In src/lib.rs
 
-pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn start_aggregation(&self, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
     let database_url = self.database_url.clone();
 
-    task::spawn(async move {
-        loop {
-            match Self::collect_data(&database_url).await {
-                Ok(_) => println!("Data collection cycle completed"),
-                Err(e) => eprintln!("Error during data collection: {}", e),
-            }
+    // Create a channel for collecting readings
+    let (tx, rx) = mpsc::unbounded_channel::<PendingReading>();
+    
+    // Shared state to track sources with pending writes
+    let pending_sources = Arc::new(Mutex::new(HashSet::<i32>::new()));
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        }
-    })
-    .await?;
+    // Start the writer task that batches writes every second
+    let writer_handle = Self::start_writer_task(database_url.clone(), rx, pending_sources.clone(), verbose);
 
-    Ok(())
-}
-```
+    // Start the reader tasks
+    let reader_handle = Self::start_reader_tasks(database_url, tx, pending_sources, verbose);
 
-When called, it spawns a new Tokio task that enters an infinite loop. In each cycle, it:
-1.  Calls the `collect_data` method.
-2.  Waits for 1 second before starting the next cycle.
-
-This ensures that data is collected at regular intervals.
-
-## Collecting Data from Sources
-
-The `collect_data` method orchestrates the polling and writing process.
-
-```rust
-// In src/lib.rs
-
-async fn collect_data(database_url: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-    task::spawn_blocking({
-        let database_url = database_url.to_string();
-        move || -> Result<(), Box<dyn Error + Send + Sync>> {
-            let mut connection = SqliteConnection::establish(&database_url)?;
-
-            // In practice, this would collect from actual data sources
-            Self::collect_from_sources(&mut connection)?;
-
-            Ok(())
-        }
-    })
-    .await??;
+    // Wait for both tasks
+    tokio::try_join!(writer_handle, reader_handle)?;
 
     Ok(())
 }
 ```
 
-Because Diesel's connection object is synchronous, `collect_data` uses `task::spawn_blocking` to move the database-related work to a thread pool where blocking is acceptable. This prevents the synchronous database calls from blocking the asynchronous Tokio runtime.
+The aggregation process is split into two concurrent tasks:
+1. **Writer Task**: Batches readings and writes them to the database every second
+2. **Reader Tasks**: Continuously poll data sources and send readings via channel
 
-Inside this blocking task, the `collect_from_sources` function is called.
+This architecture provides better performance through batched database operations and prevents blocking during data collection.
 
-### Polling Active Sources
+## Reader Tasks: Collecting Data from Sources
 
-The `collect_from_sources` function is responsible for identifying which sources to poll.
+The reader tasks are managed by the `start_reader_tasks` method, which continuously polls active data sources. This method operates in a separate task from the database writer.
 
 ```rust
-// In src/lib.rs
+// In src/lib.rs (simplified)
 
-fn collect_from_sources(
-    connection: &mut SqliteConnection,
+async fn start_reader_tasks(
+    database_url: String,
+    tx: mpsc::UnboundedSender<PendingReading>,
+    pending_sources: Arc<Mutex<HashSet<i32>>>,
+    verbose: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    use schema::sources::dsl::*;
+    // Get active sources once at startup
+    let (active_sources, db_path) = task::spawn_blocking({
+        let database_url = database_url.clone();
+        move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
+            let mut connection = SqliteConnection::establish(&database_url)?;
+            
+            use schema::sources::dsl::*;
+            let active_sources: Vec<Source> = sources
+                .filter(active.eq(true))
+                .select(Source::as_select())
+                .load(&mut connection)?;
 
-    // 1. Get all active sources
-    let active_sources: Vec<Source> = sources
-        .filter(active.eq(true))
-        .select(Source::as_select())
-        .load(connection)?;
+            let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
+            
+            Ok((active_sources, db_path))
+        }
+    }).await??;
 
-    for source in active_sources {
-        // ... data collection and writing ...
+    loop {
+        // Spawn a task for each source that doesn't have pending writes
+        let mut tasks = Vec::new();
+        
+        for source in &active_sources {
+            if let Some(source_id) = source.id {
+                let pending = pending_sources.lock().await;
+                if pending.contains(&source_id) {
+                    continue; // Skip sources with pending writes
+                }
+                drop(pending);
+
+                // Spawn individual collection task for this source
+                let task = task::spawn(async move {
+                    // Mark source as having a pending write
+                    let mut pending = pending_sources_clone.lock().await;
+                    pending.insert(source_id);
+                    
+                    let collector = DataCollector::new(source_name.clone(), source_id, db_path_clone);
+                    
+                    match collector.collect().await {
+                        Ok(data) => {
+                            // Create reading and send via channel
+                            let new_reading = NewReading::with_json_data(source_id, &data)?;
+                            let pending_reading = PendingReading {
+                                reading: new_reading,
+                                source_name: source_name.clone(),
+                            };
+                            tx_clone.send(pending_reading)?;
+                        }
+                        Err(e) => {
+                            // Handle collection errors
+                            eprintln!("Failed to collect from {}: {}", source_name, e);
+                            let mut pending = pending_sources_clone.lock().await;
+                            pending.remove(&source_id);
+                        }
+                    }
+                });
+
+                tasks.push(task);
+            }
+        }
+
+        // Wait for all collection tasks to complete
+        for task in tasks {
+            let _ = task.await;
+        }
+
+        // Small delay before next collection cycle
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+}
+```
+
+### Key Features:
+
+- **Concurrent Collection**: Each active source runs in its own async task
+- **Pending Source Tracking**: Prevents multiple concurrent collections from the same source
+- **Channel Communication**: Collected data is sent to the writer task via `PendingReading` messages
+- **Error Handling**: Failed collections don't block other sources
+
+## Writer Task: Batched Database Operations
+
+The writer task operates independently from the reader tasks and is responsible for efficiently writing collected data to the database. It receives `PendingReading` messages via the channel and batches them for optimal database performance.
+
+```rust
+// In src/lib.rs (simplified)
+
+async fn start_writer_task(
+    database_url: String,
+    mut rx: mpsc::UnboundedReceiver<PendingReading>,
+    pending_sources: Arc<Mutex<HashSet<i32>>>,
+    verbose: bool,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+    let mut batch: Vec<PendingReading> = Vec::new();
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                if !batch.is_empty() {
+                    // Extract readings and source IDs for cleanup
+                    let readings: Vec<NewReading> = batch.iter().map(|pr| pr.reading.clone()).collect();
+                    let source_ids: HashSet<i32> = batch.iter().map(|pr| pr.reading.source_id).collect();
+
+                    // Write batch to database
+                    let database_url_clone = database_url.clone();
+                    let write_result = task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                        let mut connection = SqliteConnection::establish(&database_url_clone)?;
+                        insert_readings_batch(&mut connection, readings)?;
+                        Ok(())
+                    }).await?;
+
+                    match write_result {
+                        Ok(_) => {
+                            // Remove source IDs from pending set
+                            let mut pending = pending_sources.lock().await;
+                            for source_id in source_ids {
+                                pending.remove(&source_id);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error writing batch: {}", e);
+                            // Keep source IDs in pending set to prevent immediate re-collection
+                        }
+                    }
+
+                    batch.clear();
+                }
+            }
+            reading = rx.recv() => {
+                match reading {
+                    Some(pending_reading) => {
+                        batch.push(pending_reading);
+                    }
+                    None => {
+                        // Channel closed, write final batch and exit
+                        if !batch.is_empty() {
+                            let readings: Vec<NewReading> = batch.iter().map(|pr| pr.reading.clone()).collect();
+                            let _ = task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                                let mut connection = SqliteConnection::establish(&database_url)?;
+                                insert_readings_batch(&mut connection, readings)?;
+                                Ok(())
+                            }).await;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
 }
 ```
 
-It queries the `sources` table for all entries where the `active` column is `true`. It then iterates through this list of active sources to collect and write data for each one.
+### Batched Writing Function
 
-*(Note: The current implementation in `lib.rs` inserts placeholder data. The actual data collection is handled by the `DataCollector` in `collectors.rs`, which would be integrated here in a production scenario.)*
-
-## Writing to the Database
-
-For each active source, a `NewReading` object is created. This object is then passed to the `insert_reading` function.
+The `insert_readings_batch` function provides efficient bulk database operations:
 
 ```rust
 // In src/lib.rs
 
-pub fn insert_reading(
+pub fn insert_readings_batch(
     connection: &mut SqliteConnection,
-    reading: NewReading,
+    readings: Vec<NewReading>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     use schema::readings;
 
     diesel::insert_into(readings::table)
-        .values(&reading)
+        .values(&readings)
         .execute(connection)?;
 
     Ok(())
 }
 ```
 
-This function uses a standard `diesel::insert_into` call to write the new reading to the `readings` table.
+### Key Benefits:
 
-The crate also includes a `insert_readings_batch` function for inserting multiple readings in a single database call, which is more performant for bulk data ingestion.
+- **Batched Operations**: Writes are accumulated and executed every second for better database performance
+- **Non-blocking**: Database operations run in `spawn_blocking` to avoid blocking the async runtime
+- **Error Recovery**: Failed writes keep sources in pending state to prevent data loss
+- **Resource Management**: Proper cleanup of pending source tracking after successful writes

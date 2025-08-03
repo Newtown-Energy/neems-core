@@ -54,11 +54,14 @@ The crate includes three binaries:
 ## Data Flow
 
 1.  The `neems-data` binary is started.
-2.  The `DataAggregator` establishes a connection to the SQLite database.
-3.  The `start_aggregation` method kicks off a loop that runs every 60 seconds.
-4.  In each iteration, the `collect_data` function queries the `sources` table for all active sources.
-5.  For each active source, it calls the corresponding data collection function in `src/collectors.rs`.
-6.  The collected data (as a JSON value) is inserted as a new row in the `readings` table.
+2.  The `DataAggregator` establishes a connection to the SQLite database and runs migrations.
+3.  The `start_aggregation` method creates an unbounded channel for communication between reader and writer tasks.
+4.  **Writer Task**: A dedicated task batches readings and writes them to the database every second using `insert_readings_batch()` for better performance.
+5.  **Reader Tasks**: Continuously poll active data sources from the database, with each source getting its own async task.
+6.  Reader tasks use a shared pending sources set to prevent concurrent writes to the same source.
+7.  For each active source, the reader spawns a task that calls the corresponding data collection function in `src/collectors.rs`.
+8.  Collected data (as JSON) is wrapped in a `PendingReading` struct and sent via the channel to the writer task.
+9.  The writer task accumulates readings into batches and periodically flushes them to the database, removing source IDs from the pending set upon successful writes.
 
 ## How to Add a New Data Source
 
