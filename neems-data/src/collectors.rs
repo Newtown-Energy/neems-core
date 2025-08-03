@@ -147,9 +147,10 @@ pub mod data_sources {
     /// This is the public-facing collector function.
     pub async fn charging_state() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let now = Utc::now();
-        let state = charging_state_logic(now);
+        let (state, level) = charging_state_with_level(now);
         Ok(json!({
             "state": state,
+            "level": level,
             "timestamp_utc": now.to_rfc3339()
         }))
     }
@@ -179,11 +180,12 @@ pub mod data_sources {
         }))
     }
 
-    /// This function contains the core logic for determining the charging state.
-    /// It's separate from the async collector function to make it easily testable.
-    pub fn charging_state_logic(now: DateTime<Utc>) -> &'static str {
+    /// Enhanced function that returns both state and battery level percentage
+    pub fn charging_state_with_level(now: DateTime<Utc>) -> (&'static str, f64) {
         let weekday = now.weekday();
         let hour = now.hour();
+        let minute = now.minute();
+        let total_minutes = hour * 60 + minute;
 
         // Discharging: M-F, 4 PM to 8 PM (16:00 - 19:59)
         if weekday.number_from_monday() >= 1
@@ -191,17 +193,34 @@ pub mod data_sources {
             && hour >= 16
             && hour < 20
         {
-            return "discharging";
+            // Linear discharge from 85% to 12% over 4 hours (240 minutes)
+            let discharge_start = 16 * 60; // 4 PM in minutes
+            let discharge_duration = 4 * 60; // 4 hours in minutes
+            let progress = (total_minutes - discharge_start) as f64 / discharge_duration as f64;
+            let level = 85.0 - (85.0 - 12.0) * progress.clamp(0.0, 1.0);
+            return ("discharging", level);
         }
 
         // Charging: Sat-Thurs, 12 AM to 8 AM (00:00 - 07:59)
         // Note: This includes Saturday, Sunday, Monday, Tuesday, Wednesday, Thursday
         if weekday != Weekday::Fri && hour < 8 {
-            return "charging";
+            // Linear charge from 12% to 85% over 8 hours (480 minutes)
+            let charge_duration = 8 * 60; // 8 hours in minutes
+            let progress = total_minutes as f64 / charge_duration as f64;
+            let level = 12.0 + (85.0 - 12.0) * progress.clamp(0.0, 1.0);
+            return ("charging", level);
         }
 
         // Hold: All other times
-        "hold"
+        // During hold after charging (non-Friday early morning to 4 PM): 85%
+        // During hold after discharging (Friday 8 PM to Saturday midnight): 12%
+        let level = if weekday == Weekday::Fri && hour >= 20 {
+            12.0 // Hold at low level after discharge
+        } else {
+            85.0 // Hold at high level after charge
+        };
+        
+        ("hold", level)
     }
 }
 

@@ -94,14 +94,14 @@ async fn test_data_collector_dispatch() {
 }
 
 #[test]
-fn test_charging_state_logic() {
+fn test_charging_state() {
     // Test cases for the "discharging" state: Mon-Fri, 4 PM - 8 PM
     let monday_afternoon = NaiveDate::from_ymd_opt(2025, 8, 4) // A Monday
         .unwrap()
         .and_hms_opt(16, 0, 0)
         .unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&monday_afternoon)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&monday_afternoon)).0,
         "discharging"
     );
 
@@ -110,7 +110,7 @@ fn test_charging_state_logic() {
         .and_hms_opt(19, 59, 59)
         .unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&friday_evening)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&friday_evening)).0,
         "discharging"
     );
 
@@ -120,7 +120,7 @@ fn test_charging_state_logic() {
         .and_hms_opt(0, 0, 0)
         .unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&saturday_morning)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&saturday_morning)).0,
         "charging"
     );
 
@@ -129,26 +129,26 @@ fn test_charging_state_logic() {
         .and_hms_opt(7, 59, 59)
         .unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&thursday_morning)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&thursday_morning)).0,
         "charging"
     );
 
     // Test cases for the "hold" state (outside of other windows)
     let monday_morning = monday_afternoon.with_hour(9).unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&monday_morning)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&monday_morning)).0,
         "hold"
     );
 
     let friday_night = friday_evening.with_hour(20).unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&friday_night)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&friday_night)).0,
         "hold"
     );
 
     let friday_morning = friday_evening.with_hour(4).unwrap();
     assert_eq!(
-        data_sources::charging_state_logic(Utc.from_utc_datetime(&friday_morning)),
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&friday_morning)).0,
         "hold" // Friday is not in the "charging" day set
     );
 }

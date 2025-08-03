@@ -100,9 +100,7 @@ impl DataAggregator {
 
                         match write_result {
                             Ok(_) => {
-                                if verbose {
-                                    println!("Successfully wrote batch of {} readings", batch.len());
-                                }
+                                println!("Successfully wrote batch of {} readings", batch.len());
                                 // Remove source IDs from pending set
                                 let mut pending = pending_sources.lock().await;
                                 for source_id in source_ids {
