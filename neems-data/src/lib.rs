@@ -48,7 +48,7 @@ impl DataAggregator {
                     Err(e) => eprintln!("Error during data collection: {}", e),
                 }
 
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         })
         .await?;

@@ -19,7 +19,7 @@ pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>
                 Err(e) => eprintln!("Error during data collection: {}", e),
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     })
     .await?;
@@ -30,7 +30,7 @@ pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>
 
 When called, it spawns a new Tokio task that enters an infinite loop. In each cycle, it:
 1.  Calls the `collect_data` method.
-2.  Waits for 60 seconds before starting the next cycle.
+2.  Waits for 1 second before starting the next cycle.
 
 This ensures that data is collected at regular intervals.
 
