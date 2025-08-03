@@ -173,7 +173,7 @@ impl DataAggregator {
 pub fn create_source(
     connection: &mut SqliteConnection,
     new_source: NewSource,
-) -> Result<Source, Box<dyn Error>> {
+) -> Result<Source, Box<dyn Error + Send + Sync>> {
     use schema::sources;
 
     diesel::insert_into(sources::table)
@@ -190,7 +190,7 @@ pub fn create_source(
 }
 
 /// List all sources
-pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error>> {
+pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     let source_list = sources.select(Source::as_select()).load(connection)?;
@@ -202,7 +202,7 @@ pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Bo
 pub fn get_source_by_name(
     connection: &mut SqliteConnection,
     source_name: &str,
-) -> Result<Option<Source>, Box<dyn Error>> {
+) -> Result<Option<Source>, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     let source = sources
@@ -219,7 +219,7 @@ pub fn update_source(
     connection: &mut SqliteConnection,
     source_id: i32,
     updates: UpdateSource,
-) -> Result<Source, Box<dyn Error>> {
+) -> Result<Source, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     diesel::update(sources.filter(id.eq(source_id)))
@@ -239,7 +239,7 @@ pub fn get_recent_readings(
     connection: &mut SqliteConnection,
     src_id: i32,
     limit: i64,
-) -> Result<Vec<Reading>, Box<dyn Error>> {
+) -> Result<Vec<Reading>, Box<dyn Error + Send + Sync>> {
     use schema::readings::dsl::*;
 
     let recent_readings = readings
@@ -255,7 +255,7 @@ pub fn get_recent_readings(
 /// Read aggregated data - main interface for neems-api
 pub fn read_aggregated_data(
     database_path: Option<&str>,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error>> {
+) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
     let aggregator = DataAggregator::new(database_path);
     let mut connection = aggregator.establish_connection()?;
 

@@ -3,7 +3,6 @@ use rand::Rng;
 use serde_json::{json, Value as JsonValue};
 use sha1::{Digest, Sha1};
 use std::fs;
-use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
@@ -73,8 +72,8 @@ pub mod data_sources {
         let mut rng = rand::thread_rng();
         
         let random_int: u32 = rng.gen_range(0..10000);
-        let random_float: f64 = rng.gen::<f64>();
-        let random_bytes: Vec<u8> = (0..8).map(|_| rng.gen::<u8>()).collect();
+        let random_float: f64 = rng.r#gen::<f64>();
+        let random_bytes: Vec<u8> = (0..8).map(|_| rng.r#gen::<u8>()).collect();
         
         Ok(json!({
             "random_integer": random_int,
