@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_core::models::{NewRole, Role};
-use neems_core::orm::role::{delete_role, get_all_roles, get_role, insert_role, update_role};
+use neems_api::models::{NewRole, Role};
+use neems_api::orm::role::{delete_role, get_all_roles, get_role, insert_role, update_role};
 use regex::Regex;
 use std::io::{self, Write};
 

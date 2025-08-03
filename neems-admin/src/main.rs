@@ -1,11 +1,11 @@
 /*!
  * NEEMS Administrative CLI Utility
  *
- * This is a command-line interface for administrative management of a neems-core
+ * This is a command-line interface for administrative management of a neems-api
  * instance's SQLite database. The utility provides comprehensive database management
  * capabilities including user, company, and site management, as well as system operations.
  *
- * The CLI leverages the ORM functions located in @neems-core/src/orm/ for all database
+ * The CLI leverages the ORM functions located in @neems-api/src/orm/ for all database
  * manipulations, ensuring consistent data access patterns and maintaining referential
  * integrity across operations.
  *
@@ -142,13 +142,13 @@ mod tests {
         user_add_role_impl, user_edit_impl, user_rm_role_impl, user_set_roles_impl,
     };
     use argon2::{Argon2, PasswordHash, PasswordVerifier};
-    use neems_core::models::CompanyNoTime;
-    use neems_core::orm::company::insert_company;
-    use neems_core::orm::company::{get_all_companies, get_company_by_id, get_company_by_name};
-    use neems_core::orm::role::get_all_roles;
-    use neems_core::orm::site::{get_all_sites, get_site_by_id, insert_site};
-    use neems_core::orm::testing::setup_test_db;
-    use neems_core::orm::user::{get_user, get_user_by_email, list_all_users};
+    use neems_api::models::CompanyNoTime;
+    use neems_api::orm::company::insert_company;
+    use neems_api::orm::company::{get_all_companies, get_company_by_id, get_company_by_name};
+    use neems_api::orm::role::get_all_roles;
+    use neems_api::orm::site::{get_all_sites, get_site_by_id, insert_site};
+    use neems_api::orm::testing::setup_test_db;
+    use neems_api::orm::user::{get_user, get_user_by_email, list_all_users};
 
     #[test]
     fn test_handle_user_command_with_conn_add() {

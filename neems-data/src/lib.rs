@@ -215,7 +215,7 @@ pub fn get_recent_readings(
     Ok(recent_readings)
 }
 
-/// Read aggregated data - main interface for neems-core
+/// Read aggregated data - main interface for neems-api
 pub fn read_aggregated_data(
     database_path: Option<&str>,
 ) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error>> {

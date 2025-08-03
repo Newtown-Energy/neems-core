@@ -2,13 +2,13 @@ use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher};
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_core::models::UserNoTime;
-use neems_core::orm::company::get_company_by_id;
-use neems_core::orm::role::get_role_by_name;
-use neems_core::orm::user::{
+use neems_api::models::UserNoTime;
+use neems_api::orm::company::get_company_by_id;
+use neems_api::orm::role::get_role_by_name;
+use neems_api::orm::user::{
     delete_user_with_cleanup, get_user, get_user_by_email, insert_user, list_all_users, update_user,
 };
-use neems_core::orm::user_role::{
+use neems_api::orm::user_role::{
     assign_user_role_by_name, get_user_roles, remove_all_user_roles, remove_user_role_by_name,
 };
 use regex::Regex;

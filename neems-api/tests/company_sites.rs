@@ -2,8 +2,8 @@ use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::models::{Company, Site, UserWithRoles};
-use neems_core::orm::testing::test_rocket;
+use neems_api::models::{Company, Site, UserWithRoles};
+use neems_api::orm::testing::test_rocket;
 
 /// Helper to create a user and return login credentials
 async fn create_user_with_role(
@@ -14,7 +14,7 @@ async fn create_user_with_role(
     role_name: &str,
 ) -> (String, String) {
     // Create user with properly hashed password
-    let password_hash = neems_core::orm::login::hash_password("admin");
+    let password_hash = neems_api::orm::login::hash_password("admin");
     let new_user = json!({
         "email": email,
         "password_hash": password_hash,

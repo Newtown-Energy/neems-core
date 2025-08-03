@@ -2,8 +2,8 @@ use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::models::{Company, CompanyNoTime};
-use neems_core::orm::testing::test_rocket;
+use neems_api::models::{Company, CompanyNoTime};
+use neems_api::orm::testing::test_rocket;
 
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {

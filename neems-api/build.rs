@@ -18,8 +18,8 @@ fn main() {
                 "HEAD",
                 "--",
                 "../migrations/",
-                "neems-core/src/schema.rs",
-                "neems-core/src/models/",
+                "neems-api/src/schema.rs",
+                "neems-api/src/models/",
             ])
             .status()
             .map(|status| !status.success())

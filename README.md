@@ -47,7 +47,7 @@ dosh build
    Core on that or another machine.  Caddy would be a good choice if
    you want tls.  Maybe Nginx if you don't.
 
-You can set the port neems-core listens on in `Rocket.toml` or with the
+You can set the port neems-api listens on in `Rocket.toml` or with the
 environment variable `ROCKET_PORT`.  Similarly, `ROCKET_ADDRESS` can change the
 interface.  See the [rocket
 docs](https://rocket.rs/guide/v0.5/configuration/#configuration) for more.

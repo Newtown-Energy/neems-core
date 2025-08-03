@@ -1,4 +1,4 @@
-// neems-core/tests/schema.rs
+// neems-api/tests/schema.rs
 //
 // This file is for testing the schema and relationships in the database.
 // Do not use it to test the actual application logic.
@@ -8,9 +8,9 @@
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error};
-use neems_core::models::*;
-use neems_core::orm::testing::setup_test_db;
-use neems_core::schema::*;
+use neems_api::models::*;
+use neems_api::orm::testing::setup_test_db;
+use neems_api::schema::*;
 
 fn create_test_company(
     conn: &mut SqliteConnection,

@@ -2,8 +2,8 @@ use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::models::{Company, Role, UserWithRoles};
-use neems_core::orm::testing::test_rocket;
+use neems_api::models::{Company, Role, UserWithRoles};
+use neems_api::orm::testing::test_rocket;
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -79,7 +79,7 @@ async fn create_user_with_role(
     role_name: &str,
 ) -> UserWithRoles {
     // Create user with properly hashed password
-    let password_hash = neems_core::orm::login::hash_password("admin");
+    let password_hash = neems_api::orm::login::hash_password("admin");
     let new_user = json!({
         "email": email,
         "password_hash": password_hash,

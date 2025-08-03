@@ -1,7 +1,7 @@
 #[cfg(feature = "fixphrase")]
-use neems_core::api::fixphrase::{FixPhraseError, FixPhraseResponse};
+use neems_api::api::fixphrase::{FixPhraseError, FixPhraseResponse};
 #[cfg(feature = "fixphrase")]
-use neems_core::orm::testing::test_rocket_no_db;
+use neems_api::orm::testing::test_rocket_no_db;
 #[cfg(feature = "fixphrase")]
 use rocket::http::Status;
 #[cfg(feature = "fixphrase")]

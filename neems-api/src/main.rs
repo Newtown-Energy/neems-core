@@ -1,4 +1,4 @@
-// neems-core/src/main.rs
+// neems-api/src/main.rs
 
 use rocket::error;
 use rocket::info;
@@ -11,7 +11,7 @@ async fn main() {
         Err(e) => error!("Error getting current directory: {}", e),
     };
 
-    neems_core::rocket()
+    neems_api::rocket()
         .launch()
         .await
         .expect("Rocket server failed to launch");

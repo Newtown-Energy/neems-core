@@ -1382,13 +1382,13 @@ dependencies = [
  "clap",
  "diesel",
  "dotenvy",
- "neems-core",
+ "neems-api",
  "regex",
  "rpassword",
 ]
 
 [[package]]
-name = "neems-core"
+name = "neems-api"
 version = "0.1.2"
 dependencies = [
  "argon2",

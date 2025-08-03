@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-neems-core = { path = "../neems-core" }
+neems-api = { path = "../neems-api" }
 clap = { workspace = true, features = ["derive"] }
 regex = { workspace = true }
 rpassword = { workspace = true }

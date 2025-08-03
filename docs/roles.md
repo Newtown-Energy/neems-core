@@ -1,10 +1,10 @@
 # Role System Documentation
 
-This document describes the role-based access control (RBAC) system in neems-core for frontend developers integrating with the backend API.
+This document describes the role-based access control (RBAC) system in neems-api for frontend developers integrating with the backend API.
 
 ## Overview
 
-The neems-core system uses a hierarchical role system with four distinct roles that control user permissions and access to various system features. Roles are tightly integrated with companies and enforce specific business rules around authorization.
+The neems-api system uses a hierarchical role system with four distinct roles that control user permissions and access to various system features. Roles are tightly integrated with companies and enforce specific business rules around authorization.
 
 ## The Four Roles
 

@@ -15,7 +15,7 @@ _find_project_root() {
     while [[ "$dir" != "/" ]]; do
         local base=$(basename "$dir")
         case "$base" in
-            "neems-admin"|"neems-core"|"neems-data")
+            "neems-admin"|"neems-api"|"neems-data")
                 echo "$dir"
                 return 0
                 ;;
@@ -33,8 +33,8 @@ DOSH_PROJECT=$(_find_project_root)
 if [[ "$DOSH_PROJECT" == "." ]]; then
     # Top level - target all projects
     PROJECT_NAME="."
-    export TARGET_PROJ=("-p neems-admin -p neems-core -p neems-data")
-    export TARGET_BIN=("--bin neems-admin --bin neems-core --bin neems-data")
+    export TARGET_PROJ=("-p neems-admin -p neems-api -p neems-data")
+    export TARGET_BIN=("--bin neems-admin --bin neems-api --bin neems-data")
 else
     # Specific project - target just this one
     PROJECT_NAME=$(basename "$DOSH_PROJECT")
@@ -135,7 +135,7 @@ depends() {
 }
 
 migrate() {
-    echo Running migrations for neems-core
+    echo Running migrations for neems-api
 
     # Install diesel command line tool
     which diesel > /dev/null || ${CARGO} binstall diesel_cli
@@ -191,9 +191,9 @@ watch() {
     ${CARGO} --list | grep -Eq '^    watch$' || cargo install cargo-watch
 
     # Maybe copy our test db to /tmp
-    [ -f neems-core.sqlite ] && cp neems-core.sqlite /tmp
+    [ -f neems-api.sqlite ] && cp neems-api.sqlite /tmp
 
-    ${CARGO} watch --ignore "neems-core.sqlite*" -x run
+    ${CARGO} watch --ignore "neems-api.sqlite*" -x run
 }
 
 # If this script is called as cargo, let it act as a cargo wrapper, even for

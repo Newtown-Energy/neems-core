@@ -12,23 +12,23 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 #[cfg(feature = "test-staging")]
-use neems_core::company::random_energy_company_names;
+use neems_api::company::random_energy_company_names;
 #[cfg(feature = "test-staging")]
-use neems_core::models::{CompanyNoTime, NewRole, UserNoTime};
+use neems_api::models::{CompanyNoTime, NewRole, UserNoTime};
 #[cfg(feature = "test-staging")]
-use neems_core::orm::DbConn;
+use neems_api::orm::DbConn;
 #[cfg(feature = "test-staging")]
-use neems_core::orm::company::{get_company_by_name, insert_company};
+use neems_api::orm::company::{get_company_by_name, insert_company};
 #[cfg(feature = "test-staging")]
-use neems_core::orm::login::hash_password;
+use neems_api::orm::login::hash_password;
 #[cfg(feature = "test-staging")]
-use neems_core::orm::role::insert_role;
+use neems_api::orm::role::insert_role;
 #[cfg(feature = "test-staging")]
-use neems_core::orm::testing::test_rocket;
+use neems_api::orm::testing::test_rocket;
 #[cfg(feature = "test-staging")]
-use neems_core::orm::user::insert_user;
+use neems_api::orm::user::insert_user;
 #[cfg(feature = "test-staging")]
-use neems_core::orm::user_role::assign_user_role_by_name;
+use neems_api::orm::user_role::assign_user_role_by_name;
 
 #[cfg(feature = "test-staging")]
 /// Helper function to create test users with specific roles.

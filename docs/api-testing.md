@@ -1,7 +1,7 @@
-# neems-core test-staging API Documentation
+# neems-api test-staging API Documentation
 
 This guide covers all `test-staging` feature API endpoints available
-in the neems-core system.
+in the neems-api system.
 
 See `api.md` for information on auth, base URL, and the rest of the API.
 

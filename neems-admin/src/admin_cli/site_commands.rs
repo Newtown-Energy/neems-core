@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_core::orm::company::get_company_by_id;
-use neems_core::orm::site::{
+use neems_api::orm::company::get_company_by_id;
+use neems_api::orm::site::{
     delete_site, get_all_sites, get_site_by_id, get_sites_by_company, insert_site, update_site,
 };
 use regex::Regex;

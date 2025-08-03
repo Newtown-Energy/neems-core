@@ -12,13 +12,13 @@
 //! 4. admin can set another user's role to admin if target user is at same company
 //! 5. Users must have at least one role
 
-use neems_core::models::{Company, CompanyNoTime, Role, User, UserNoTime};
-use neems_core::orm::DbConn;
-use neems_core::orm::company::{get_company_by_name, insert_company};
-use neems_core::orm::login::hash_password;
-use neems_core::orm::testing::test_rocket;
-use neems_core::orm::user::insert_user;
-use neems_core::orm::user_role::{assign_user_role_by_name, get_user_roles};
+use neems_api::models::{Company, CompanyNoTime, Role, User, UserNoTime};
+use neems_api::orm::DbConn;
+use neems_api::orm::company::{get_company_by_name, insert_company};
+use neems_api::orm::login::hash_password;
+use neems_api::orm::testing::test_rocket;
+use neems_api::orm::user::insert_user;
+use neems_api::orm::user_role::{assign_user_role_by_name, get_user_roles};
 
 use rocket::http::{ContentType, Cookie, Status};
 use rocket::local::asynchronous::Client;

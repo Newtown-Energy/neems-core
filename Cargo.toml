@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "neems-core",
+    "neems-api",
     "neems-admin",
     "neems-data",
     "crates/fixphrase"

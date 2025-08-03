@@ -4,11 +4,11 @@ use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
 use rocket::tokio;
 
-use neems_core::models::{Company, Role, User, UserWithRoles};
-use neems_core::orm::testing::test_rocket;
-use neems_core::schema::roles;
-use neems_core::schema::user_roles;
-use neems_core::schema::users::dsl::*;
+use neems_api::models::{Company, Role, User, UserWithRoles};
+use neems_api::orm::testing::test_rocket;
+use neems_api::schema::roles;
+use neems_api::schema::user_roles;
+use neems_api::schema::users::dsl::*;
 
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {
@@ -63,7 +63,7 @@ async fn test_admin_user_is_created() {
         .expect("valid rocket instance");
 
     // Get a DB connection from the pool
-    let conn = neems_core::orm::DbConn::get_one(client.rocket())
+    let conn = neems_api::orm::DbConn::get_one(client.rocket())
         .await
         .expect("get db connection");
 
@@ -87,7 +87,7 @@ async fn test_admin_user_is_created() {
                     .inner_join(roles::table)
                     .filter(user_roles::user_id.eq(u.id))
                     .filter(roles::name.eq("newtown-admin"))
-                    .first::<(neems_core::models::UserRole, Role)>(c)
+                    .first::<(neems_api::models::UserRole, Role)>(c)
                     .optional()
                     .expect("role query should not fail");
 

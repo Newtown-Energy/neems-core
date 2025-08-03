@@ -2,8 +2,8 @@ use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_core::models::{Company, UserWithRoles};
-use neems_core::orm::testing::test_rocket;
+use neems_api::models::{Company, UserWithRoles};
+use neems_api::orm::testing::test_rocket;
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -56,7 +56,7 @@ async fn create_user_with_role(
     role_name: &str,
 ) -> UserWithRoles {
     // Create user with properly hashed password
-    let password_hash = neems_core::orm::login::hash_password("admin");
+    let password_hash = neems_api::orm::login::hash_password("admin");
     let new_user = json!({
         "email": email,
         "password_hash": password_hash,
@@ -186,7 +186,7 @@ async fn test_admin_can_create_users_for_own_company_only() {
     // Should be able to create user for own company
     let new_user_own_company = json!({
         "email": "newuser@company1.com",
-        "password_hash": neems_core::orm::login::hash_password("password"),
+        "password_hash": neems_api::orm::login::hash_password("password"),
         "company_id": company1.id,
         "totp_secret": "",
         "role_names": ["admin"]
@@ -206,7 +206,7 @@ async fn test_admin_can_create_users_for_own_company_only() {
     // Should NOT be able to create user for different company
     let new_user_other_company = json!({
         "email": "unauthorized@company2.com",
-        "password_hash": neems_core::orm::login::hash_password("password"),
+        "password_hash": neems_api::orm::login::hash_password("password"),
         "company_id": company2.id,
         "totp_secret": "",
         "role_names": ["admin"]
@@ -262,7 +262,7 @@ async fn test_newtown_staff_can_create_users_for_any_company() {
     // Should be able to create user for any company
     let new_user = json!({
         "email": "newuser@testcompany.com",
-        "password_hash": neems_core::orm::login::hash_password("password"),
+        "password_hash": neems_api::orm::login::hash_password("password"),
         "company_id": test_company.id,
         "totp_secret": "",
         "role_names": ["staff"]
@@ -293,7 +293,7 @@ async fn test_newtown_admin_can_create_users_for_any_company() {
     // newtown-admin (superadmin@example.com) should be able to create user for any company
     let new_user = json!({
         "email": "newuser@testcompany.com",
-        "password_hash": neems_core::orm::login::hash_password("password"),
+        "password_hash": neems_api::orm::login::hash_password("password"),
         "company_id": test_company.id,
         "totp_secret": "",
         "role_names": ["staff"]

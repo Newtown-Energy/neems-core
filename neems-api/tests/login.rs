@@ -5,16 +5,16 @@ use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
 
-use neems_core::models::UserNoTime;
-use neems_core::orm::DbConn;
-use neems_core::orm::company::insert_company;
-use neems_core::orm::login::hash_password;
-use neems_core::orm::testing::test_rocket;
-use neems_core::orm::user::insert_user;
-use neems_core::orm::user_role::assign_user_role_by_name;
+use neems_api::models::UserNoTime;
+use neems_api::orm::DbConn;
+use neems_api::orm::company::insert_company;
+use neems_api::orm::login::hash_password;
+use neems_api::orm::testing::test_rocket;
+use neems_api::orm::user::insert_user;
+use neems_api::orm::user_role::assign_user_role_by_name;
 // Role guards are tested through the authentication system
 mod company;
-use neems_core::company::random_energy_company_names;
+use neems_api::company::random_energy_company_names;
 
 /// Creates dummy data for testing by directly inserting test company and user into the database.
 /// This function uses ORM functions directly instead of API endpoints.

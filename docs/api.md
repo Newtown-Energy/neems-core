@@ -1,14 +1,14 @@
-# neems-core API Documentation
+# neems-api API Documentation
 
 This guide covers all production API endpoints available in the
-neems-core system, including authentication, user management, role
+neems-api system, including authentication, user management, role
 management, institution management, and utility endpoints.
 
 If you are writing a front end that needs to talk to this backend, you
 might refer to some sources of information:
 
  * this document
- * the `neems-core/src/api` directory
+ * the `neems-api/src/api` directory
  * integration tests in `tests/*.rs` that exercise these endpoints.
  * the react codebase at `https://github.com/Newtown-Energy/neems-react`, which hits these endpoints
  * **TypeScript type definitions** generated from the Rust code (see "Generated TypeScript Types" section below)

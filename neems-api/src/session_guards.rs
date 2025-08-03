@@ -8,7 +8,7 @@
 //!
 //! ```rust
 //! use rocket::get;
-//! use neems_core::session_guards::AuthenticatedUser;
+//! use neems_api::session_guards::AuthenticatedUser;
 //!
 //! #[get("/profile")]
 //! fn get_profile(user: AuthenticatedUser) -> String {
@@ -23,7 +23,7 @@
 //!
 //! ```rust
 //! use rocket::get;
-//! use neems_core::session_guards::{AdminUser, NewtownAdminUser, StaffUser};
+//! use neems_api::session_guards::{AdminUser, NewtownAdminUser, StaffUser};
 //!
 //! #[get("/admin")]
 //! fn admin_only(user: AdminUser) -> String {
@@ -40,7 +40,7 @@
 //!
 //! ```rust
 //! use rocket::get;
-//! use neems_core::session_guards::AuthenticatedUser;
+//! use neems_api::session_guards::AuthenticatedUser;
 //!
 //! #[get("/flexible")]
 //! fn flexible_roles(user: AuthenticatedUser) -> String {
@@ -58,7 +58,7 @@
 //!
 //! ```rust
 //! use rocket::{get, http::Status};
-//! use neems_core::session_guards::AuthenticatedUser;
+//! use neems_api::session_guards::AuthenticatedUser;
 //!
 //! #[get("/conditional")]
 //! fn conditional_access(user: AuthenticatedUser) -> Result<String, Status> {
@@ -108,7 +108,7 @@ use crate::schema::{sessions, users};
 ///
 /// ```rust
 /// use rocket::get;
-/// use neems_core::session_guards::AuthenticatedUser;
+/// use neems_api::session_guards::AuthenticatedUser;
 /// #[get("/protected")]
 /// fn protected_route(user: AuthenticatedUser) -> String {
 ///     format!("Hello, {}! You have {} roles.", user.user.email, user.roles.len())
@@ -313,7 +313,7 @@ macro_rules! create_role_guard {
 //
 // ```rust
 // use rocket::get;
-// use neems_core::session_guards::AdminUser;
+// use neems_api::session_guards::AdminUser;
 //
 // #[get("/admin-panel")]
 // fn admin_panel(user: AdminUser) -> String {

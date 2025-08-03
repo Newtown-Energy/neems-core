@@ -1,11 +1,11 @@
 use clap::Subcommand;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use neems_core::orm::company::{
+use neems_api::orm::company::{
     delete_company, get_all_companies, get_company_by_id, insert_company,
 };
-use neems_core::orm::site::{delete_site, get_sites_by_company};
-use neems_core::orm::user::{delete_user_with_cleanup, get_users_by_company};
+use neems_api::orm::site::{delete_site, get_sites_by_company};
+use neems_api::orm::user::{delete_user_with_cleanup, get_users_by_company};
 use regex::Regex;
 use std::io::{self, Write};
 
@@ -281,7 +281,7 @@ fn update_company(
     company_id: i32,
     new_name: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use neems_core::schema::companies::dsl::*;
+    use neems_api::schema::companies::dsl::*;
 
     if let Some(name_val) = new_name {
         let now = chrono::Utc::now().naive_utc();
