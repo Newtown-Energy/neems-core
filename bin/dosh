@@ -26,42 +26,42 @@ _find_project_root() {
     echo "."
 }
 
-# Set DOSH_PROJECT
-DOSH_PROJECT=$(_find_project_root)
+# Set DOSH_PROJ
+DOSH_PROJ=$(_find_project_root)
 
-# Set TARGET_PROJ and TARGET_BIN based on DOSH_PROJECT
-if [[ "$DOSH_PROJECT" == "." ]]; then
+# Set TARGET_PROJ and TARGET_BIN based on DOSH_PROJ
+if [[ "$DOSH_PROJ" == "." ]]; then
     # Top level - target all projects
-    PROJECT_NAME="."
+    PROJ_NAME="."
     export TARGET_PROJ=("-p neems-admin -p neems-api -p neems-data")
     export TARGET_BIN=("--bin neems-admin --bin neems-api --bin neems-data")
 else
     # Specific project - target just this one
-    PROJECT_NAME=$(basename "$DOSH_PROJECT")
-    export TARGET_PROJ=("-p  $PROJECT_NAME")
-    export TARGET_BIN=("--bin  $PROJECT_NAME")
+    PROJ_NAME=$(basename "$DOSH_PROJ")
+    export TARGET_PROJ=("-p  $PROJ_NAME")
+    export TARGET_BIN=("--bin  $PROJ_NAME")
 fi
 
-cd ${BASEDIR}/${PROJECT_NAME}
+cd ${BASEDIR}/${PROJ_NAME}
 
 # Check for project-specific task-override script
-if [[ -n "$1" && -f "$DOSH_PROJECT/bin/dosh.$1" ]]; then
+if [[ -n "$1" && -f "$DOSH_PROJ/bin/dosh.$1" ]]; then
     command="$1"
     shift
-    echo "$DOSH_PROJECT/bin/dosh.$command $@"
-    exec "$DOSH_PROJECT/bin/dosh.$command" "$@"
+    echo "$DOSH_PROJ/bin/dosh.$command $@"
+    exec "$DOSH_PROJ/bin/dosh.$command" "$@"
 fi
 
-if [[ ! "$DOSH_PROJECT" == "." ]]; then
+if [[ ! "$DOSH_PROJ" == "." ]]; then
     # Check for task-override in project dosh
-    if [[ -n "$1" && -x "$DOSH_PROJECT/bin/dosh" ]]; then
+    if [[ -n "$1" && -x "$DOSH_PROJ/bin/dosh" ]]; then
         # Get the list of supported commands from the project dosh
-        supported_commands=$("$DOSH_PROJECT/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
+        supported_commands=$("$DOSH_PROJ/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
 
         # Check if our command is in the supported list
         if [[ " $supported_commands " =~ " $1 " ]]; then
-            echo "$DOSH_PROJECT/bin/dosh $@"
-            exec "$DOSH_PROJECT/bin/dosh" "$@"
+            echo "$DOSH_PROJ/bin/dosh $@"
+            exec "$DOSH_PROJ/bin/dosh" "$@"
         fi
     fi
 fi
@@ -117,7 +117,7 @@ build() {
 }
 
 check() {
-    local cmd="$CARGO $NIGHTLY check $DEV_TEST_FLAGS $TARGET_PROJECT"
+    local cmd="$CARGO $NIGHTLY check $DEV_TEST_FLAGS $TARGET_PROJ"
     echo "${cmd} $@"
     if [ -z "$WAYLAND_DISPLAY" ]; then
         RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 
@@ -127,8 +127,7 @@ check() {
 }
 
 run() {
-    echo "TP: $TARGET_PROJECT"
-    local cmd="$CARGO $NIGHTLY run $TARGET_PROJECT"
+    local cmd="$CARGO $NIGHTLY run $TARGET_PROJ"
     echo "${cmd} $@"
     if [ -z "$WAYLAND_DISPLAY" ]; then
         $cmd "$@"
