@@ -119,14 +119,22 @@ build() {
 check() {
     local cmd="$CARGO $NIGHTLY check $DEV_TEST_FLAGS $TARGET_PROJECT"
     echo "${cmd} $@"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 
+    else
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    fi
 }
 
 run() {
     echo "TP: $TARGET_PROJECT"
     local cmd="$CARGO $NIGHTLY run $TARGET_PROJECT"
     echo "${cmd} $@"
-    $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        $cmd "$@"
+    else
+        $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    fi
 }
 
 depends() {
@@ -160,8 +168,12 @@ migrate() {
 }
 
 nextest() {
-    local cmd="nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    local cmd="${CARGO} $NIGHTLY nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@"
+    else
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    fi
 }
 
 push() {
@@ -189,8 +201,12 @@ test() {
 }
 
 test-trad() {
-    local cmd="test $DEV_TEST_FLAGS --quiet"
-    RUSTFLAGS="-Zcodegen-backend=cranelift" ${CARGO} $NIGHTLY $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    local cmd="${CARGO} $NIGHTLY test $DEV_TEST_FLAGS --quiet"
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@"
+    else
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+    fi
 }
 
 
