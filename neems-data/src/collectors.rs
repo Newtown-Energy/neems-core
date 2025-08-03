@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use rand::Rng;
 use serde_json::{json, Value as JsonValue};
+use sha1::{Digest, Sha1};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
@@ -115,7 +116,7 @@ pub mod data_sources {
         
         if path.exists() {
             let contents = tokio::fs::read(path).await?;
-            let mut hasher = sha1::Sha1::new();
+            let mut hasher = Sha1::new();
             hasher.update(&contents);
             let hash = hasher.finalize();
             let hash_hex = format!("{:x}", hash);
@@ -137,6 +138,7 @@ pub mod data_sources {
 }
 
 /// Data collector that manages async polling of various data sources
+#[derive(Clone)]
 pub struct DataCollector {
     pub name: String,
     pub source_id: i32,

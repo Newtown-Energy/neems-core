@@ -1,10 +1,15 @@
+use crate::collectors::DataCollector;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::env;
 use std::error::Error;
+use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::task;
+use tokio::time;
 
+pub mod collectors;
 pub mod models;
 pub mod schema;
 
@@ -38,65 +43,99 @@ impl DataAggregator {
     }
 
     pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let (tx, mut rx) = mpsc::channel::<NewReading>(1024);
+
         let database_url = self.database_url.clone();
+        let db_path = self
+            .database_url
+            .strip_prefix("sqlite://")
+            .unwrap_or(&self.database_url)
+            .to_string();
 
-        task::spawn(async move {
+        let writer_task = task::spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(1));
+            let mut readings_batch = Vec::new();
+
             loop {
-                match Self::collect_data(&database_url).await {
-                    Ok(_) => println!("Data collection cycle completed"),
-                    Err(e) => eprintln!("Error during data collection: {}", e),
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if !readings_batch.is_empty() {
+                            let batch_to_write = std::mem::take(&mut readings_batch);
+                            println!("Writing batch of {} readings to DB.", batch_to_write.len());
+
+                            let db_url_clone = database_url.clone();
+                            task::spawn_blocking(move || {
+                                let path = db_url_clone.strip_prefix("sqlite://").unwrap_or(&db_url_clone);
+                                let aggregator = DataAggregator::new(Some(path));
+                                match aggregator.establish_connection() {
+                                    Ok(mut conn) => {
+                                        if let Err(e) = DataAggregator::insert_readings_batch(&mut conn, batch_to_write) {
+                                            eprintln!("Failed to write batch to DB: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to establish connection for batch write: {}", e);
+                                    }
+                                }
+                            });
+                        }
+                    },
+                    Some(reading) = rx.recv() => {
+                        readings_batch.push(reading);
+                    },
+                    else => break, // Channel closed
                 }
-
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
             }
-        })
-        .await?;
+        });
 
-        Ok(())
-    }
+        let mut conn = self.establish_connection()?;
+        let active_sources: Vec<Source> = {
+            use crate::schema::sources::dsl::*;
+            sources
+                .filter(active.eq(true))
+                .select(Source::as_select())
+                .load(&mut conn)?
+        };
 
-    async fn collect_data(database_url: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        task::spawn_blocking({
-            let database_url = database_url.to_string();
-            move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                let mut connection = SqliteConnection::establish(&database_url)?;
+        println!("Found {} active sources", active_sources.len());
 
-                // Example: Insert sample readings for testing
-                // In practice, this would collect from actual data sources
-                Self::collect_from_sources(&mut connection)?;
+        let _collector_handles: Vec<_> = active_sources
+            .into_iter()
+            .filter_map(|source| source.id.map(|sid| (source.name, sid)))
+            .map(|(name, source_id)| {
+                let collector = DataCollector::new(name, source_id, db_path.clone());
+                let tx_clone = tx.clone();
+                task::spawn(async move {
+                    loop {
+                        match collector.collect().await {
+                            Ok(json_data) => {
+                                match NewReading::with_json_data(collector.source_id, &json_data) {
+                                    Ok(reading) => {
+                                        if tx_clone.send(reading).await.is_err() {
+                                            eprintln!("Receiver dropped, collector for source {} shutting down.", collector.source_id);
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Error creating reading from json for source {}: {}", collector.source_id, e),
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Collector '{}' for source id {} failed: {}", collector.name, collector.source_id, e);
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                            }
+                        }
+                    }
+                })
+            })
+            .collect();
 
-                Ok(())
-            }
-        })
-        .await??;
+        drop(tx); // Drop original sender, so writer exits when all collectors exit.
 
-        Ok(())
-    }
-
-    fn collect_from_sources(
-        connection: &mut SqliteConnection,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        use schema::sources::dsl::*;
-
-        // Get all active sources
-        let active_sources: Vec<Source> = sources
-            .filter(active.eq(true))
-            .select(Source::as_select())
-            .load(connection)?;
-
-        for source in active_sources {
-            if let Some(source_id) = source.id {
-                // This is where you'd implement actual data collection per source
-                // For now, just create a placeholder reading
-                let sample_data = serde_json::json!({
-                    "placeholder": true,
-                    "source": source.name
-                });
-
-                let new_reading = NewReading::with_json_data(source_id, &sample_data)?;
-                Self::insert_reading(connection, new_reading)?;
-            }
-        }
+        // Await the writer task. It will run as long as there are collectors sending data.
+        // If it panics, the whole application will stop.
+        // Collector tasks run in the background. If one of them panics, the writer
+        // will continue to run, processing data from other collectors.
+        writer_task.await?;
 
         Ok(())
     }
