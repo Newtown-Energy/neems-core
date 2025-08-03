@@ -1,11 +1,11 @@
 use crate::collectors::DataCollector;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use std::env;
 use std::error::Error;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task;
 use tokio::time;
 
@@ -41,7 +41,8 @@ impl DataAggregator {
     }
 
     pub async fn start_aggregation(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let (tx, mut rx) = mpsc::channel::<NewReading>(1024);
+        let (data_tx, mut data_rx) = mpsc::channel::<NewReading>(1024);
+        let (signal_tx, _) = broadcast::channel::<()>(1);
 
         let database_url = self.database_url.clone();
         let db_path = self
@@ -50,38 +51,44 @@ impl DataAggregator {
             .unwrap_or(&self.database_url)
             .to_string();
 
+        let signal_tx_clone = signal_tx.clone();
         let writer_task = task::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(1));
             let mut readings_batch = Vec::new();
 
             loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if !readings_batch.is_empty() {
-                            let batch_to_write = std::mem::take(&mut readings_batch);
-                            println!("Writing batch of {} readings to DB.", batch_to_write.len());
+                interval.tick().await;
 
-                            let db_url_clone = database_url.clone();
-                            task::spawn_blocking(move || {
-                                let path = db_url_clone.strip_prefix("sqlite://").unwrap_or(&db_url_clone);
-                                let aggregator = DataAggregator::new(Some(path));
-                                match aggregator.establish_connection() {
-                                    Ok(mut conn) => {
-                                        if let Err(e) = DataAggregator::insert_readings_batch(&mut conn, batch_to_write) {
-                                            eprintln!("Failed to write batch to DB: {}", e);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to establish connection for batch write: {}", e);
-                                    }
+                // Signal collectors to start polling for the next cycle.
+                // This allows collection to happen in parallel with the DB write.
+                if signal_tx_clone.send(()).is_err() {
+                    println!("All collector receivers dropped. Writer will continue to process remaining data.");
+                }
+
+                // Drain any data that has arrived since the last tick.
+                while let Ok(reading) = data_rx.try_recv() {
+                    readings_batch.push(reading);
+                }
+
+                if !readings_batch.is_empty() {
+                    let batch_to_write = std::mem::take(&mut readings_batch);
+                    println!("Writing batch of {} readings to DB.", batch_to_write.len());
+
+                    let db_url_clone = database_url.clone();
+                    task::spawn_blocking(move || {
+                        let path = db_url_clone.strip_prefix("sqlite://").unwrap_or(&db_url_clone);
+                        let aggregator = DataAggregator::new(Some(path));
+                        match aggregator.establish_connection() {
+                            Ok(mut conn) => {
+                                if let Err(e) = DataAggregator::insert_readings_batch(&mut conn, batch_to_write) {
+                                    eprintln!("Failed to write batch to DB: {}", e);
                                 }
-                            });
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to establish connection for batch write: {}", e);
+                            }
                         }
-                    },
-                    Some(reading) = rx.recv() => {
-                        readings_batch.push(reading);
-                    },
-                    else => break, // Channel closed
+                    });
                 }
             }
         });
@@ -102,24 +109,41 @@ impl DataAggregator {
             .filter_map(|source| source.id.map(|sid| (source.name, sid)))
             .map(|(name, source_id)| {
                 let collector = DataCollector::new(name, source_id, db_path.clone());
-                let tx_clone = tx.clone();
+                let data_tx_clone = data_tx.clone();
+                let mut signal_rx = signal_tx.subscribe();
+
                 task::spawn(async move {
                     loop {
-                        match collector.collect().await {
-                            Ok(json_data) => {
-                                match NewReading::with_json_data(collector.source_id, &json_data) {
-                                    Ok(reading) => {
-                                        if tx_clone.send(reading).await.is_err() {
-                                            eprintln!("Receiver dropped, collector for source {} shutting down.", collector.source_id);
-                                            break;
+                        // Wait for the signal from the writer to start polling.
+                        match signal_rx.recv().await {
+                            Ok(_) => {
+                                // Got the signal, proceed to collect.
+                                match collector.collect().await {
+                                    Ok(json_data) => {
+                                        match NewReading::with_json_data(collector.source_id, &json_data) {
+                                            Ok(reading) => {
+                                                if data_tx_clone.send(reading).await.is_err() {
+                                                    eprintln!("Data channel closed, collector for source {} shutting down.", collector.source_id);
+                                                    break;
+                                                }
+                                            }
+                                            Err(e) => eprintln!("Error creating reading from json for source {}: {}", collector.source_id, e),
                                         }
                                     }
-                                    Err(e) => eprintln!("Error creating reading from json for source {}: {}", collector.source_id, e),
+                                    Err(e) => {
+                                        eprintln!("Collector '{}' for source id {} failed: {}", collector.name, collector.source_id, e);
+                                    }
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("Collector '{}' for source id {} failed: {}", collector.name, collector.source_id, e);
-                                tokio::time::sleep(Duration::from_secs(5)).await;
+                            Err(broadcast::error::RecvError::Lagged(_)) => {
+                                // This is okay. The collector was too slow and missed a signal.
+                                // It will just wait for the next one.
+                                eprintln!("Collector for source {} lagged, skipping a cycle.", collector.source_id);
+                            }
+                            Err(broadcast::error::RecvError::Closed) => {
+                                // The writer task has shut down.
+                                eprintln!("Signal channel closed, collector for source {} shutting down.", collector.source_id);
+                                break;
                             }
                         }
                     }
@@ -127,12 +151,9 @@ impl DataAggregator {
             })
             .collect();
 
-        drop(tx); // Drop original sender, so writer exits when all collectors exit.
+        drop(data_tx); // Drop original sender for the data channel.
 
-        // Await the writer task. It will run as long as there are collectors sending data.
-        // If it panics, the whole application will stop.
-        // Collector tasks run in the background. If one of them panics, the writer
-        // will continue to run, processing data from other collectors.
+        // Await the writer task. It runs indefinitely unless it panics.
         writer_task.await?;
 
         Ok(())
