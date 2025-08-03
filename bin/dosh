@@ -26,42 +26,42 @@ _find_project_root() {
     echo "."
 }
 
-# Set DOSH_PROJ
-DOSH_PROJ=$(_find_project_root)
+# Set DOSH_PROJ_ROOT
+DOSH_PROJ_ROOT=$(_find_project_root)
 
-# Set TARGET_PROJ and TARGET_BIN based on DOSH_PROJ
-if [[ "$DOSH_PROJ" == "." ]]; then
+# Set TARGET_PROJ and TARGET_BIN based on DOSH_PROJ_ROOT
+if [[ "$DOSH_PROJ_ROOT" == "." ]]; then
     # Top level - target all projects
     PROJ_NAME="."
     export TARGET_PROJ=("-p neems-admin -p neems-api -p neems-data")
     export TARGET_BIN=("--bin neems-admin --bin neems-api --bin neems-data")
 else
     # Specific project - target just this one
-    PROJ_NAME=$(basename "$DOSH_PROJ")
-    export TARGET_PROJ=("-p  $PROJ_NAME")
-    export TARGET_BIN=("--bin  $PROJ_NAME")
+    PROJ_NAME=$(basename "$DOSH_PROJ_ROOT")
+    export TARGET_PROJ=("-p $PROJ_NAME")
+    export TARGET_BIN=("--bin $PROJ_NAME")
 fi
 
 cd ${BASEDIR}/${PROJ_NAME}
 
 # Check for project-specific task-override script
-if [[ -n "$1" && -f "$DOSH_PROJ/bin/dosh.$1" ]]; then
+if [[ -n "$1" && -f "$DOSH_PROJ_ROOT/bin/dosh.$1" ]]; then
     command="$1"
     shift
-    echo "$DOSH_PROJ/bin/dosh.$command $@"
-    exec "$DOSH_PROJ/bin/dosh.$command" "$@"
+    echo "$DOSH_PROJ_ROOT/bin/dosh.$command $@"
+    exec "$DOSH_PROJ_ROOT/bin/dosh.$command" "$@"
 fi
 
-if [[ ! "$DOSH_PROJ" == "." ]]; then
+if [[ ! "$DOSH_PROJ_ROOT" == "." ]]; then
     # Check for task-override in project dosh
-    if [[ -n "$1" && -x "$DOSH_PROJ/bin/dosh" ]]; then
+    if [[ -n "$1" && -x "$DOSH_PROJ_ROOT/bin/dosh" ]]; then
         # Get the list of supported commands from the project dosh
-        supported_commands=$("$DOSH_PROJ/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
+        supported_commands=$("$DOSH_PROJ_ROOT/bin/dosh" | awk '/^Usage:/,/^$/' | grep -oE '\([^)]+\)' | tr -d '()' | tr '|' ' ')
 
         # Check if our command is in the supported list
         if [[ " $supported_commands " =~ " $1 " ]]; then
-            echo "$DOSH_PROJ/bin/dosh $@"
-            exec "$DOSH_PROJ/bin/dosh" "$@"
+            echo "$DOSH_PROJ_ROOT/bin/dosh $@"
+            exec "$DOSH_PROJ_ROOT/bin/dosh" "$@"
         fi
     fi
 fi
@@ -127,7 +127,7 @@ check() {
 }
 
 run() {
-    local cmd="$CARGO $NIGHTLY run $TARGET_PROJ"
+    local cmd="$CARGO $NIGHTLY run $TARGET_BIN"
     echo "${cmd} $@"
     if [ -z "$WAYLAND_DISPLAY" ]; then
         $cmd "$@"
@@ -155,13 +155,27 @@ migrate() {
     # Install diesel command line tool
     which diesel > /dev/null || ${CARGO} binstall diesel_cli
 
-    # Our different projects have different sqlite db envars, so commenting this
-    # out for now...
-    # Make sure we have a database url
-    # if [ -z "$DATABASE_URL" ]; then echo "DATABASE_URL not set"; exit 0; fi
+    # Check database URL based on project
+    local db_url=""
+    if [[ "$PROJ_NAME" == "neems-core" ]]; then
+        if [ -z "$DATABASE_URL" ]; then 
+            echo "DATABASE_URL not set for neems-core"
+            exit 1
+        fi
+        db_url="$DATABASE_URL"
+    elif [[ "$PROJ_NAME" == "neems-data" ]]; then
+        if [ -z "$SITE_DATABASE_URL" ]; then 
+            echo "SITE_DATABASE_URL not set for neems-data"
+            exit 1
+        fi
+        db_url="$SITE_DATABASE_URL"
+    else
+        echo "Error: Migration not supported for project $PROJ_NAME"
+        exit 1
+    fi
 
     # Create database if needed
-    # [ ! -f "$DATABASE_URL" ] && diesel setup
+    [ ! -f "$db_url" ] && diesel setup
 
     diesel migration run
 }
