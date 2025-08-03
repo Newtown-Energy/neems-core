@@ -26,8 +26,10 @@ diesel_migrations = { workspace = true }
 dotenvy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 uuid = { workspace = true }
+sha1 = "0.10"
+rand = "0.8"
 
 [dev-dependencies]
 tokio = { workspace = true }

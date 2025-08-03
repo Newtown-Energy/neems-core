@@ -1,55 +1,61 @@
-use diesel::Connection;
-use diesel::sqlite::SqliteConnection;
-use neems_data::{NewSource, create_source};
+use dotenvy::dotenv;
+use neems_data::{create_source, DataAggregator, NewSource};
 use std::env;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenvy::dotenv().ok();
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    dotenv().ok();
 
     let database_path =
         env::var("SITE_DATABASE_URL").unwrap_or_else(|_| "site-data.sqlite".to_string());
-    let database_url = format!("sqlite://{}", database_path);
 
-    let mut connection = SqliteConnection::establish(&database_url)?;
+    println!("Setting up data sources...");
+    println!("Database path: {}", database_path);
 
-    println!("Setting up sample data sources...");
+    let aggregator = DataAggregator::new(Some(&database_path));
+    let mut connection = aggregator.establish_connection()?;
 
-    let sample_sources = vec![
+    // Define the data sources we want to collect from
+    let sources = vec![
         NewSource {
-            name: "temperature_sensor_01".to_string(),
-            description: Some("Main building temperature sensor".to_string()),
+            name: "current_time".to_string(),
+            description: Some("Current UTC timestamp and unix timestamp".to_string()),
             active: Some(true),
         },
         NewSource {
-            name: "humidity_sensor_01".to_string(),
-            description: Some("Main building humidity sensor".to_string()),
+            name: "ping_localhost".to_string(),
+            description: Some("Average ping time for 3 round trips to localhost".to_string()),
             active: Some(true),
         },
         NewSource {
-            name: "power_meter_01".to_string(),
-            description: Some("Main electrical panel power meter".to_string()),
+            name: "random_digits".to_string(),
+            description: Some("Random integers, floats, and bytes".to_string()),
             active: Some(true),
         },
         NewSource {
-            name: "pressure_sensor_01".to_string(),
-            description: Some("HVAC system pressure sensor".to_string()),
+            name: "database_modtime".to_string(),
+            description: Some("Modification time of the database file".to_string()),
             active: Some(true),
         },
         NewSource {
-            name: "flow_meter_01".to_string(),
-            description: Some("Water flow meter - main line".to_string()),
+            name: "database_sha1".to_string(),
+            description: Some("SHA1 hash of the database file".to_string()),
             active: Some(true),
         },
     ];
 
-    for source in sample_sources {
-        match create_source(&mut connection, source.clone()) {
-            Ok(created) => println!("Created source: {} (ID: {:?})", created.name, created.id),
-            Err(e) => println!("Error creating source {}: {}", source.name, e),
+    for new_source in sources {
+        match neems_data::get_source_by_name(&mut connection, &new_source.name)? {
+            Some(existing) => {
+                println!("Source '{}' already exists (ID: {:?})", new_source.name, existing.id);
+            }
+            None => {
+                let created = create_source(&mut connection, new_source.clone())?;
+                println!("Created source '{}' (ID: {:?})", created.name, created.id);
+            }
         }
     }
 
-    println!("Sample sources setup complete!");
-
+    println!("Data source setup complete!");
     Ok(())
 }
