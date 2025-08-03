@@ -34,11 +34,9 @@ impl DataAggregator {
         Self { database_url }
     }
 
-    pub fn establish_connection(&self) -> Result<SqliteConnection, Box<dyn Error>> {
+    pub fn establish_connection(&self) -> Result<SqliteConnection, Box<dyn Error + Send + Sync>> {
         let mut connection = SqliteConnection::establish(&self.database_url)?;
-        connection
-            .run_pending_migrations(MIGRATIONS)
-            .map_err(|e| format!("Error running migrations: {}", e))?;
+        connection.run_pending_migrations(MIGRATIONS)?;
         Ok(connection)
     }
 
