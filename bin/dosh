@@ -150,14 +150,14 @@ depends() {
 }
 
 migrate() {
-    echo Running migrations for neems-api
+    echo Running migrations for $PROJ_NAME
 
     # Install diesel command line tool
     which diesel > /dev/null || ${CARGO} binstall diesel_cli
 
     # Check database URL based on project
     local db_url=""
-    if [[ "$PROJ_NAME" == "neems-core" ]]; then
+    if [[ "$PROJ_NAME" == "neems-api" ]]; then
         if [ -z "$DATABASE_URL" ]; then 
             echo "DATABASE_URL not set for neems-core"
             exit 1
@@ -175,9 +175,10 @@ migrate() {
     fi
 
     # Create database if needed
-    [ ! -f "$db_url" ] && diesel setup
+    [ ! -f "$db_url" ] && diesel "--database-url=$db_url" setup
 
-    diesel migration run
+    diesel "--database-url=$db_url" migration run
+    echo Done with migration
 }
 
 nextest() {
@@ -198,8 +199,8 @@ release() {
     rustup update
     echo "🚀 Building release version..."
     # The test-staging feature just makes sure we run some security tests.
-    local flags="--features fixphrase --features test-staging"
-    FORCE_TEST_ALL=1 ${CARGO} $NIGHTLY test --quiet --release $flags "$@" || {
+    local flags="--features fixphrase"
+    FORCE_TEST_ALL=1 ${CARGO} $NIGHTLY test --quiet --release $flags  --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
 	exit 1
     }
