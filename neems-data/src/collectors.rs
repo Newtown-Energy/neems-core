@@ -4,9 +4,7 @@ use serde_json::{Value as JsonValue, json};
 use sha1::Digest;
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
-use tokio::net::TcpStream;
-use tokio::time::timeout;
+use std::time::Instant;
 
 pub mod data_sources {
     use super::*;
@@ -21,55 +19,81 @@ pub mod data_sources {
         }))
     }
 
-    /// Ping localhost several  times and get average response time
+    /// Ping localhost several times and get statistics using ping's built-in capabilities
     pub async fn ping_localhost() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let mut times = Vec::new();
         let attempts = 3;
+        
+        let output = tokio::process::Command::new("ping")
+            .args(&["-c", &attempts.to_string(), "-W", "500", "127.0.0.1"])
+            .output()
+            .await?;
 
-        for _ in 0..attempts {
-            let start = Instant::now();
-
-            // Try to connect to localhost on port 22 (SSH) as a simple connectivity test
-            let connect_result = timeout(
-                Duration::from_millis(500),
-                TcpStream::connect("127.0.0.1:22"),
-            )
-            .await;
-
-            match connect_result {
-                Ok(Ok(_)) => {
-                    let duration = start.elapsed();
-                    times.push(duration.as_micros() as f64 / 1000.0); // Convert to milliseconds
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            
+            // Parse ping statistics from output
+            let mut min_ms: Option<f64> = None;
+            let mut avg_ms: Option<f64> = None;
+            let mut max_ms: Option<f64> = None;
+            let mut mdev_ms: Option<f64> = None;
+            let mut packets_transmitted = 0;
+            let mut packets_received = 0;
+            
+            for line in stdout.lines() {
+                // Parse packet statistics: "3 packets transmitted, 3 received, 0% packet loss"
+                if line.contains("packets transmitted") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        packets_transmitted = parts[0].parse().unwrap_or(0);
+                        packets_received = parts[3].parse().unwrap_or(0);
+                    }
                 }
-                Ok(Err(_)) | Err(_) => {
-                    // If SSH port is not available, try a simple ping using system command
-                    let output = tokio::process::Command::new("ping")
-                        .args(&["-c", "1", "-W", "500", "127.0.0.1"])
-                        .output()
-                        .await;
-
-                    if let Ok(output) = output {
-                        if output.status.success() {
-                            let duration = start.elapsed();
-                            times.push(duration.as_millis() as f64);
+                
+                // Parse timing statistics: "rtt min/avg/max/mdev = 0.123/0.456/0.789/0.123 ms"
+                if line.contains("rtt min/avg/max/mdev") {
+                    if let Some(stats_part) = line.split(" = ").nth(1) {
+                        if let Some(numbers_part) = stats_part.split(" ms").nth(0) {
+                            let values: Vec<&str> = numbers_part.split('/').collect();
+                            if values.len() >= 4 {
+                                min_ms = values[0].parse().ok();
+                                avg_ms = values[1].parse().ok();
+                                max_ms = values[2].parse().ok();
+                                mdev_ms = values[3].parse().ok();
+                            }
                         }
                     }
                 }
             }
-        }
 
-        let average = if times.is_empty() {
-            None
+            Ok(json!({
+                "packets_transmitted": packets_transmitted,
+                "packets_received": packets_received,
+                "packet_loss_percent": if packets_transmitted > 0 {
+                    ((packets_transmitted - packets_received) as f64 / packets_transmitted as f64) * 100.0
+                } else { 0.0 },
+                "min_ms": min_ms,
+                "avg_ms": avg_ms,
+                "max_ms": max_ms,
+                "mdev_ms": mdev_ms,
+                "successful_pings": packets_received,
+                "total_attempts": packets_transmitted
+            }))
         } else {
-            Some(times.iter().sum::<f64>() / times.len() as f64)
-        };
-
-        Ok(json!({
-            "ping_times_ms": times,
-            "average_ms": average,
-            "successful_pings": times.len(),
-            "total_attempts": attempts
-        }))
+            // Ping command failed, return error info
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Ok(json!({
+                "packets_transmitted": 0,
+                "packets_received": 0,
+                "packet_loss_percent": 100.0,
+                "min_ms": null,
+                "avg_ms": null,
+                "max_ms": null,
+                "mdev_ms": null,
+                "successful_pings": 0,
+                "total_attempts": attempts,
+                "error": stderr.trim()
+            }))
+        }
     }
 
     /// Generate some random digits
