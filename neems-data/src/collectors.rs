@@ -10,9 +10,10 @@ pub mod data_sources {
     use super::*;
 
     /// Get current UTC timestamp
-    pub async fn current_time() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn current_time(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let now = Utc::now();
         Ok(json!({
+            "source_id": source_id,
             "timestamp_utc": now.to_rfc3339(),
             "unix_timestamp": now.timestamp(),
             "milliseconds": now.timestamp_millis()
@@ -20,11 +21,16 @@ pub mod data_sources {
     }
 
     /// Ping localhost several times and get statistics using ping's built-in capabilities
-    pub async fn ping_localhost() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn ping_localhost(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+        ping_target(source_id, "127.0.0.1").await
+    }
+
+    /// Ping a specific target and get statistics using ping's built-in capabilities
+    pub async fn ping_target(source_id: i32, target: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let attempts = 3;
         
         let output = tokio::process::Command::new("ping")
-            .args(&["-c", &attempts.to_string(), "-W", "500", "127.0.0.1"])
+            .args(&["-c", &attempts.to_string(), "-W", "500", target])
             .output()
             .await?;
 
@@ -66,6 +72,8 @@ pub mod data_sources {
             }
 
             Ok(json!({
+                "source_id": source_id,
+                "target": target,
                 "packets_transmitted": packets_transmitted,
                 "packets_received": packets_received,
                 "packet_loss_percent": if packets_transmitted > 0 {
@@ -82,6 +90,8 @@ pub mod data_sources {
             // Ping command failed, return error info
             let stderr = String::from_utf8_lossy(&output.stderr);
             Ok(json!({
+                "source_id": source_id,
+                "target": target,
                 "packets_transmitted": 0,
                 "packets_received": 0,
                 "packet_loss_percent": 100.0,
@@ -97,7 +107,7 @@ pub mod data_sources {
     }
 
     /// Generate some random digits
-    pub async fn random_digits() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn random_digits(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let mut rng = rand::rng();
 
         let random_int: u32 = rng.random_range(0..10000);
@@ -105,6 +115,7 @@ pub mod data_sources {
         let random_bytes: Vec<u8> = (0..8).map(|_| rng.random()).collect();
 
         Ok(json!({
+            "source_id": source_id,
             "random_integer": random_int,
             "random_float": random_float,
             "random_bytes": random_bytes,
@@ -114,6 +125,7 @@ pub mod data_sources {
 
     /// Get modification time of the database file
     pub async fn database_modtime(
+        source_id: i32,
         db_path: &str,
     ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let path = Path::new(db_path);
@@ -124,6 +136,7 @@ pub mod data_sources {
             let system_time_modified = modified.duration_since(std::time::UNIX_EPOCH)?;
 
             Ok(json!({
+                "source_id": source_id,
                 "file_exists": true,
                 "modified_timestamp": system_time_modified.as_secs(),
                 "modified_timestamp_ms": system_time_modified.as_millis(),
@@ -132,6 +145,7 @@ pub mod data_sources {
             }))
         } else {
             Ok(json!({
+                "source_id": source_id,
                 "file_exists": false,
                 "file_path": db_path,
                 "error": "File not found"
@@ -141,6 +155,7 @@ pub mod data_sources {
 
     /// Get SHA1 hash of the database file
     pub async fn database_sha1(
+        source_id: i32,
         db_path: &str,
     ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let path = Path::new(db_path);
@@ -153,6 +168,7 @@ pub mod data_sources {
             let hash_hex = format!("{:x}", hash);
 
             Ok(json!({
+                "source_id": source_id,
                 "file_exists": true,
                 "sha1_hash": hash_hex,
                 "file_size_bytes": contents.len(),
@@ -160,6 +176,7 @@ pub mod data_sources {
             }))
         } else {
             Ok(json!({
+                "source_id": source_id,
                 "file_exists": false,
                 "file_path": db_path,
                 "error": "File not found"
@@ -169,15 +186,16 @@ pub mod data_sources {
 
     /// Determine the charging state based on the current time.
     /// This is the public-facing collector function.
-    pub async fn charging_state() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        charging_state_for_battery("default").await
+    pub async fn charging_state(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+        charging_state_for_battery(source_id, "default").await
     }
 
     /// Determine the charging state for a specific battery based on the current time.
-    pub async fn charging_state_for_battery(battery_id: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn charging_state_for_battery(source_id: i32, battery_id: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let now = Utc::now();
         let (state, level) = charging_state_with_level(now, battery_id);
         Ok(json!({
+            "source_id": source_id,
             "battery_id": battery_id,
             "state": state,
             "level": level,
@@ -186,7 +204,7 @@ pub mod data_sources {
     }
 
     /// Run `time sleep 3` and measure how long it takes
-    pub async fn time_sleep_3() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn time_sleep_3(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
         
         let output = tokio::process::Command::new("bash")
@@ -201,6 +219,7 @@ pub mod data_sources {
         let stderr = String::from_utf8_lossy(&output.stderr);
         
         Ok(json!({
+            "source_id": source_id,
             "command": "time sleep 3",
             "duration_ms": duration_ms,
             "duration_secs": duration.as_secs_f64(),
@@ -258,22 +277,14 @@ pub mod data_sources {
 pub struct DataCollector {
     pub name: String,
     pub source_id: i32,
-    pub battery_id: Option<String>,
     db_path: String,
 }
 
 impl DataCollector {
     pub fn new(name: String, source_id: i32, db_path: String) -> Self {
-        let battery_id = if name.starts_with("charging_state_") {
-            Some(name.strip_prefix("charging_state_").unwrap_or("default").to_string())
-        } else {
-            None
-        };
-        
         Self {
             name,
             source_id,
-            battery_id,
             db_path,
         }
     }
@@ -281,19 +292,22 @@ impl DataCollector {
     /// Collect data based on the collector type
     pub async fn collect(&self) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         match self.name.as_str() {
-            "current_time" => data_sources::current_time().await,
-            "ping_localhost" => data_sources::ping_localhost().await,
-            "random_digits" => data_sources::random_digits().await,
-            "database_modtime" => data_sources::database_modtime(&self.db_path).await,
-            "database_sha1" => data_sources::database_sha1(&self.db_path).await,
-            "charging_state" => data_sources::charging_state().await,
-            "time_sleep_3" => data_sources::time_sleep_3().await,
+            "current_time" => data_sources::current_time(self.source_id).await,
+            "ping_localhost" => data_sources::ping_localhost(self.source_id).await,
+            "random_digits" => data_sources::random_digits(self.source_id).await,
+            "database_modtime" => data_sources::database_modtime(self.source_id, &self.db_path).await,
+            "database_sha1" => data_sources::database_sha1(self.source_id, &self.db_path).await,
+            "charging_state" => data_sources::charging_state(self.source_id).await,
+            "time_sleep_3" => data_sources::time_sleep_3(self.source_id).await,
             name if name.starts_with("charging_state_") => {
-                if let Some(battery_id) = &self.battery_id {
-                    data_sources::charging_state_for_battery(battery_id).await
-                } else {
-                    data_sources::charging_state().await
-                }
+                // Extract battery_id from the name for backward compatibility
+                let battery_id = name.strip_prefix("charging_state_").unwrap_or("default");
+                data_sources::charging_state_for_battery(self.source_id, battery_id).await
+            }
+            name if name.starts_with("ping_") => {
+                // Extract target from the name for backward compatibility
+                let target = name.strip_prefix("ping_").unwrap_or("127.0.0.1");
+                data_sources::ping_target(self.source_id, target).await
             }
             _ => Err(format!("Unknown collector type: {}", self.name).into()),
         }

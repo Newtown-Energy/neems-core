@@ -187,10 +187,14 @@ impl DataAggregator {
         }
 
         loop {
-            // Spawn a task for each source that doesn't have pending writes
+            let now = chrono::Utc::now().naive_utc();
+            
+            // Spawn a task for each source that is ready to run
             for source in &active_sources {
                 if let Some(source_id) = source.id {
                     let mut pending = pending_sources.lock().await;
+                    
+                    // Skip if already running/pending write
                     if pending.contains(&source_id) {
                         if verbose {
                             //println!("Skipping source '{}' (ID: {}) - write pending", source.name, source_id);
@@ -198,18 +202,53 @@ impl DataAggregator {
                         continue;
                     }
                     
+                    // Check if enough time has passed since last run
+                    let should_run = match source.last_run {
+                        Some(last_run) => {
+                            let seconds_since_last_run = (now - last_run).num_seconds();
+                            seconds_since_last_run >= source.interval_seconds as i64
+                        }
+                        None => true, // Never run before, so run now
+                    };
+                    
+                    if !should_run {
+                        continue;
+                    }
+                    
                     // Mark source as having a pending write *before* spawning the task
                     pending.insert(source_id);
                     drop(pending);
+
+                    // Update last_run timestamp immediately (when test starts, not completes)
+                    let database_url_clone = database_url.clone();
+                    let update_result = task::spawn_blocking({
+                        let database_url = database_url_clone.clone();
+                        move || -> Result<(), String> {
+                            let mut connection = SqliteConnection::establish(&database_url)
+                                .map_err(|e| format!("Failed to connect: {}", e))?;
+                            update_last_run(&mut connection, source_id, now)
+                                .map_err(|e| format!("Failed to update last_run: {}", e))?;
+                            Ok(())
+                        }
+                    }).await;
+                    
+                    if let Err(e) = update_result {
+                        eprintln!("Failed to update last_run for source {}: {:?}", source_id, e);
+                        // Remove from pending set since we failed to start
+                        let mut pending = pending_sources.lock().await;
+                        pending.remove(&source_id);
+                        continue;
+                    }
 
                     let tx_clone = tx.clone();
                     let pending_sources_clone = pending_sources.clone();
                     let db_path_clone = db_path.clone();
                     let source_name = source.name.clone();
+                    let interval_seconds = source.interval_seconds;
 
                     task::spawn(async move {
                         if verbose {
-                            println!("Polling data source: {} (ID: {})", source_name, source_id);
+                            println!("Polling data source: {} (ID: {}) [interval: {}s]", source_name, source_id, interval_seconds);
                         }
 
                         let collector = DataCollector::new(source_name.clone(), source_id, db_path_clone);
@@ -394,77 +433,68 @@ pub fn read_aggregated_data(
     Ok(result)
 }
 
-/// Get charging state data for a specific battery
-pub fn get_battery_charging_state(
+/// Get readings for a specific source by source_id
+pub fn get_readings_by_source_id(
     connection: &mut SqliteConnection,
-    battery_id: &str,
+    source_id: i32,
     limit: i64,
 ) -> Result<Vec<Reading>, Box<dyn Error>> {
-    use schema::sources::dsl::*;
-
-    let source_name = format!("charging_state_{}", battery_id);
-    
-    // First get the source by name
-    let source: Option<Source> = sources
-        .filter(name.eq(source_name))
-        .select(Source::as_select())
-        .first(connection)
-        .optional()?;
-    
-    match source {
-        Some(src) => {
-            if let Some(source_id) = src.id {
-                get_recent_readings(connection, source_id, limit)
-            } else {
-                Ok(Vec::new())
-            }
-        }
-        None => Ok(Vec::new()),
-    }
+    get_recent_readings(connection, source_id, limit)
 }
 
-/// Get charging state data for all batteries
-pub fn get_all_batteries_charging_state(
+/// Get readings for all sources matching a name pattern
+pub fn get_readings_by_name_pattern(
     connection: &mut SqliteConnection,
+    pattern: &str,
     limit: i64,
-) -> Result<Vec<(String, Vec<Reading>)>, Box<dyn Error>> {
+) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error>> {
     use schema::sources::dsl::*;
 
-    // Get all charging_state_* sources
-    let battery_sources: Vec<Source> = sources
-        .filter(name.like("charging_state_%"))
+    // Get all sources matching the pattern
+    let matching_sources: Vec<Source> = sources
+        .filter(name.like(pattern))
         .select(Source::as_select())
         .load(connection)?;
 
     let mut result = Vec::new();
     
-    for source in battery_sources {
+    for source in matching_sources {
         if let Some(source_id) = source.id {
-            let battery_id = source.name
-                .strip_prefix("charging_state_")
-                .unwrap_or("unknown")
-                .to_string();
-            
-            let battery_readings = get_recent_readings(connection, source_id, limit)?;
-            result.push((battery_id, battery_readings));
+            let readings = get_recent_readings(connection, source_id, limit)?;
+            result.push((source, readings));
         }
     }
 
     Ok(result)
 }
 
-/// Get charging state data for multiple specific batteries
-pub fn get_batteries_charging_state(
+/// Get readings for multiple specific source IDs
+pub fn get_readings_by_source_ids(
     connection: &mut SqliteConnection,
-    battery_ids: &[String],
+    source_ids: &[i32],
     limit: i64,
-) -> Result<Vec<(String, Vec<Reading>)>, Box<dyn Error>> {
+) -> Result<Vec<(i32, Vec<Reading>)>, Box<dyn Error>> {
     let mut result = Vec::new();
     
-    for battery_id in battery_ids {
-        let readings = get_battery_charging_state(connection, battery_id, limit)?;
-        result.push((battery_id.clone(), readings));
+    for &source_id in source_ids {
+        let readings = get_recent_readings(connection, source_id, limit)?;
+        result.push((source_id, readings));
     }
     
     Ok(result)
+}
+
+/// Update the last_run timestamp for a source (called when test starts, not completes)
+pub fn update_last_run(
+    connection: &mut SqliteConnection,
+    source_id: i32,
+    timestamp: chrono::NaiveDateTime,
+) -> Result<(), Box<dyn Error>> {
+    use schema::sources::dsl::*;
+
+    diesel::update(sources.filter(id.eq(source_id)))
+        .set(last_run.eq(Some(timestamp)))
+        .execute(connection)?;
+
+    Ok(())
 }

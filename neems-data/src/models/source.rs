@@ -14,6 +14,8 @@ pub struct Source {
     pub active: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub interval_seconds: i32,
+    pub last_run: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
@@ -22,12 +24,15 @@ pub struct NewSource {
     pub name: String,
     pub description: Option<String>,
     pub active: Option<bool>,
+    pub interval_seconds: Option<i32>,
 }
 
 #[derive(Debug, Clone, AsChangeset, Serialize, Deserialize)]
 #[diesel(table_name = sources)]
 pub struct UpdateSource {
     pub name: Option<String>,
-    pub description: Option<String>,
+    pub description: Option<Option<String>>,
     pub active: Option<bool>,
+    pub interval_seconds: Option<i32>,
+    pub last_run: Option<Option<NaiveDateTime>>,
 }

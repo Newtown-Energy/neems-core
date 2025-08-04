@@ -24,26 +24,31 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             name: "current_time".to_string(),
             description: Some("Current UTC timestamp and unix timestamp".to_string()),
             active: Some(true),
+            interval_seconds: Some(1), // Every second
         },
         NewSource {
             name: "ping_localhost".to_string(),
-            description: Some("Average ping time for 3 round trips to localhost".to_string()),
+            description: Some("Ping statistics for localhost (127.0.0.1)".to_string()),
             active: Some(true),
+            interval_seconds: Some(5), // Every 5 seconds
         },
         NewSource {
             name: "random_digits".to_string(),
             description: Some("Random integers, floats, and bytes".to_string()),
             active: Some(true),
+            interval_seconds: Some(2), // Every 2 seconds
         },
         NewSource {
             name: "database_modtime".to_string(),
             description: Some("Modification time of the database file".to_string()),
             active: Some(true),
+            interval_seconds: Some(10), // Every 10 seconds
         },
         NewSource {
             name: "database_sha1".to_string(),
             description: Some("SHA1 hash of the database file".to_string()),
             active: Some(true),
+            interval_seconds: Some(30), // Every 30 seconds (expensive operation)
         },
         NewSource {
             name: "charging_state".to_string(),
@@ -51,6 +56,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 "Calculates the current charging state (charging, discharging, hold)".to_string(),
             ),
             active: Some(true),
+            interval_seconds: Some(1), // Every second
         },
         NewSource {
             name: "time_sleep_3".to_string(),
@@ -58,6 +64,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 "Times how long it takes to run 'time sleep 3' command - slow 3+ second task".to_string(),
             ),
             active: Some(true),
+            interval_seconds: Some(30), // Every 30 seconds (very slow task)
         },
     ];
 
@@ -71,8 +78,26 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 battery_id
             )),
             active: Some(true),
+            interval_seconds: Some(1), // Every second
         });
     }
+
+    // Examples of additional sources you can add:
+    // 
+    // Additional ping sources (target extracted from name after "ping_"):
+    // sources.push(NewSource {
+    //     name: "ping_google.com".to_string(),
+    //     description: Some("Ping statistics for Google".to_string()),
+    //     active: Some(true),
+    //     interval_seconds: Some(10), // Every 10 seconds
+    // });
+    //
+    // sources.push(NewSource {
+    //     name: "ping_8.8.8.8".to_string(), 
+    //     description: Some("Ping statistics for Google DNS".to_string()),
+    //     active: Some(true),
+    //     interval_seconds: Some(5), // Every 5 seconds
+    // });
 
     for new_source in sources {
         match neems_data::get_source_by_name(&mut connection, &new_source.name)
