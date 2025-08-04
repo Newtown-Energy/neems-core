@@ -34,7 +34,7 @@ if [[ "$DOSH_PROJ_ROOT" == "." ]]; then
     # Top level - target all projects
     PROJ_NAME="."
     export TARGET_PROJ=("-p neems-admin -p neems-api -p neems-data")
-    export TARGET_BIN=("--bin neems-admin --bin neems-api --bin neems-data")
+    export TARGET_BIN=("--bin neems-api")
 else
     # Specific project - target just this one
     PROJ_NAME=$(basename "$DOSH_PROJ_ROOT")
