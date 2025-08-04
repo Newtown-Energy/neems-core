@@ -114,6 +114,56 @@ pub mod data_sources {
     }
 
 
+    /// Collect hard drive space information for root and /dev mounted drives
+    pub async fn disk_space(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+        let output = tokio::process::Command::new("df")
+            .args(&["-B1"]) // Show sizes in bytes
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Ok(json!({
+                "source_id": source_id,
+                "error": stderr.trim(),
+                "drives": []
+            }));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut drives = Vec::new();
+
+        for line in stdout.lines().skip(1) { // Skip header line
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 6 {
+                let filesystem = parts[0];
+                let total_bytes: u64 = parts[1].parse().unwrap_or(0);
+                let used_bytes: u64 = parts[2].parse().unwrap_or(0);
+                let mount_point = parts[5];
+
+                // Only include root mount or drives mounted in /dev
+                if mount_point == "/" || filesystem.starts_with("/dev/") {
+                    drives.push(json!({
+                        "filesystem": filesystem,
+                        "mount_point": mount_point,
+                        "total_bytes": total_bytes,
+                        "used_bytes": used_bytes,
+                        "available_bytes": total_bytes - used_bytes,
+                        "used_percent": if total_bytes > 0 { 
+                            (used_bytes as f64 / total_bytes as f64) * 100.0 
+                        } else { 0.0 }
+                    }));
+                }
+            }
+        }
+
+        Ok(json!({
+            "source_id": source_id,
+            "drives": drives,
+            "timestamp_utc": Utc::now().to_rfc3339()
+        }))
+    }
+
     /// Enhanced function that returns both state and battery level percentage
     pub fn charging_state_with_level(now: DateTime<Utc>, _battery_id: &str) -> (&'static str, f64) {
         let weekday = now.weekday();
@@ -177,6 +227,7 @@ impl DataCollector {
         match self.name.as_str() {
             "ping_localhost" => data_sources::ping_localhost(self.source_id).await,
             "charging_state" => data_sources::charging_state(self.source_id).await,
+            "disk_space" => data_sources::disk_space(self.source_id).await,
             name if name.starts_with("charging_state_") => {
                 // Extract battery_id from the name for backward compatibility
                 let battery_id = name.strip_prefix("charging_state_").unwrap_or("default");

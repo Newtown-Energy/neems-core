@@ -10,12 +10,20 @@ NEEMS_DATA=`which neems-data`
 
 echo "Adding core data sources..."
 
-$NEEMS_DATA add ping_localhost \
-    --description "Ping statistics for localhost (127.0.0.1)" \
-    --interval 5 \
+$NEEMS_DATA add ping_newtownenergy.com \
+    --description "Ping statistics for newtownenergy.com" \
+    --interval 10 \
+    --active
+
+echo "Adding disk space source..."
+
+$NEEMS_DATA add disk_space \
+    --description "Hard drive space usage for mounted drives" \
+    --interval 900 \
     --active
 
 echo "Adding battery-specific charging state sources..."
+
 
 # Battery-specific charging state sources
 for battery_id in battery_1 battery_2 battery_3; do
