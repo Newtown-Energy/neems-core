@@ -7,9 +7,6 @@ edition = "2024"
 name = "neems-data"
 path = "src/main.rs"
 
-[[bin]]
-name = "setup-sources"
-path = "src/bin/setup_sources.rs"
 
 [[bin]]
 name = "test-read"
