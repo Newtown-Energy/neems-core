@@ -41,7 +41,7 @@ impl DataAggregator {
         Self { database_url }
     }
 
-    pub fn establish_connection(&self) -> Result<SqliteConnection, Box<dyn Error>> {
+    pub fn establish_connection(&self) -> Result<SqliteConnection, Box<dyn Error + Send + Sync>> {
         let mut connection = SqliteConnection::establish(&self.database_url)?;
         connection
             .run_pending_migrations(MIGRATIONS)
@@ -334,7 +334,7 @@ pub fn insert_readings_batch(
 pub fn create_source(
     connection: &mut SqliteConnection,
     new_source: NewSource,
-) -> Result<Source, Box<dyn Error>> {
+) -> Result<Source, Box<dyn Error + Send + Sync>> {
     use schema::sources;
 
     diesel::insert_into(sources::table)
@@ -351,7 +351,7 @@ pub fn create_source(
 }
 
 /// List all sources
-pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error>> {
+pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     let source_list = sources.select(Source::as_select()).load(connection)?;
@@ -363,7 +363,7 @@ pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Bo
 pub fn get_source_by_name(
     connection: &mut SqliteConnection,
     source_name: &str,
-) -> Result<Option<Source>, Box<dyn Error>> {
+) -> Result<Option<Source>, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     let source = sources
@@ -380,7 +380,7 @@ pub fn update_source(
     connection: &mut SqliteConnection,
     source_id: i32,
     updates: UpdateSource,
-) -> Result<Source, Box<dyn Error>> {
+) -> Result<Source, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     diesel::update(sources.filter(id.eq(source_id)))
@@ -400,7 +400,7 @@ pub fn get_recent_readings(
     connection: &mut SqliteConnection,
     src_id: i32,
     limit: i64,
-) -> Result<Vec<Reading>, Box<dyn Error>> {
+) -> Result<Vec<Reading>, Box<dyn Error + Send + Sync>> {
     use schema::readings::dsl::*;
 
     let recent_readings = readings
@@ -416,7 +416,7 @@ pub fn get_recent_readings(
 /// Read aggregated data - main interface for neems-api
 pub fn read_aggregated_data(
     database_path: Option<&str>,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error>> {
+) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
     let aggregator = DataAggregator::new(database_path);
     let mut connection = aggregator.establish_connection()?;
 
@@ -438,7 +438,7 @@ pub fn get_readings_by_source_id(
     connection: &mut SqliteConnection,
     source_id: i32,
     limit: i64,
-) -> Result<Vec<Reading>, Box<dyn Error>> {
+) -> Result<Vec<Reading>, Box<dyn Error + Send + Sync>> {
     get_recent_readings(connection, source_id, limit)
 }
 
@@ -447,7 +447,7 @@ pub fn get_readings_by_name_pattern(
     connection: &mut SqliteConnection,
     pattern: &str,
     limit: i64,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error>> {
+) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     // Get all sources matching the pattern
@@ -473,7 +473,7 @@ pub fn get_readings_by_source_ids(
     connection: &mut SqliteConnection,
     source_ids: &[i32],
     limit: i64,
-) -> Result<Vec<(i32, Vec<Reading>)>, Box<dyn Error>> {
+) -> Result<Vec<(i32, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
     let mut result = Vec::new();
     
     for &source_id in source_ids {
@@ -489,7 +489,7 @@ pub fn update_last_run(
     connection: &mut SqliteConnection,
     source_id: i32,
     timestamp: chrono::NaiveDateTime,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     diesel::update(sources.filter(id.eq(source_id)))
@@ -497,4 +497,17 @@ pub fn update_last_run(
         .execute(connection)?;
 
     Ok(())
+}
+
+/// Delete a source by ID
+pub fn delete_source(
+    connection: &mut SqliteConnection,
+    source_id: i32,
+) -> Result<usize, Box<dyn Error + Send + Sync>> {
+    use schema::sources::dsl::*;
+
+    let deleted_count = diesel::delete(sources.filter(id.eq(source_id)))
+        .execute(connection)?;
+
+    Ok(deleted_count)
 }
