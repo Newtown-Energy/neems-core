@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .map_err(|e| e.to_string())?;
 
     // Define the data sources we want to collect from
-    let sources = vec![
+    let mut sources = vec![
         NewSource {
             name: "current_time".to_string(),
             description: Some("Current UTC timestamp and unix timestamp".to_string()),
@@ -60,6 +60,19 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             active: Some(true),
         },
     ];
+
+    // Add battery-specific charging state sources
+    let batteries = vec!["battery_1", "battery_2", "battery_3"];
+    for battery_id in batteries {
+        sources.push(NewSource {
+            name: format!("charging_state_{}", battery_id),
+            description: Some(format!(
+                "Calculates the current charging state (charging, discharging, hold) for {}",
+                battery_id
+            )),
+            active: Some(true),
+        });
+    }
 
     for new_source in sources {
         match neems_data::get_source_by_name(&mut connection, &new_source.name)

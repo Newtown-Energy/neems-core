@@ -146,9 +146,15 @@ pub mod data_sources {
     /// Determine the charging state based on the current time.
     /// This is the public-facing collector function.
     pub async fn charging_state() -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+        charging_state_for_battery("default").await
+    }
+
+    /// Determine the charging state for a specific battery based on the current time.
+    pub async fn charging_state_for_battery(battery_id: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let now = Utc::now();
-        let (state, level) = charging_state_with_level(now);
+        let (state, level) = charging_state_with_level(now, battery_id);
         Ok(json!({
+            "battery_id": battery_id,
             "state": state,
             "level": level,
             "timestamp_utc": now.to_rfc3339()
@@ -181,7 +187,7 @@ pub mod data_sources {
     }
 
     /// Enhanced function that returns both state and battery level percentage
-    pub fn charging_state_with_level(now: DateTime<Utc>) -> (&'static str, f64) {
+    pub fn charging_state_with_level(now: DateTime<Utc>, _battery_id: &str) -> (&'static str, f64) {
         let weekday = now.weekday();
         let hour = now.hour();
         let minute = now.minute();
@@ -228,14 +234,22 @@ pub mod data_sources {
 pub struct DataCollector {
     pub name: String,
     pub source_id: i32,
+    pub battery_id: Option<String>,
     db_path: String,
 }
 
 impl DataCollector {
     pub fn new(name: String, source_id: i32, db_path: String) -> Self {
+        let battery_id = if name.starts_with("charging_state_") {
+            Some(name.strip_prefix("charging_state_").unwrap_or("default").to_string())
+        } else {
+            None
+        };
+        
         Self {
             name,
             source_id,
+            battery_id,
             db_path,
         }
     }
@@ -250,6 +264,13 @@ impl DataCollector {
             "database_sha1" => data_sources::database_sha1(&self.db_path).await,
             "charging_state" => data_sources::charging_state().await,
             "time_sleep_3" => data_sources::time_sleep_3().await,
+            name if name.starts_with("charging_state_") => {
+                if let Some(battery_id) = &self.battery_id {
+                    data_sources::charging_state_for_battery(battery_id).await
+                } else {
+                    data_sources::charging_state().await
+                }
+            }
             _ => Err(format!("Unknown collector type: {}", self.name).into()),
         }
     }

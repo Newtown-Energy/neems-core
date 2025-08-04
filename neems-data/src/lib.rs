@@ -393,3 +393,78 @@ pub fn read_aggregated_data(
 
     Ok(result)
 }
+
+/// Get charging state data for a specific battery
+pub fn get_battery_charging_state(
+    connection: &mut SqliteConnection,
+    battery_id: &str,
+    limit: i64,
+) -> Result<Vec<Reading>, Box<dyn Error>> {
+    use schema::sources::dsl::*;
+
+    let source_name = format!("charging_state_{}", battery_id);
+    
+    // First get the source by name
+    let source: Option<Source> = sources
+        .filter(name.eq(source_name))
+        .select(Source::as_select())
+        .first(connection)
+        .optional()?;
+    
+    match source {
+        Some(src) => {
+            if let Some(source_id) = src.id {
+                get_recent_readings(connection, source_id, limit)
+            } else {
+                Ok(Vec::new())
+            }
+        }
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Get charging state data for all batteries
+pub fn get_all_batteries_charging_state(
+    connection: &mut SqliteConnection,
+    limit: i64,
+) -> Result<Vec<(String, Vec<Reading>)>, Box<dyn Error>> {
+    use schema::sources::dsl::*;
+
+    // Get all charging_state_* sources
+    let battery_sources: Vec<Source> = sources
+        .filter(name.like("charging_state_%"))
+        .select(Source::as_select())
+        .load(connection)?;
+
+    let mut result = Vec::new();
+    
+    for source in battery_sources {
+        if let Some(source_id) = source.id {
+            let battery_id = source.name
+                .strip_prefix("charging_state_")
+                .unwrap_or("unknown")
+                .to_string();
+            
+            let battery_readings = get_recent_readings(connection, source_id, limit)?;
+            result.push((battery_id, battery_readings));
+        }
+    }
+
+    Ok(result)
+}
+
+/// Get charging state data for multiple specific batteries
+pub fn get_batteries_charging_state(
+    connection: &mut SqliteConnection,
+    battery_ids: &[String],
+    limit: i64,
+) -> Result<Vec<(String, Vec<Reading>)>, Box<dyn Error>> {
+    let mut result = Vec::new();
+    
+    for battery_id in battery_ids {
+        let readings = get_battery_charging_state(connection, battery_id, limit)?;
+        result.push((battery_id.clone(), readings));
+    }
+    
+    Ok(result)
+}
