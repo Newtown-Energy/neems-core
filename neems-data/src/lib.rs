@@ -3,12 +3,15 @@ use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::env;
 use std::error::Error;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::task;
 use tokio::sync::{mpsc, Mutex};
 use collectors::DataCollector;
 use chrono::Local;
+use signal_hook::consts::SIGHUP;
+use signal_hook_tokio::Signals;
+use futures_util::stream::StreamExt;
 
 pub mod collectors;
 pub mod models;
@@ -54,18 +57,40 @@ impl DataAggregator {
 
         // Create a channel for collecting readings
         let (tx, rx) = mpsc::unbounded_channel::<PendingReading>();
-        
+
         // Shared state to track sources with pending writes
         let pending_sources = Arc::new(Mutex::new(HashSet::<i32>::new()));
 
         // Start the writer task that batches writes every second
         let writer_handle = Self::start_writer_task(database_url.clone(), rx, pending_sources.clone(), verbose);
 
+        // Create a channel to notify reader tasks of source reloads
+        let (reload_tx, reload_rx) = mpsc::channel(1);
+
+        // Set up the SIGHUP signal handler
+        let signals = Signals::new(&[SIGHUP])?;
+        let handle = signals.handle();
+        let signals_task = tokio::spawn(async move {
+            let mut signals = signals.fuse();
+            while let Some(signal) = signals.next().await {
+                if signal == SIGHUP {
+                    println!("SIGHUP received, triggering source reload...");
+                    if reload_tx.send(()).await.is_err() {
+                        eprintln!("Failed to send reload signal to reader task");
+                        break;
+                    }
+                }
+            }
+        });
+
         // Start the reader tasks
-        let reader_handle = Self::start_reader_tasks(database_url, tx, pending_sources, verbose);
+        let reader_handle = Self::start_reader_tasks(database_url, tx, pending_sources, reload_rx, verbose);
 
         // Wait for both tasks
         tokio::try_join!(writer_handle, reader_handle)?;
+
+        handle.close();
+        signals_task.await?;
 
         Ok(())
     }
@@ -158,42 +183,72 @@ impl DataAggregator {
         Ok(())
     }
 
+    async fn reload_sources(
+    database_url: &str,
+    verbose: bool,
+) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
+    let database_url = database_url.to_string();
+    let (active_sources, _db_path) = task::spawn_blocking({
+        move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
+            let mut connection = SqliteConnection::establish(&database_url)?;
+
+            use schema::sources::dsl::*;
+            let active_sources: Vec<Source> = sources
+                .filter(active.eq(true))
+                .select(Source::as_select())
+                .load(&mut connection)?;
+
+            let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
+
+            Ok((active_sources, db_path))
+        }
+    }).await??;
+
+    if verbose {
+        println!("Found {} active data sources to poll", active_sources.len());
+    }
+
+    Ok(active_sources)
+}
+
     async fn start_reader_tasks(
         database_url: String,
         tx: mpsc::UnboundedSender<PendingReading>,
         pending_sources: Arc<Mutex<HashSet<i32>>>,
+        mut reload_rx: mpsc::Receiver<()>,
         verbose: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Get active sources once at startup - only one database connection needed
-        let (active_sources, db_path) = task::spawn_blocking({
-            let database_url = database_url.clone();
-            move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
-                let mut connection = SqliteConnection::establish(&database_url)?;
-                
-                use schema::sources::dsl::*;
-                let active_sources: Vec<Source> = sources
-                    .filter(active.eq(true))
-                    .select(Source::as_select())
-                    .load(&mut connection)?;
-
-                let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
-                
-                Ok((active_sources, db_path))
-            }
-        }).await??;
-
-        if verbose {
-            println!("Found {} active data sources to poll", active_sources.len());
-        }
+        let active_sources = Arc::new(Mutex::new(Self::reload_sources(&database_url, verbose).await?));
+        let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
 
         loop {
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
+                    // This branch executes periodically
+                }
+                Some(_) = reload_rx.recv() => {
+                    println!("Reloading sources...");
+                    match Self::reload_sources(&database_url, verbose).await {
+                        Ok(new_sources) => {
+                            let mut sources_guard = active_sources.lock().await;
+                            *sources_guard = new_sources;
+                        }
+                        Err(e) => {
+                            eprintln!("Error reloading sources: {}", e);
+                        }
+                    }
+                    continue; // Restart the loop to use the new sources
+                }
+            }
+
             let now = chrono::Utc::now().naive_utc();
-            
+            let sources_guard = active_sources.lock().await;
+
             // Spawn a task for each source that is ready to run
-            for source in &active_sources {
+            for source in &*sources_guard {
                 if let Some(source_id) = source.id {
                     let mut pending = pending_sources.lock().await;
-                    
+
                     // Skip if already running/pending write
                     if pending.contains(&source_id) {
                         if verbose {
@@ -201,7 +256,7 @@ impl DataAggregator {
                         }
                         continue;
                     }
-                    
+
                     // Check if enough time has passed since last run
                     let should_run = match source.last_run {
                         Some(last_run) => {
@@ -210,11 +265,11 @@ impl DataAggregator {
                         }
                         None => true, // Never run before, so run now
                     };
-                    
+
                     if !should_run {
                         continue;
                     }
-                    
+
                     // Mark source as having a pending write *before* spawning the task
                     pending.insert(source_id);
                     drop(pending);
@@ -231,7 +286,7 @@ impl DataAggregator {
                             Ok(())
                         }
                     }).await;
-                    
+
                     if let Err(e) = update_result {
                         eprintln!("Failed to update last_run for source {}: {:?}", source_id, e);
                         // Remove from pending set since we failed to start
@@ -252,7 +307,7 @@ impl DataAggregator {
                         }
 
                         let collector = DataCollector::new(source_name.clone(), source_id);
-                        
+
                         match collector.collect().await {
                             Ok(data) => {
                                 if verbose {
@@ -282,9 +337,9 @@ impl DataAggregator {
                                 }
                             }
                             Err(e) => {
-                                if verbose {
-                                    println!("  → Failed to collect data from {}: {}", source_name, e);
-                                }
+                                // Always log collection errors
+                                eprintln!("  → Failed to collect data from {}: {}", source_name, e);
+
                                 // Remove from pending set if collection failed
                                 let mut pending = pending_sources_clone.lock().await;
                                 pending.remove(&source_id);
@@ -293,9 +348,6 @@ impl DataAggregator {
                     });
                 }
             }
-
-            // Small delay before starting next collection cycle
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
     }
 }
@@ -457,7 +509,7 @@ pub fn get_readings_by_name_pattern(
         .load(connection)?;
 
     let mut result = Vec::new();
-    
+
     for source in matching_sources {
         if let Some(source_id) = source.id {
             let readings = get_recent_readings(connection, source_id, limit)?;
@@ -475,12 +527,12 @@ pub fn get_readings_by_source_ids(
     limit: i64,
 ) -> Result<Vec<(i32, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
     let mut result = Vec::new();
-    
+
     for &source_id in source_ids {
         let readings = get_recent_readings(connection, source_id, limit)?;
         result.push((source_id, readings));
     }
-    
+
     Ok(result)
 }
 

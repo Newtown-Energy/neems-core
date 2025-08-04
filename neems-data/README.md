@@ -13,3 +13,13 @@ neeps-api receives the data by reading the database.
 
 The database location is specified by enviroment variable SITE_DATABASE_URL.
 
+# Running tests
+
+`dosh test` or `cargo test` should do the right thing.
+
+There is one ignored test.  It is exercises sighup-driven reloading of our
+sources.  It is marked with #[ignore] because it sends a signal to the entire
+test process, which can interfere with other tests running in parallel. You can
+run this specific test using the command:
+
+  cargo test -- --ignored test_sighup_reloads_sources
