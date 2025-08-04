@@ -1,24 +1,9 @@
 use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
-use rand::Rng;
 use serde_json::{Value as JsonValue, json};
-use sha1::Digest;
-use std::fs;
-use std::path::Path;
-use std::time::Instant;
 
 pub mod data_sources {
     use super::*;
 
-    /// Get current UTC timestamp
-    pub async fn current_time(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let now = Utc::now();
-        Ok(json!({
-            "source_id": source_id,
-            "timestamp_utc": now.to_rfc3339(),
-            "unix_timestamp": now.timestamp(),
-            "milliseconds": now.timestamp_millis()
-        }))
-    }
 
     /// Ping localhost several times and get statistics using ping's built-in capabilities
     pub async fn ping_localhost(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
@@ -106,83 +91,8 @@ pub mod data_sources {
         }
     }
 
-    /// Generate some random digits
-    pub async fn random_digits(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let mut rng = rand::rng();
 
-        let random_int: u32 = rng.random_range(0..10000);
-        let random_float: f64 = rng.random();
-        let random_bytes: Vec<u8> = (0..8).map(|_| rng.random()).collect();
 
-        Ok(json!({
-            "source_id": source_id,
-            "random_integer": random_int,
-            "random_float": random_float,
-            "random_bytes": random_bytes,
-            "timestamp": Utc::now().to_rfc3339()
-        }))
-    }
-
-    /// Get modification time of the database file
-    pub async fn database_modtime(
-        source_id: i32,
-        db_path: &str,
-    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let path = Path::new(db_path);
-
-        if path.exists() {
-            let metadata = fs::metadata(path)?;
-            let modified = metadata.modified()?;
-            let system_time_modified = modified.duration_since(std::time::UNIX_EPOCH)?;
-
-            Ok(json!({
-                "source_id": source_id,
-                "file_exists": true,
-                "modified_timestamp": system_time_modified.as_secs(),
-                "modified_timestamp_ms": system_time_modified.as_millis(),
-                "file_size_bytes": metadata.len(),
-                "file_path": db_path
-            }))
-        } else {
-            Ok(json!({
-                "source_id": source_id,
-                "file_exists": false,
-                "file_path": db_path,
-                "error": "File not found"
-            }))
-        }
-    }
-
-    /// Get SHA1 hash of the database file
-    pub async fn database_sha1(
-        source_id: i32,
-        db_path: &str,
-    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let path = Path::new(db_path);
-
-        if path.exists() {
-            let contents = tokio::fs::read(path).await?;
-            let mut hasher = sha1::Sha1::new();
-            hasher.update(&contents);
-            let hash = hasher.finalize();
-            let hash_hex = format!("{:x}", hash);
-
-            Ok(json!({
-                "source_id": source_id,
-                "file_exists": true,
-                "sha1_hash": hash_hex,
-                "file_size_bytes": contents.len(),
-                "file_path": db_path
-            }))
-        } else {
-            Ok(json!({
-                "source_id": source_id,
-                "file_exists": false,
-                "file_path": db_path,
-                "error": "File not found"
-            }))
-        }
-    }
 
     /// Determine the charging state based on the current time.
     /// This is the public-facing collector function.
@@ -203,31 +113,6 @@ pub mod data_sources {
         }))
     }
 
-    /// Run `time sleep 3` and measure how long it takes
-    pub async fn time_sleep_3(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        let start = Instant::now();
-        
-        let output = tokio::process::Command::new("bash")
-            .args(&["-c", "time sleep 3"])
-            .output()
-            .await?;
-
-        let duration = start.elapsed();
-        let duration_ms = duration.as_millis() as f64;
-        
-        // Parse the time command output (stderr contains the timing info)
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        
-        Ok(json!({
-            "source_id": source_id,
-            "command": "time sleep 3",
-            "duration_ms": duration_ms,
-            "duration_secs": duration.as_secs_f64(),
-            "exit_code": output.status.code(),
-            "stderr": stderr.trim(),
-            "timestamp_utc": Utc::now().to_rfc3339()
-        }))
-    }
 
     /// Enhanced function that returns both state and battery level percentage
     pub fn charging_state_with_level(now: DateTime<Utc>, _battery_id: &str) -> (&'static str, f64) {
@@ -277,28 +162,21 @@ pub mod data_sources {
 pub struct DataCollector {
     pub name: String,
     pub source_id: i32,
-    db_path: String,
 }
 
 impl DataCollector {
-    pub fn new(name: String, source_id: i32, db_path: String) -> Self {
+    pub fn new(name: String, source_id: i32) -> Self {
         Self {
             name,
             source_id,
-            db_path,
         }
     }
 
     /// Collect data based on the collector type
     pub async fn collect(&self) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         match self.name.as_str() {
-            "current_time" => data_sources::current_time(self.source_id).await,
             "ping_localhost" => data_sources::ping_localhost(self.source_id).await,
-            "random_digits" => data_sources::random_digits(self.source_id).await,
-            "database_modtime" => data_sources::database_modtime(self.source_id, &self.db_path).await,
-            "database_sha1" => data_sources::database_sha1(self.source_id, &self.db_path).await,
             "charging_state" => data_sources::charging_state(self.source_id).await,
-            "time_sleep_3" => data_sources::time_sleep_3(self.source_id).await,
             name if name.starts_with("charging_state_") => {
                 // Extract battery_id from the name for backward compatibility
                 let battery_id = name.strip_prefix("charging_state_").unwrap_or("default");

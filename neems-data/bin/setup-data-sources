@@ -10,40 +10,9 @@ NEEMS_DATA=`which neems-data`
 
 echo "Adding core data sources..."
 
-# Core data sources
-$NEEMS_DATA add current_time \
-    --description "Current UTC timestamp and unix timestamp" \
-    --interval 1 \
-    --active
-
 $NEEMS_DATA add ping_localhost \
     --description "Ping statistics for localhost (127.0.0.1)" \
     --interval 5 \
-    --active
-
-$NEEMS_DATA add random_digits \
-    --description "Random integers, floats, and bytes" \
-    --interval 2 \
-    --active
-
-$NEEMS_DATA add database_modtime \
-    --description "Modification time of the database file" \
-    --interval 10 \
-    --active
-
-$NEEMS_DATA add database_sha1 \
-    --description "SHA1 hash of the database file" \
-    --interval 30 \
-    --active
-
-$NEEMS_DATA add charging_state \
-    --description "Calculates the current charging state (charging, discharging, hold)" \
-    --interval 1 \
-    --active
-
-$NEEMS_DATA add time_sleep_3 \
-    --description "Times how long it takes to run 'time sleep 3' command - slow 3+ second task" \
-    --interval 30 \
     --active
 
 echo "Adding battery-specific charging state sources..."

@@ -242,7 +242,7 @@ impl DataAggregator {
 
                     let tx_clone = tx.clone();
                     let pending_sources_clone = pending_sources.clone();
-                    let db_path_clone = db_path.clone();
+                    let _db_path_clone = db_path.clone();
                     let source_name = source.name.clone();
                     let interval_seconds = source.interval_seconds;
 
@@ -251,7 +251,7 @@ impl DataAggregator {
                             println!("Polling data source: {} (ID: {}) [interval: {}s]", source_name, source_id, interval_seconds);
                         }
 
-                        let collector = DataCollector::new(source_name.clone(), source_id, db_path_clone);
+                        let collector = DataCollector::new(source_name.clone(), source_id);
                         
                         match collector.collect().await {
                             Ok(data) => {

@@ -152,7 +152,7 @@ async fn test_charging_state_source_integration() {
     let source_id = source.id.unwrap();
 
     // 2. Use the DataCollector to get data for this source
-    let collector = DataCollector::new(source_name.to_string(), source_id, "".to_string());
+    let collector = DataCollector::new(source_name.to_string(), source_id);
     let collected_data = collector.collect().await.expect("Collector failed");
 
     // 3. Insert the collected data as a new reading
