@@ -92,3 +92,31 @@ fn test_charging_state() {
         "hold" // Friday is not in the "charging" day set
     );
 }
+
+#[tokio::test]
+async fn test_disk_space_collector() {
+    let result = data_sources::disk_space(1).await;
+    assert!(result.is_ok(), "disk_space collector should not fail");
+
+    let json = result.unwrap();
+    assert_eq!(json["source_id"], 1, "source_id should be present");
+    assert!(json["timestamp_utc"].is_string(), "timestamp_utc should be a string");
+
+    let drives = json["drives"].as_array().expect("drives should be an array");
+    assert!(!drives.is_empty(), "drives array should not be empty");
+
+    // Check the structure of the first drive entry
+    let first_drive = &drives[0];
+    assert!(first_drive["filesystem"].is_string());
+    assert!(first_drive["mount_point"].is_string());
+    assert!(first_drive["total_bytes"].is_number());
+    assert!(first_drive["used_bytes"].is_number());
+    assert!(first_drive["available_bytes"].is_number());
+    assert!(first_drive["used_percent"].is_number());
+
+    // A basic sanity check on the values
+    let total = first_drive["total_bytes"].as_u64().unwrap();
+    let used = first_drive["used_bytes"].as_u64().unwrap();
+    assert!(total > 0, "total_bytes should be greater than 0");
+    assert!(used <= total, "used_bytes should be less than or equal to total_bytes");
+}
