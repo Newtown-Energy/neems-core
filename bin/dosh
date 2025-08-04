@@ -233,13 +233,17 @@ test-trad() {
 
 
 watch() {
-    echo "Running Neems Core for development purposes..."
-    ${CARGO} --list | grep -Eq '^    watch$' || cargo install cargo-watch
+    # cargo watch was not killing the old binary reliably, leading to "address
+    # in use" errors on startup when rocket tried to bind port 8000.  So let's
+    # use nodemon instead.
+
+    # Install nodemon if it's not here
+    which nodemon > /dev/null || npm install -g nodemon
 
     # Maybe copy our test db to /tmp
     [ -f neems-api.sqlite ] && cp neems-api.sqlite /tmp
 
-    ${CARGO} watch --ignore "neems-api.sqlite*" -x run
+    nodemon --exec 'dosh build -p neems-api && target/debug/neems-api' --watch neems-api/src -e rs
 }
 
 # If this script is called as cargo, let it act as a cargo wrapper, even for
