@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::task;
 use tokio::sync::{mpsc, Mutex};
 use collectors::DataCollector;
+use chrono::Local;
 
 pub mod collectors;
 pub mod models;
@@ -86,34 +87,47 @@ impl DataAggregator {
                             println!("Writing batch of {} readings to database", batch.len());
                         }
 
+                        let current_batch = std::mem::take(&mut batch);
+
                         // Extract readings and source IDs for cleanup
-                        let readings: Vec<NewReading> = batch.iter().map(|pr| pr.reading.clone()).collect();
-                        let source_ids: HashSet<i32> = batch.iter().map(|pr| pr.reading.source_id).collect();
+                        let readings: Vec<NewReading> = current_batch.iter().map(|pr| pr.reading.clone()).collect();
+                        let source_ids: HashSet<i32> = current_batch.iter().map(|pr| pr.reading.source_id).collect();
 
-                        // Write batch to database
+                        // Clone what's needed for the spawned task
                         let database_url_clone = database_url.clone();
-                        let write_result = task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                            let mut connection = SqliteConnection::establish(&database_url_clone)?;
-                            insert_readings_batch(&mut connection, readings)?;
-                            Ok(())
-                        }).await?;
+                        let pending_sources_clone = pending_sources.clone();
 
-                        match write_result {
-                            Ok(_) => {
-                                println!("Successfully wrote batch of {} readings", batch.len());
-                                // Remove source IDs from pending set
-                                let mut pending = pending_sources.lock().await;
-                                for source_id in source_ids {
-                                    pending.remove(&source_id);
+                        // Write batch to database in a spawned task
+                        tokio::spawn(async move {
+                            let write_result = task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
+                                let mut connection = SqliteConnection::establish(&database_url_clone)?;
+                                insert_readings_batch(&mut connection, readings)?;
+                                Ok(())
+                            }).await;
+
+                            match write_result {
+                                Ok(Ok(_)) => {
+                                    println!("{} - Successfully wrote batch of {} readings", Local::now().to_rfc3339(), current_batch.len());
+                                    // Remove source IDs from pending set
+                                    let mut pending = pending_sources_clone.lock().await;
+                                    for source_id in source_ids {
+                                        pending.remove(&source_id);
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    eprintln!("Error writing batch: {}", e);
+                                    // Keep the source IDs in pending set so they won't be read again immediately
+                                }
+                                Err(e) => {
+                                    eprintln!("Write task failed to execute: {}", e);
+                                    // The write didn't happen, so unlock the sources
+                                    let mut pending = pending_sources_clone.lock().await;
+                                    for source_id in source_ids {
+                                        pending.remove(&source_id);
+                                    }
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("Error writing batch: {}", e);
-                                // Keep the source IDs in pending set so they won't be read again immediately
-                            }
-                        }
-
-                        batch.clear();
+                        });
                     }
                 }
                 reading = rx.recv() => {
@@ -174,17 +188,18 @@ impl DataAggregator {
 
         loop {
             // Spawn a task for each source that doesn't have pending writes
-            let mut tasks = Vec::new();
-            
             for source in &active_sources {
                 if let Some(source_id) = source.id {
-                    let pending = pending_sources.lock().await;
+                    let mut pending = pending_sources.lock().await;
                     if pending.contains(&source_id) {
                         if verbose {
                             //println!("Skipping source '{}' (ID: {}) - write pending", source.name, source_id);
                         }
                         continue;
                     }
+                    
+                    // Mark source as having a pending write *before* spawning the task
+                    pending.insert(source_id);
                     drop(pending);
 
                     let tx_clone = tx.clone();
@@ -192,13 +207,7 @@ impl DataAggregator {
                     let db_path_clone = db_path.clone();
                     let source_name = source.name.clone();
 
-                    let task = task::spawn(async move {
-                        // Mark source as having a pending write
-                        {
-                            let mut pending = pending_sources_clone.lock().await;
-                            pending.insert(source_id);
-                        }
-
+                    task::spawn(async move {
                         if verbose {
                             println!("Polling data source: {} (ID: {})", source_name, source_id);
                         }
@@ -243,14 +252,7 @@ impl DataAggregator {
                             }
                         }
                     });
-
-                    tasks.push(task);
                 }
-            }
-
-            // Wait for all collection tasks to complete
-            for task in tasks {
-                let _ = task.await;
             }
 
             // Small delay before starting next collection cycle
