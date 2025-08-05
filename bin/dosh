@@ -243,7 +243,7 @@ watch() {
     # Maybe copy our test db to /tmp
     [ -f neems-api.sqlite ] && cp neems-api.sqlite /tmp
 
-    nodemon --exec 'dosh build -p neems-api && target/debug/neems-api' --watch neems-api/src -e rs
+    nodemon --exec 'dosh build -p neems-api --features test-staging && target/debug/neems-api' --watch neems-api/src -e rs
 }
 
 # If this script is called as cargo, let it act as a cargo wrapper, even for
