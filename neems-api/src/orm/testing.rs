@@ -73,16 +73,39 @@ pub fn test_rocket() -> Rocket<Build> {
         "timeout" => 5.into(),
     };
 
+    // Create database config map
+    let mut databases = map!["sqlite_db" => db_config.clone()];
+    
+    // Add site_db configuration when test-staging feature is enabled
+    #[cfg(feature = "test-staging")]
+    {
+        let site_unique_db_name = format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+        let site_db_config: Map<_, Value> = map! {
+            "url" => site_unique_db_name.into(),
+            "pool_size" => 5.into(),
+            "timeout" => 5.into(),
+        };
+        databases.insert("site_db", site_db_config.into());
+    }
+
     // Merge DB config into Rocket's figment
-    let figment = rocket::Config::figment().merge(("databases", map!["sqlite_db" => db_config]));
+    let figment = rocket::Config::figment().merge(("databases", databases));
 
     // Build the Rocket instance with the DB fairing attached
-    let rocket = rocket::custom(figment)
+    let mut rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
         .attach(super::db::set_foreign_keys_fairing())
         .attach(set_sqlite_test_pragmas_fairing())
         .attach(super::db::run_migrations_fairing())
         .attach(admin_init_fairing());
+    
+    // Attach SiteDbConn fairing when test-staging feature is enabled
+    #[cfg(feature = "test-staging")]
+    {
+        rocket = rocket.attach(super::neems_data::db::SiteDbConn::fairing())
+                      .attach(super::neems_data::db::set_foreign_keys_fairing());
+    }
+    
     crate::mount_api_routes(rocket)
 }
 

@@ -15,7 +15,7 @@ pub mod company;
 pub mod logged_json;
 pub mod models;
 pub mod orm;
-pub use orm::DbConn;
+pub use orm::{DbConn, SiteDbConn};
 pub mod schema;
 pub mod session_guards;
 
@@ -116,15 +116,20 @@ fn log_rocket_info(rocket: &Rocket<Build>) {
 pub fn rocket() -> Rocket<Build> {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
+    let site_database_url = std::env::var("SITE_DATABASE_URL")
+        .expect("SITE_DATABASE_URL must be set");
     
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global())
-        .merge(("databases.sqlite_db.url", database_url));
+        .merge(("databases.sqlite_db.url", database_url))
+        .merge(("databases.site_db.url", site_database_url));
 
     let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
+        .attach(SiteDbConn::fairing())
         .attach(orm::set_foreign_keys_fairing())
+        .attach(orm::neems_data::set_foreign_keys_fairing())
         .attach(orm::run_migrations_fairing())
         .attach(admin_init_fairing::admin_init_fairing())
         .register(
