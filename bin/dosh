@@ -191,6 +191,7 @@ migrate() {
 
 nextest() {
     local cmd="${CARGO} $NIGHTLY nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
+    echo "RUSTFLAGS=\"-Zcodegen-backend=cranelift\" $cmd $@"
     if [ -z "$WAYLAND_DISPLAY" ]; then
         RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@"
     else
