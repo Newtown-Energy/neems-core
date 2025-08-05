@@ -9,9 +9,66 @@
 use rocket::Route;
 use rocket::http::Status;
 use rocket::serde::json::Json;
+use serde::{Serialize, Deserialize};
 
-#[cfg(feature = "test-staging")]
 use crate::orm::neems_data::db::SiteDbConn;
+
+/// Response structure for data sources list
+#[derive(Serialize, Deserialize)]
+pub struct DataSourcesResponse {
+    pub sources: Vec<neems_data::models::Source>,
+}
+
+/// List Data Sources endpoint.
+///
+/// - **URL:** `/api/1/data`
+/// - **Method:** `GET`
+/// - **Purpose:** Returns a list of all data sources in the database
+/// - **Authentication:** Not required
+///
+/// This endpoint queries the sources table and returns all configured data sources
+/// with their metadata including name, description, active status, and timing information.
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "sources": [
+///     {
+///       "id": 1,
+///       "name": "Temperature Sensor A",
+///       "description": "Main building temperature monitoring",
+///       "active": true,
+///       "interval_seconds": 300,
+///       "last_run": "2024-01-01T12:00:00",
+///       "created_at": "2024-01-01T00:00:00",
+///       "updated_at": "2024-01-01T00:00:00"
+///     }
+///   ]
+/// }
+/// ```
+#[get("/1/data")]
+pub async fn list_data_sources(
+    site_db: SiteDbConn,
+) -> Result<Json<DataSourcesResponse>, Status> {
+    site_db.run(|conn| {
+        use diesel::prelude::*;
+        use neems_data::schema::sources::dsl::*;
+        
+        match sources.load::<neems_data::models::Source>(conn) {
+            Ok(source_list) => {
+                Ok(Json(DataSourcesResponse {
+                    sources: source_list,
+                }))
+            }
+            Err(e) => {
+                eprintln!("Error loading data sources: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
+    }).await
+}
 
 /// Get Site Database Schema endpoint.
 ///
@@ -97,11 +154,13 @@ pub async fn get_site_schema(
 pub fn routes() -> Vec<Route> {
     #[cfg(feature = "test-staging")]
     {
-        routes![get_site_schema]
+        let mut data_routes = routes![list_data_sources];
+        data_routes.extend(routes![get_site_schema]);
+        data_routes
     }
     
     #[cfg(not(feature = "test-staging"))]
     {
-        vec![]
+        routes![list_data_sources]
     }
 }
