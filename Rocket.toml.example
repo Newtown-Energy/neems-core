@@ -6,6 +6,5 @@ ip_header = "X-Real-IP"
 port = 8000
 secret_key_file = "secret_key.txt"
 
-[default.databases]
-sqlite_db = { url = "test.db" }
-
+# In a normal Rocket.toml, you might include default db urls here, but we don't
+# do that.  We just specify them in envars.

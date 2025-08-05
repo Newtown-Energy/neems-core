@@ -3,6 +3,7 @@ extern crate rocket;
 
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 use rocket::figment::value::Map;
+use rocket::figment::{Figment, providers::{Env, Format, Toml}};
 use rocket::fs::FileServer;
 use rocket::request::Request;
 use rocket::serde::json::{Json, Value, json};
@@ -113,7 +114,15 @@ fn log_rocket_info(rocket: &Rocket<Build>) {
 /// set up the test_rocket in-memory db.  That is defined in db.rs.
 #[launch]
 pub fn rocket() -> Rocket<Build> {
-    let rocket = rocket::build()
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set");
+    
+    let figment = Figment::from(rocket::Config::default())
+        .merge(Toml::file("Rocket.toml").nested())
+        .merge(Env::prefixed("ROCKET_").global())
+        .merge(("databases.sqlite_db.url", database_url));
+
+    let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
         .attach(orm::set_foreign_keys_fairing())
         .attach(orm::run_migrations_fairing())
