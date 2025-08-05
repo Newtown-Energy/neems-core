@@ -60,6 +60,8 @@ diesel::table! {
         updated_at -> Timestamp,
         interval_seconds -> Integer,
         last_run -> Nullable<Timestamp>,
+        test_type -> Nullable<Text>,
+        arguments -> Nullable<Text>,
     }
 }
 

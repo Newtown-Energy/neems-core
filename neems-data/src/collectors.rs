@@ -1,5 +1,6 @@
 use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use serde_json::{Value as JsonValue, json};
+use std::collections::HashMap;
 
 pub mod data_sources {
     use super::*;
@@ -208,37 +209,149 @@ pub mod data_sources {
     }
 }
 
+/// Enumeration of supported test types
+#[derive(Debug, Clone, PartialEq)]
+pub enum TestType {
+    Ping,
+    ChargingState,
+    DiskSpace,
+}
+
+impl TestType {
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "ping" => Ok(TestType::Ping),
+            "charging_state" => Ok(TestType::ChargingState),
+            "disk_space" => Ok(TestType::DiskSpace),
+            _ => Err(format!("Unknown test type: {}", s)),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TestType::Ping => "ping",
+            TestType::ChargingState => "charging_state",
+            TestType::DiskSpace => "disk_space",
+        }
+    }
+}
+
 /// Data collector that manages async polling of various data sources
 pub struct DataCollector {
-    pub name: String,
+    pub test_type: TestType,
     pub source_id: i32,
+    pub arguments: HashMap<String, String>,
 }
 
 impl DataCollector {
-    pub fn new(name: String, source_id: i32) -> Self {
+    /// Create a new DataCollector with the modern test_type and arguments approach
+    pub fn new_with_test_type(test_type: TestType, source_id: i32, arguments: HashMap<String, String>) -> Self {
         Self {
-            name,
+            test_type,
             source_id,
+            arguments,
+        }
+    }
+
+    /// Backward-compatible constructor that parses old-style names
+    /// For unknown names, creates a collector that will fail at collect time
+    pub fn new(name: String, source_id: i32) -> Self {
+        if let Some((test_type, arguments)) = Self::parse_legacy_name(&name) {
+            Self {
+                test_type,
+                source_id,
+                arguments,
+            }
+        } else {
+            // Create a placeholder that will fail at collect time for unknown names
+            Self {
+                test_type: TestType::Ping, // Placeholder, will be ignored
+                source_id,
+                arguments: {
+                    let mut args = HashMap::new();
+                    args.insert("__unknown_name".to_string(), name);
+                    args
+                },
+            }
+        }
+    }
+
+    /// Parse legacy collector names into test_type and arguments
+    /// Returns None for unknown collector names to maintain backward compatibility
+    fn parse_legacy_name(name: &str) -> Option<(TestType, HashMap<String, String>)> {
+        let mut arguments = HashMap::new();
+        
+        match name {
+            "ping_localhost" => {
+                arguments.insert("target".to_string(), "127.0.0.1".to_string());
+                Some((TestType::Ping, arguments))
+            },
+            "charging_state" => Some((TestType::ChargingState, arguments)),
+            "disk_space" => Some((TestType::DiskSpace, arguments)),
+            name if name.starts_with("charging_state_") => {
+                let battery_id = name.strip_prefix("charging_state_").unwrap_or("default");
+                arguments.insert("battery_id".to_string(), battery_id.to_string());
+                Some((TestType::ChargingState, arguments))
+            },
+            name if name.starts_with("ping_") => {
+                let target = name.strip_prefix("ping_").unwrap_or("127.0.0.1");
+                arguments.insert("target".to_string(), target.to_string());
+                Some((TestType::Ping, arguments))
+            },
+            _ => None // Unknown collector names return None
         }
     }
 
     /// Collect data based on the collector type
     pub async fn collect(&self) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
-        match self.name.as_str() {
-            "ping_localhost" => data_sources::ping_localhost(self.source_id).await,
-            "charging_state" => data_sources::charging_state(self.source_id).await,
-            "disk_space" => data_sources::disk_space(self.source_id).await,
-            name if name.starts_with("charging_state_") => {
-                // Extract battery_id from the name for backward compatibility
-                let battery_id = name.strip_prefix("charging_state_").unwrap_or("default");
-                data_sources::charging_state_for_battery(self.source_id, battery_id).await
-            }
-            name if name.starts_with("ping_") => {
-                // Extract target from the name for backward compatibility
-                let target = name.strip_prefix("ping_").unwrap_or("127.0.0.1");
+        // Check if this was an unknown collector name
+        if let Some(unknown_name) = self.arguments.get("__unknown_name") {
+            return Err(format!("Unknown collector type: {}", unknown_name).into());
+        }
+
+        match self.test_type {
+            TestType::Ping => {
+                let target = self.arguments.get("target").map(|s| s.as_str()).unwrap_or("127.0.0.1");
                 data_sources::ping_target(self.source_id, target).await
             }
-            _ => Err(format!("Unknown collector type: {}", self.name).into()),
+            TestType::ChargingState => {
+                let battery_id = self.arguments.get("battery_id").map(|s| s.as_str()).unwrap_or("default");
+                data_sources::charging_state_for_battery(self.source_id, battery_id).await
+            }
+            TestType::DiskSpace => {
+                data_sources::disk_space(self.source_id).await
+            }
         }
+    }
+
+    /// Helper method to create a ping collector with a specific target
+    pub fn new_ping(source_id: i32, target: &str) -> Self {
+        let mut arguments = HashMap::new();
+        arguments.insert("target".to_string(), target.to_string());
+        Self::new_with_test_type(TestType::Ping, source_id, arguments)
+    }
+
+    /// Helper method to create a charging state collector for a specific battery
+    pub fn new_charging_state(source_id: i32, battery_id: Option<&str>) -> Self {
+        let mut arguments = HashMap::new();
+        if let Some(battery_id) = battery_id {
+            arguments.insert("battery_id".to_string(), battery_id.to_string());
+        }
+        Self::new_with_test_type(TestType::ChargingState, source_id, arguments)
+    }
+
+    /// Helper method to create a disk space collector
+    pub fn new_disk_space(source_id: i32) -> Self {
+        Self::new_with_test_type(TestType::DiskSpace, source_id, HashMap::new())
+    }
+
+    /// Get the test type as a string
+    pub fn test_type_str(&self) -> &'static str {
+        self.test_type.as_str()
+    }
+
+    /// Get a specific argument value
+    pub fn get_argument(&self, key: &str) -> Option<&String> {
+        self.arguments.get(key)
     }
 }

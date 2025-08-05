@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::schema::sources;
 
@@ -16,6 +17,24 @@ pub struct Source {
     pub updated_at: NaiveDateTime,
     pub interval_seconds: i32,
     pub last_run: Option<NaiveDateTime>,
+    pub test_type: Option<String>,
+    pub arguments: Option<String>, // JSON string
+}
+
+impl Source {
+    /// Parse the arguments JSON string into a HashMap
+    pub fn get_arguments(&self) -> Result<HashMap<String, String>, serde_json::Error> {
+        match &self.arguments {
+            Some(args) => serde_json::from_str(args),
+            None => Ok(HashMap::new()),
+        }
+    }
+
+    /// Set arguments from a HashMap, serializing to JSON
+    pub fn set_arguments(&mut self, args: &HashMap<String, String>) -> Result<(), serde_json::Error> {
+        self.arguments = Some(serde_json::to_string(args)?);
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Insertable, Serialize, Deserialize)]
@@ -25,6 +44,29 @@ pub struct NewSource {
     pub description: Option<String>,
     pub active: Option<bool>,
     pub interval_seconds: Option<i32>,
+    pub test_type: Option<String>,
+    pub arguments: Option<String>, // JSON string
+}
+
+impl NewSource {
+    /// Create a NewSource with arguments from a HashMap
+    pub fn with_arguments(
+        name: String,
+        test_type: String,
+        arguments: &HashMap<String, String>,
+        description: Option<String>,
+        active: Option<bool>,
+        interval_seconds: Option<i32>,
+    ) -> Result<Self, serde_json::Error> {
+        Ok(NewSource {
+            name,
+            description,
+            active,
+            interval_seconds,
+            test_type: Some(test_type),
+            arguments: Some(serde_json::to_string(arguments)?),
+        })
+    }
 }
 
 #[derive(Debug, Clone, AsChangeset, Serialize, Deserialize)]
@@ -35,4 +77,14 @@ pub struct UpdateSource {
     pub active: Option<bool>,
     pub interval_seconds: Option<i32>,
     pub last_run: Option<Option<NaiveDateTime>>,
+    pub test_type: Option<String>,
+    pub arguments: Option<String>, // JSON string
+}
+
+impl UpdateSource {
+    /// Set arguments from a HashMap
+    pub fn with_arguments(mut self, args: &HashMap<String, String>) -> Result<Self, serde_json::Error> {
+        self.arguments = Some(serde_json::to_string(args)?);
+        Ok(self)
+    }
 }

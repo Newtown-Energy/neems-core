@@ -19,6 +19,8 @@ fn setup_test_db_for_signal_test() -> (DataAggregator, NamedTempFile) {
             description: Some("Initial source".to_string()),
             active: Some(true),
             interval_seconds: Some(1),
+            test_type: Some("charging_state".to_string()),
+            arguments: Some("{}".to_string()),
         },
     )
     .unwrap();
@@ -54,6 +56,8 @@ async fn test_sighup_reloads_sources_and_collects_data() {
             description: Some("Second source added dynamically".to_string()),
             active: Some(true),
             interval_seconds: Some(1),
+            test_type: Some("charging_state".to_string()),
+            arguments: Some("{\"battery_id\":\"battery2\"}".to_string()),
         },
     )
     .unwrap();

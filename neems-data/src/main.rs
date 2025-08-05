@@ -28,14 +28,14 @@ enum Commands {
     Edit(EditArgs),
     /// Remove a source
     #[command(alias = "rm")]
-    Remove { 
+    Remove {
         /// Name of the source to remove
-        name: String 
+        name: String
     },
     /// Show details of a specific source
-    Show { 
+    Show {
         /// Name of the source to show
-        name: String 
+        name: String
     },
 }
 
@@ -43,6 +43,12 @@ enum Commands {
 struct AddArgs {
     /// Name of the source
     name: String,
+    /// Test type (ping, charging_state, disk_space)
+    #[arg(short = 't', long)]
+    test_type: String,
+    /// Test arguments in key=value format (can be used multiple times)
+    #[arg(short = 'a', long = "arg", value_parser = parse_key_val)]
+    arguments: Vec<(String, String)>,
     /// Description of the source
     #[arg(short, long)]
     description: Option<String>,
@@ -50,8 +56,16 @@ struct AddArgs {
     #[arg(short, long, default_value = "1")]
     interval: i32,
     /// Whether the source is active (default: true)
-    #[arg(short, long, default_value = "true")]
+    #[arg(long, default_value = "true")]
     active: bool,
+}
+
+/// Parse a single key=value pair
+fn parse_key_val(s: &str) -> Result<(String, String), Box<dyn Error + Send + Sync + 'static>> {
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }
 
 #[derive(Args)]
@@ -61,6 +75,12 @@ struct EditArgs {
     /// New name for the source
     #[arg(long)]
     new_name: Option<String>,
+    /// New test type (ping, charging_state, disk_space)
+    #[arg(short = 't', long)]
+    test_type: Option<String>,
+    /// New test arguments in key=value format (can be used multiple times)
+    #[arg(short = 'a', long = "arg", value_parser = parse_key_val)]
+    arguments: Vec<(String, String)>,
     /// New description for the source
     #[arg(short, long)]
     description: Option<String>,
@@ -68,11 +88,14 @@ struct EditArgs {
     #[arg(short, long)]
     interval: Option<i32>,
     /// Set whether the source is active
-    #[arg(short, long)]
+    #[arg(long)]
     active: Option<bool>,
     /// Clear the description (set to null)
     #[arg(long)]
     clear_description: bool,
+    /// Clear all arguments (set to empty)
+    #[arg(long)]
+    clear_arguments: bool,
 }
 
 #[tokio::main]
@@ -104,18 +127,43 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             if sources.is_empty() {
                 println!("No sources found.");
             } else {
-                println!("{:<4} {:<25} {:<10} {:<8} {:<20} {}", 
-                    "ID", "Name", "Interval", "Active", "Last Run", "Description");
-                println!("{}", "-".repeat(80));
+                println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<20} {}",
+                    "ID", "Name", "Test Type", "Arguments", "Active", "Last Run", "Description");
+                println!("{}", "-".repeat(100));
                 for source in sources {
                     let last_run = source.last_run
                         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                         .unwrap_or_else(|| "Never".to_string());
-                    
-                    println!("{:<4} {:<25} {:<10} {:<8} {:<20} {}", 
+
+                    let test_type = source.test_type.as_deref().unwrap_or("(legacy)");
+                    let arguments = match &source.arguments {
+                        Some(args_json) => {
+                            match serde_json::from_str::<std::collections::HashMap<String, String>>(args_json) {
+                                Ok(args) if args.is_empty() => "{}".to_string(),
+                                Ok(args) => {
+                                    let formatted: Vec<String> = args.iter()
+                                        .map(|(k, v)| format!("{}={}", k, v))
+                                        .collect();
+                                    formatted.join(",")
+                                }
+                                Err(_) => "(invalid)".to_string(),
+                            }
+                        }
+                        None => "(none)".to_string(),
+                    };
+
+                    // Truncate arguments if too long for display
+                    let args_display = if arguments.len() > 13 {
+                        format!("{}...", &arguments[..10])
+                    } else {
+                        arguments
+                    };
+
+                    println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<20} {}",
                         source.id.unwrap_or(0),
                         source.name,
-                        format!("{}s", source.interval_seconds),
+                        test_type,
+                        args_display,
                         source.active,
                         last_run,
                         source.description.unwrap_or_else(|| "".to_string())
@@ -129,12 +177,31 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     println!("Source Details:");
                     println!("  ID: {}", source.id.unwrap_or(0));
                     println!("  Name: {}", source.name);
+                    println!("  Test Type: {}", source.test_type.as_deref().unwrap_or("(legacy)"));
+
+                    // Display arguments nicely
+                    match &source.arguments {
+                        Some(args_json) => {
+                            match serde_json::from_str::<std::collections::HashMap<String, String>>(args_json) {
+                                Ok(args) if args.is_empty() => println!("  Arguments: (none)"),
+                                Ok(args) => {
+                                    println!("  Arguments:");
+                                    for (key, value) in &args {
+                                        println!("    {}: {}", key, value);
+                                    }
+                                }
+                                Err(_) => println!("  Arguments: (invalid JSON)"),
+                            }
+                        }
+                        None => println!("  Arguments: (none)"),
+                    }
+
                     println!("  Description: {}", source.description.unwrap_or_else(|| "(none)".to_string()));
                     println!("  Active: {}", source.active);
                     println!("  Interval: {} seconds", source.interval_seconds);
                     println!("  Created: {}", source.created_at.format("%Y-%m-%d %H:%M:%S"));
                     println!("  Updated: {}", source.updated_at.format("%Y-%m-%d %H:%M:%S"));
-                    println!("  Last Run: {}", 
+                    println!("  Last Run: {}",
                         source.last_run
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                             .unwrap_or_else(|| "Never".to_string())
@@ -153,15 +220,36 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 std::process::exit(1);
             }
 
+            // Validate test type
+            use neems_data::collectors::TestType;
+            let _test_type = TestType::from_str(&args.test_type)
+                .map_err(|e| format!("Invalid test type '{}': {}", args.test_type, e))?;
+
+            // Convert arguments Vec to HashMap
+            let mut arguments = std::collections::HashMap::new();
+            for (key, value) in args.arguments {
+                arguments.insert(key, value);
+            }
+
+            let test_type_str = args.test_type.clone();
             let new_source = NewSource {
                 name: args.name.clone(),
                 description: args.description,
                 active: Some(args.active),
                 interval_seconds: Some(args.interval),
+                test_type: Some(args.test_type),
+                arguments: Some(serde_json::to_string(&arguments)?),
             };
 
             let created = create_source(&mut connection, new_source)?;
             println!("Created source '{}' (ID: {})", created.name, created.id.unwrap_or(0));
+            println!("  Test Type: {}", test_type_str);
+            if !arguments.is_empty() {
+                println!("  Arguments:");
+                for (key, value) in &arguments {
+                    println!("    {}: {}", key, value);
+                }
+            }
         }
         Commands::Edit(args) => {
             // Check if source exists
@@ -183,12 +271,44 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 None
             };
 
+            // Handle test_type validation if provided
+            if let Some(ref test_type) = args.test_type {
+                use neems_data::collectors::TestType;
+                TestType::from_str(test_type)
+                    .map_err(|e| format!("Invalid test type '{}': {}", test_type, e))?;
+            }
+
+            // Handle arguments updates
+            let arguments = if args.clear_arguments {
+                Some("{}".to_string())
+            } else if !args.arguments.is_empty() {
+                // Merge with existing arguments if no clear flag
+                let mut current_args = match &existing.arguments {
+                    Some(args_json) => {
+                        serde_json::from_str::<std::collections::HashMap<String, String>>(args_json)
+                            .unwrap_or_default()
+                    }
+                    None => std::collections::HashMap::new(),
+                };
+
+                // Add/update new arguments
+                for (key, value) in args.arguments {
+                    current_args.insert(key, value);
+                }
+
+                Some(serde_json::to_string(&current_args)?)
+            } else {
+                None
+            };
+
             let updates = UpdateSource {
                 name: args.new_name,
                 description,
                 active: args.active,
                 interval_seconds: args.interval,
                 last_run: None, // Don't modify last_run via CLI
+                test_type: args.test_type,
+                arguments,
             };
 
             let updated = update_source(&mut connection, source_id, updates)?;
