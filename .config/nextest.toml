@@ -7,7 +7,7 @@ dir = "target/nextest"
 test-threads = 4
 
 # Retry failed tests once
-retries = 1
+retries = 0
 
 # Show output for failing tests
 failure-output = "immediate"
