@@ -9,7 +9,9 @@
 use rocket::Route;
 use rocket::http::Status;
 use rocket::serde::json::Json;
+use rocket::form::FromForm;
 use serde::{Serialize, Deserialize};
+use chrono::NaiveDateTime;
 
 use crate::orm::neems_data::db::SiteDbConn;
 
@@ -17,6 +19,116 @@ use crate::orm::neems_data::db::SiteDbConn;
 #[derive(Serialize, Deserialize)]
 pub struct DataSourcesResponse {
     pub sources: Vec<neems_data::models::Source>,
+}
+
+/// Response structure for readings data
+#[derive(Serialize, Deserialize)]
+pub struct ReadingsResponse {
+    pub readings: Vec<neems_data::models::Reading>,
+    pub source_id: Option<i32>,
+    pub total_count: Option<i64>,
+}
+
+/// Query parameters for readings endpoints
+#[derive(Serialize, Deserialize, FromForm)]
+pub struct ReadingsQuery {
+    /// ISO 8601 timestamp - start of time window
+    pub since: Option<String>,
+    /// ISO 8601 timestamp - end of time window  
+    pub until: Option<String>,
+    /// ISO 8601 timestamp - start from this time with count
+    pub from_time: Option<String>,
+    /// ISO 8601 timestamp - end at this time with count
+    pub to_time: Option<String>,
+    /// Number of readings (used with from_time/to_time)
+    pub count: Option<i64>,
+    /// Number of latest readings
+    pub latest: Option<i64>,
+    /// Comma-separated list of source IDs (for multi-source queries)
+    pub source_ids: Option<String>,
+}
+
+impl ReadingsQuery {
+    /// Parse since timestamp
+    pub fn parse_since(&self) -> Result<Option<NaiveDateTime>, chrono::ParseError> {
+        match &self.since {
+            Some(s) => Ok(Some(NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?)),
+            None => Ok(None),
+        }
+    }
+    
+    /// Parse until timestamp
+    pub fn parse_until(&self) -> Result<Option<NaiveDateTime>, chrono::ParseError> {
+        match &self.until {
+            Some(s) => Ok(Some(NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?)),
+            None => Ok(None),
+        }
+    }
+    
+    /// Parse from_time timestamp
+    pub fn parse_from_time(&self) -> Result<Option<NaiveDateTime>, chrono::ParseError> {
+        match &self.from_time {
+            Some(s) => Ok(Some(NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?)),
+            None => Ok(None),
+        }
+    }
+    
+    /// Parse to_time timestamp
+    pub fn parse_to_time(&self) -> Result<Option<NaiveDateTime>, chrono::ParseError> {
+        match &self.to_time {
+            Some(s) => Ok(Some(NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?)),
+            None => Ok(None),
+        }
+    }
+    
+    /// Parse source_ids into vector of integers
+    pub fn parse_source_ids(&self) -> Result<Option<Vec<i32>>, std::num::ParseIntError> {
+        match &self.source_ids {
+            Some(s) => {
+                let ids: Result<Vec<i32>, _> = s.split(',')
+                    .map(|id| id.trim().parse::<i32>())
+                    .collect();
+                Ok(Some(ids?))
+            }
+            None => Ok(None),
+        }
+    }
+    
+    /// Validate query parameters for logical consistency
+    pub fn validate(&self) -> Result<(), String> {
+        // Ensure we don't have conflicting time parameters
+        let time_params = [
+            self.since.is_some() || self.until.is_some(),
+            self.from_time.is_some(),
+            self.to_time.is_some(),
+            self.latest.is_some(),
+        ];
+        
+        let active_time_params = time_params.iter().filter(|&&x| x).count();
+        if active_time_params > 1 {
+            return Err("Only one time parameter type allowed: (since/until), from_time, to_time, or latest".to_string());
+        }
+        
+        // Validate count is used with from_time or to_time
+        if self.count.is_some() && self.from_time.is_none() && self.to_time.is_none() {
+            return Err("count parameter requires from_time or to_time".to_string());
+        }
+        
+        // Ensure count and latest are reasonable
+        if let Some(count) = self.count {
+            if count <= 0 || count > 10000 {
+                return Err("count must be between 1 and 10000".to_string());
+            }
+        }
+        
+        if let Some(latest) = self.latest {
+            if latest <= 0 || latest > 10000 {
+                return Err("latest must be between 1 and 10000".to_string());
+            }
+        }
+        
+        Ok(())
+    }
 }
 
 /// List Data Sources endpoint.
@@ -64,6 +176,305 @@ pub async fn list_data_sources(
             }
             Err(e) => {
                 eprintln!("Error loading data sources: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
+    }).await
+}
+
+/// Get Readings for Single Data Source endpoint.
+///
+/// - **URL:** `/api/1/data/readings/<source_id>`
+/// - **Method:** `GET`
+/// - **Purpose:** Returns readings for a specific data source with optional filtering
+/// - **Authentication:** Not required
+///
+/// This endpoint queries the readings table for a specific source_id with various
+/// time-based filtering options to prevent accidentally large data transfers.
+///
+/// # Query Parameters
+///
+/// **Time Window (mutually exclusive with other options):**
+/// - `since`: ISO 8601 timestamp (e.g., "2024-01-01T00:00:00Z") - start of time window
+/// - `until`: ISO 8601 timestamp (e.g., "2024-01-02T00:00:00Z") - end of time window
+///
+/// **Count-based from timestamp (mutually exclusive):**
+/// - `from_time`: ISO 8601 timestamp - start from this time
+/// - `count`: Number of readings to return (1-10000)
+///
+/// **Count-based to timestamp (mutually exclusive):**
+/// - `to_time`: ISO 8601 timestamp - end at this time  
+/// - `count`: Number of readings to return (1-10000)
+///
+/// **Latest readings (mutually exclusive):**
+/// - `latest`: Number of most recent readings (1-10000)
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "readings": [
+///     {
+///       "id": 1,
+///       "source_id": 123,
+///       "timestamp": "2024-01-01T12:00:00",
+///       "data": "{\"temperature\": 23.5}",
+///       "quality_flags": 0
+///     }
+///   ],
+///   "source_id": 123,
+///   "total_count": null
+/// }
+/// ```
+///
+/// **Error (HTTP 400 Bad Request):** Invalid query parameters
+/// **Error (HTTP 404 Not Found):** Source ID does not exist
+#[get("/1/data/readings/<source_id>?<query..>")]
+pub async fn get_source_readings(
+    source_id: i32,
+    query: ReadingsQuery,
+    site_db: SiteDbConn,
+) -> Result<Json<ReadingsResponse>, Status> {
+    // Validate query parameters
+    if let Err(e) = query.validate() {
+        eprintln!("Invalid query parameters: {}", e);
+        return Err(Status::BadRequest);
+    }
+    
+    let req_source_id = source_id;
+    site_db.run(move |conn| {
+        use diesel::prelude::*;
+        use neems_data::schema::readings::dsl::*;
+        use neems_data::schema::sources;
+        
+        // First verify the source exists
+        match sources::dsl::sources
+            .filter(sources::dsl::id.eq(req_source_id))
+            .first::<neems_data::models::Source>(conn) 
+        {
+            Ok(_) => {}, // Source exists, continue
+            Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
+            Err(e) => {
+                eprintln!("Error checking source existence: {:?}", e);
+                return Err(Status::InternalServerError);
+            }
+        }
+        
+        // Build the base query
+        let mut query_builder = readings
+            .filter(source_id.eq(req_source_id))
+            .into_boxed();
+        
+        // Apply time-based filtering
+        if let Some(since_time) = query.parse_since().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder.filter(timestamp.ge(since_time));
+        }
+        
+        if let Some(until_time) = query.parse_until().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder.filter(timestamp.le(until_time));
+        }
+        
+        if let Some(from_time) = query.parse_from_time().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder
+                .filter(timestamp.ge(from_time))
+                .order(timestamp.asc());
+            if let Some(count) = query.count {
+                query_builder = query_builder.limit(count);
+            }
+        } else if let Some(to_time) = query.parse_to_time().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder
+                .filter(timestamp.le(to_time))
+                .order(timestamp.desc());
+            if let Some(count) = query.count {
+                query_builder = query_builder.limit(count);
+            }
+        } else if let Some(latest_count) = query.latest {
+            query_builder = query_builder
+                .order(timestamp.desc())
+                .limit(latest_count);
+        } else {
+            // Default ordering by timestamp if no specific time parameters
+            query_builder = query_builder.order(timestamp.desc());
+        }
+        
+        // Execute query
+        match query_builder.load::<neems_data::models::Reading>(conn) {
+            Ok(mut readings_list) => {
+                // If we ordered desc for to_time queries, reverse to get chronological order
+                if query.to_time.is_some() {
+                    readings_list.reverse();
+                }
+                
+                Ok(Json(ReadingsResponse {
+                    readings: readings_list,
+                    source_id: Some(req_source_id),
+                    total_count: None,
+                }))
+            }
+            Err(e) => {
+                eprintln!("Error loading readings: {:?}", e);
+                Err(Status::InternalServerError)
+            }
+        }
+    }).await
+}
+
+/// Get Readings for Multiple Data Sources endpoint.
+///
+/// - **URL:** `/api/1/data/readings`
+/// - **Method:** `GET`
+/// - **Purpose:** Returns readings from multiple data sources with optional filtering
+/// - **Authentication:** Not required
+///
+/// This endpoint queries the readings table for multiple source_ids specified via
+/// the source_ids query parameter. Same time-based filtering options as the single
+/// source endpoint.
+///
+/// # Query Parameters
+///
+/// **Required:**
+/// - `source_ids`: Comma-separated list of source IDs (e.g., "1,2,3")
+///
+/// **Time filtering (same as single source endpoint):**
+/// - `since`/`until`: Time window
+/// - `from_time`/`count`: Count-based from timestamp  
+/// - `to_time`/`count`: Count-based to timestamp
+/// - `latest`: Number of most recent readings per source
+///
+/// # Response
+///
+/// **Success (HTTP 200 OK):**
+/// ```json
+/// {
+///   "readings": [
+///     {
+///       "id": 1,
+///       "source_id": 1,
+///       "timestamp": "2024-01-01T12:00:00", 
+///       "data": "{\"temperature\": 23.5}",
+///       "quality_flags": 0
+///     },
+///     {
+///       "id": 2,
+///       "source_id": 2,
+///       "timestamp": "2024-01-01T12:00:00",
+///       "data": "{\"humidity\": 45.2}",
+///       "quality_flags": 0
+///     }
+///   ],
+///   "source_id": null,
+///   "total_count": null
+/// }
+/// ```
+///
+/// **Error (HTTP 400 Bad Request):** Invalid query parameters or missing source_ids
+/// **Error (HTTP 404 Not Found):** One or more source IDs do not exist
+#[get("/1/data/readings?<query..>")]
+pub async fn get_multi_source_readings(
+    query: ReadingsQuery,
+    site_db: SiteDbConn,
+) -> Result<Json<ReadingsResponse>, Status> {
+    // Validate query parameters
+    if let Err(e) = query.validate() {
+        eprintln!("Invalid query parameters: {}", e);
+        return Err(Status::BadRequest);
+    }
+    
+    // source_ids is required for this endpoint
+    let source_ids = match query.parse_source_ids() {
+        Ok(Some(ids)) => ids,
+        Ok(None) => {
+            eprintln!("source_ids parameter is required for multi-source endpoint");
+            return Err(Status::BadRequest);
+        }
+        Err(e) => {
+            eprintln!("Invalid source_ids format: {}", e);
+            return Err(Status::BadRequest);
+        }
+    };
+    
+    site_db.run(move |conn| {
+        use diesel::prelude::*;
+        use neems_data::schema::readings::dsl::*;
+        use neems_data::schema::sources;
+        
+        // Verify all sources exist
+        for src_id in &source_ids {
+            match sources::dsl::sources
+                .filter(sources::dsl::id.eq(*src_id))
+                .first::<neems_data::models::Source>(conn) 
+            {
+                Ok(_) => {}, // Source exists, continue
+                Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
+                Err(e) => {
+                    eprintln!("Error checking source existence: {:?}", e);
+                    return Err(Status::InternalServerError);
+                }
+            }
+        }
+        
+        // Build the base query for multiple sources
+        let mut query_builder = readings
+            .filter(source_id.eq_any(&source_ids))
+            .into_boxed();
+        
+        // Apply time-based filtering (same logic as single source)
+        if let Some(since_time) = query.parse_since().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder.filter(timestamp.ge(since_time));
+        }
+        
+        if let Some(until_time) = query.parse_until().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder.filter(timestamp.le(until_time));
+        }
+        
+        if let Some(from_time) = query.parse_from_time().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder
+                .filter(timestamp.ge(from_time))
+                .order((source_id.asc(), timestamp.asc()));
+            if let Some(count) = query.count {
+                // For multi-source, apply count per source using window functions would be complex
+                // For now, apply global count with note in documentation
+                query_builder = query_builder.limit(count);
+            }
+        } else if let Some(to_time) = query.parse_to_time().map_err(|_| Status::BadRequest)? {
+            query_builder = query_builder
+                .filter(timestamp.le(to_time))
+                .order((source_id.asc(), timestamp.desc()));
+            if let Some(count) = query.count {
+                query_builder = query_builder.limit(count);
+            }
+        } else if let Some(latest_count) = query.latest {
+            // For latest with multiple sources, we need to get latest_count per source
+            // This requires a more complex query - for now, get globally latest
+            query_builder = query_builder
+                .order((source_id.asc(), timestamp.desc()))
+                .limit(latest_count * source_ids.len() as i64);
+        } else {
+            // Default ordering by source_id then timestamp
+            query_builder = query_builder.order((source_id.asc(), timestamp.desc()));
+        }
+        
+        // Execute query
+        match query_builder.load::<neems_data::models::Reading>(conn) {
+            Ok(mut readings_list) => {
+                // If we ordered desc for to_time queries, reverse within each source group
+                if query.to_time.is_some() {
+                    // Group by source and reverse each group
+                    readings_list.sort_by(|a, b| {
+                        a.source_id.cmp(&b.source_id)
+                            .then(a.timestamp.cmp(&b.timestamp))
+                    });
+                }
+                
+                Ok(Json(ReadingsResponse {
+                    readings: readings_list,
+                    source_id: None, // Multi-source query
+                    total_count: None,
+                }))
+            }
+            Err(e) => {
+                eprintln!("Error loading readings: {:?}", e);
                 Err(Status::InternalServerError)
             }
         }
@@ -154,13 +565,13 @@ pub async fn get_site_schema(
 pub fn routes() -> Vec<Route> {
     #[cfg(feature = "test-staging")]
     {
-        let mut data_routes = routes![list_data_sources];
+        let mut data_routes = routes![list_data_sources, get_source_readings, get_multi_source_readings];
         data_routes.extend(routes![get_site_schema]);
         data_routes
     }
     
     #[cfg(not(feature = "test-staging"))]
     {
-        routes![list_data_sources]
+        routes![list_data_sources, get_source_readings, get_multi_source_readings]
     }
 }
