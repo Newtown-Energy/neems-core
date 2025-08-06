@@ -11,6 +11,7 @@ NEEMS_DATA=`which neems-data`
 echo "Adding core data sources..."
 
 $NEEMS_DATA add ping_newtownenergy.com \
+    --test-type ping \
     --description "Ping statistics for newtownenergy.com" \
     --interval 10 \
     --active
@@ -18,6 +19,7 @@ $NEEMS_DATA add ping_newtownenergy.com \
 echo "Adding disk space source..."
 
 $NEEMS_DATA add disk_space \
+    --test-type disk_space \
     --description "Hard drive space usage for mounted drives" \
     --interval 900 \
     --active
@@ -28,6 +30,7 @@ echo "Adding battery-specific charging state sources..."
 # Battery-specific charging state sources
 for battery_id in battery_1 battery_2 battery_3; do
     $NEEMS_DATA add "charging_state_${battery_id}" \
+        --test-type charging_state \
         --description "Calculates the current charging state (charging, discharging, hold) for ${battery_id}" \
         --interval 1 \
         --active
