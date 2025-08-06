@@ -14,6 +14,7 @@ use serde::{Serialize, Deserialize};
 use chrono::NaiveDateTime;
 
 use crate::orm::neems_data::db::SiteDbConn;
+use crate::session_guards::AuthenticatedUser;
 
 /// Response structure for data sources list
 #[derive(Serialize, Deserialize)]
@@ -187,7 +188,7 @@ pub async fn list_data_sources(
 /// - **URL:** `/api/1/data/readings/<source_id>`
 /// - **Method:** `GET`
 /// - **Purpose:** Returns readings for a specific data source with optional filtering
-/// - **Authentication:** Not required
+/// - **Authentication:** Required - users can only access readings from sources in their company
 ///
 /// This endpoint queries the readings table for a specific source_id with various
 /// time-based filtering options to prevent accidentally large data transfers.
@@ -209,6 +210,11 @@ pub async fn list_data_sources(
 /// **Latest readings (mutually exclusive):**
 /// - `latest`: Number of most recent readings (1-10000)
 ///
+/// # Authorization
+///
+/// - **Company Users**: Can only access readings from sources in their company
+/// - **newtown-staff/newtown-admin**: Can access readings from any company
+///
 /// # Response
 ///
 /// **Success (HTTP 200 OK):**
@@ -229,11 +235,14 @@ pub async fn list_data_sources(
 /// ```
 ///
 /// **Error (HTTP 400 Bad Request):** Invalid query parameters
+/// **Error (HTTP 401 Unauthorized):** User not authenticated
+/// **Error (HTTP 403 Forbidden):** User lacks permission to access this source
 /// **Error (HTTP 404 Not Found):** Source ID does not exist
 #[get("/1/data/readings/<source_id>?<query..>")]
 pub async fn get_source_readings(
     source_id: i32,
     query: ReadingsQuery,
+    user: AuthenticatedUser,
     site_db: SiteDbConn,
 ) -> Result<Json<ReadingsResponse>, Status> {
     // Validate query parameters
@@ -243,21 +252,41 @@ pub async fn get_source_readings(
     }
     
     let req_source_id = source_id;
+    let user_company_id = user.user.company_id;
+    let has_newtown_access = user.has_any_role(&["newtown-staff", "newtown-admin"]);
+    
     site_db.run(move |conn| {
         use diesel::prelude::*;
         use neems_data::schema::readings::dsl::*;
         use neems_data::schema::sources;
         
-        // First verify the source exists
-        match sources::dsl::sources
+        // First verify the source exists and check company access
+        let source = match sources::dsl::sources
             .filter(sources::dsl::id.eq(req_source_id))
             .first::<neems_data::models::Source>(conn) 
         {
-            Ok(_) => {}, // Source exists, continue
+            Ok(s) => s,
             Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
             Err(e) => {
                 eprintln!("Error checking source existence: {:?}", e);
                 return Err(Status::InternalServerError);
+            }
+        };
+        
+        // Check company access unless user has Newtown roles
+        if !has_newtown_access {
+            match source.company_id {
+                Some(source_company_id) if source_company_id == user_company_id => {
+                    // User can access - source is in their company
+                },
+                Some(_) => {
+                    // Source belongs to a different company - forbidden
+                    return Err(Status::Forbidden);
+                },
+                None => {
+                    // Source has no company - only Newtown roles can access
+                    return Err(Status::Forbidden);
+                }
             }
         }
         
@@ -325,7 +354,7 @@ pub async fn get_source_readings(
 /// - **URL:** `/api/1/data/readings`
 /// - **Method:** `GET`
 /// - **Purpose:** Returns readings from multiple data sources with optional filtering
-/// - **Authentication:** Not required
+/// - **Authentication:** Required - users can only access readings from sources in their company
 ///
 /// This endpoint queries the readings table for multiple source_ids specified via
 /// the source_ids query parameter. Same time-based filtering options as the single
@@ -341,6 +370,12 @@ pub async fn get_source_readings(
 /// - `from_time`/`count`: Count-based from timestamp  
 /// - `to_time`/`count`: Count-based to timestamp
 /// - `latest`: Number of most recent readings per source
+///
+/// # Authorization
+///
+/// - **Company Users**: Can only access readings from sources in their company
+/// - **newtown-staff/newtown-admin**: Can access readings from any company
+/// - All requested source IDs must be accessible to the user or the request fails
 ///
 /// # Response
 ///
@@ -369,10 +404,13 @@ pub async fn get_source_readings(
 /// ```
 ///
 /// **Error (HTTP 400 Bad Request):** Invalid query parameters or missing source_ids
+/// **Error (HTTP 401 Unauthorized):** User not authenticated
+/// **Error (HTTP 403 Forbidden):** User lacks permission to access one or more sources
 /// **Error (HTTP 404 Not Found):** One or more source IDs do not exist
 #[get("/1/data/readings?<query..>")]
 pub async fn get_multi_source_readings(
     query: ReadingsQuery,
+    user: AuthenticatedUser,
     site_db: SiteDbConn,
 ) -> Result<Json<ReadingsResponse>, Status> {
     // Validate query parameters
@@ -394,22 +432,42 @@ pub async fn get_multi_source_readings(
         }
     };
     
+    let user_company_id = user.user.company_id;
+    let has_newtown_access = user.has_any_role(&["newtown-staff", "newtown-admin"]);
+    
     site_db.run(move |conn| {
         use diesel::prelude::*;
         use neems_data::schema::readings::dsl::*;
         use neems_data::schema::sources;
         
-        // Verify all sources exist
+        // Verify all sources exist and check company access
         for src_id in &source_ids {
-            match sources::dsl::sources
+            let source = match sources::dsl::sources
                 .filter(sources::dsl::id.eq(*src_id))
                 .first::<neems_data::models::Source>(conn) 
             {
-                Ok(_) => {}, // Source exists, continue
+                Ok(s) => s,
                 Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
                 Err(e) => {
                     eprintln!("Error checking source existence: {:?}", e);
                     return Err(Status::InternalServerError);
+                }
+            };
+            
+            // Check company access for each source unless user has Newtown roles
+            if !has_newtown_access {
+                match source.company_id {
+                    Some(source_company_id) if source_company_id == user_company_id => {
+                        // User can access - source is in their company
+                    },
+                    Some(_) => {
+                        // Source belongs to a different company - forbidden
+                        return Err(Status::Forbidden);
+                    },
+                    None => {
+                        // Source has no company - only Newtown roles can access
+                        return Err(Status::Forbidden);
+                    }
                 }
             }
         }
