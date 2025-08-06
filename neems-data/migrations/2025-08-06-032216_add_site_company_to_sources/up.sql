@@ -1,0 +1,2 @@
+ALTER TABLE sources ADD COLUMN site_id INTEGER;
+ALTER TABLE sources ADD COLUMN company_id INTEGER;

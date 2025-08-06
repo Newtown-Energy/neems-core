@@ -19,6 +19,8 @@ pub struct Source {
     pub last_run: Option<NaiveDateTime>,
     pub test_type: Option<String>,
     pub arguments: Option<String>, // JSON string
+    pub site_id: Option<i32>,
+    pub company_id: Option<i32>,
 }
 
 impl Source {
@@ -46,6 +48,8 @@ pub struct NewSource {
     pub interval_seconds: Option<i32>,
     pub test_type: Option<String>,
     pub arguments: Option<String>, // JSON string
+    pub site_id: Option<i32>,
+    pub company_id: Option<i32>,
 }
 
 impl NewSource {
@@ -57,6 +61,8 @@ impl NewSource {
         description: Option<String>,
         active: Option<bool>,
         interval_seconds: Option<i32>,
+        site_id: Option<i32>,
+        company_id: Option<i32>,
     ) -> Result<Self, serde_json::Error> {
         Ok(NewSource {
             name,
@@ -65,6 +71,8 @@ impl NewSource {
             interval_seconds,
             test_type: Some(test_type),
             arguments: Some(serde_json::to_string(arguments)?),
+            site_id,
+            company_id,
         })
     }
 }
@@ -79,6 +87,8 @@ pub struct UpdateSource {
     pub last_run: Option<Option<NaiveDateTime>>,
     pub test_type: Option<String>,
     pub arguments: Option<String>, // JSON string
+    pub site_id: Option<Option<i32>>,
+    pub company_id: Option<Option<i32>>,
 }
 
 impl UpdateSource {

@@ -62,6 +62,8 @@ diesel::table! {
         last_run -> Nullable<Timestamp>,
         test_type -> Nullable<Text>,
         arguments -> Nullable<Text>,
+        site_id -> Nullable<Integer>,
+        company_id -> Nullable<Integer>,
     }
 }
 

@@ -32,6 +32,8 @@ fn test_new_source_creation_with_test_type() {
         interval_seconds: Some(5),
         test_type: Some("ping".to_string()),
         arguments: Some(serde_json::to_string(&args).unwrap()),
+        site_id: None,
+        company_id: None,
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
@@ -59,6 +61,8 @@ fn test_charging_state_source_with_battery_id() {
         interval_seconds: Some(60),
         test_type: Some("charging_state".to_string()),
         arguments: Some(serde_json::to_string(&args).unwrap()),
+        site_id: None,
+        company_id: None,
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
@@ -83,6 +87,8 @@ fn test_disk_space_source_no_args() {
         interval_seconds: Some(30),
         test_type: Some("disk_space".to_string()),
         arguments: Some(serde_json::to_string(&args).unwrap()),
+        site_id: None,
+        company_id: None,
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
@@ -118,6 +124,8 @@ fn test_list_sources_shows_test_type_and_args() {
             interval_seconds: Some(5),
             test_type: Some(test_type.to_string()),
             arguments: Some(serde_json::to_string(&args).unwrap()),
+            site_id: None,
+            company_id: None,
         };
         
         create_source(&mut conn, new_source).expect("Failed to create source");
@@ -170,6 +178,8 @@ fn test_source_get_arguments_helper() {
         interval_seconds: Some(10),
         test_type: Some("ping".to_string()),
         arguments: Some(serde_json::to_string(&expected_args).unwrap()),
+        site_id: None,
+        company_id: None,
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
@@ -190,6 +200,8 @@ fn test_invalid_json_arguments_handling() {
         interval_seconds: Some(10),
         test_type: Some("ping".to_string()),
         arguments: Some("invalid json".to_string()),
+        site_id: None,
+        company_id: None,
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
@@ -211,6 +223,8 @@ fn test_legacy_and_new_format_coexistence() {
         interval_seconds: Some(5),
         test_type: None,
         arguments: None,
+        site_id: None,
+        company_id: None,
     };
 
     let legacy_created = create_source(&mut conn, legacy_source).expect("Failed to create legacy source");
@@ -228,6 +242,8 @@ fn test_legacy_and_new_format_coexistence() {
         interval_seconds: Some(5),
         test_type: Some("ping".to_string()),
         arguments: Some(serde_json::to_string(&args).unwrap()),
+        site_id: None,
+        company_id: None,
     };
 
     let new_created = create_source(&mut conn, new_source).expect("Failed to create new source");

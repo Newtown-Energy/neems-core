@@ -58,6 +58,12 @@ struct AddArgs {
     /// Whether the source is active (default: true)
     #[arg(long, default_value = "true")]
     active: bool,
+    /// Site ID that this source belongs to
+    #[arg(long)]
+    site_id: Option<i32>,
+    /// Company ID that this source belongs to
+    #[arg(long)]
+    company_id: Option<i32>,
 }
 
 /// Parse a single key=value pair
@@ -96,6 +102,18 @@ struct EditArgs {
     /// Clear all arguments (set to empty)
     #[arg(long)]
     clear_arguments: bool,
+    /// New site ID
+    #[arg(long)]
+    site_id: Option<i32>,
+    /// New company ID
+    #[arg(long)]
+    company_id: Option<i32>,
+    /// Clear the site ID (set to null)
+    #[arg(long)]
+    clear_site_id: bool,
+    /// Clear the company ID (set to null)
+    #[arg(long)]
+    clear_company_id: bool,
 }
 
 #[tokio::main]
@@ -127,9 +145,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             if sources.is_empty() {
                 println!("No sources found.");
             } else {
-                println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<20} {}",
-                    "ID", "Name", "Test Type", "Arguments", "Active", "Last Run", "Description");
-                println!("{}", "-".repeat(100));
+                println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
+                    "ID", "Name", "Test Type", "Arguments", "Active", "Site", "Company", "Last Run", "Description");
+                println!("{}", "-".repeat(120));
                 for source in sources {
                     let last_run = source.last_run
                         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
@@ -159,12 +177,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                         arguments
                     };
 
-                    println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<20} {}",
+                    println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
                         source.id.unwrap_or(0),
                         source.name,
                         test_type,
                         args_display,
                         source.active,
+                        source.site_id.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
+                        source.company_id.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
                         last_run,
                         source.description.unwrap_or_else(|| "".to_string())
                     );
@@ -206,6 +226,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                             .unwrap_or_else(|| "Never".to_string())
                     );
+                    println!("  Site ID: {}", source.site_id.map(|id| id.to_string()).unwrap_or_else(|| "(none)".to_string()));
+                    println!("  Company ID: {}", source.company_id.map(|id| id.to_string()).unwrap_or_else(|| "(none)".to_string()));
                 }
                 None => {
                     eprintln!("Error: Source '{}' not found.", name);
@@ -231,6 +253,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 arguments.insert(key, value);
             }
 
+            // Use environment variables for defaults if not provided
+            let site_id = args.site_id.or_else(|| {
+                env::var("NEEMS_DEFAULT_SITE").ok().and_then(|s| s.parse().ok())
+            });
+            let company_id = args.company_id.or_else(|| {
+                env::var("NEEMS_DEFAULT_COMPANY").ok().and_then(|s| s.parse().ok())
+            });
+
             let test_type_str = args.test_type.clone();
             let new_source = NewSource {
                 name: args.name.clone(),
@@ -239,6 +269,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 interval_seconds: Some(args.interval),
                 test_type: Some(args.test_type),
                 arguments: Some(serde_json::to_string(&arguments)?),
+                site_id,
+                company_id,
             };
 
             let created = create_source(&mut connection, new_source)?;
@@ -301,6 +333,24 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 None
             };
 
+            // Handle site_id updates
+            let site_id = if args.clear_site_id {
+                Some(None)
+            } else if args.site_id.is_some() {
+                Some(args.site_id)
+            } else {
+                None
+            };
+
+            // Handle company_id updates
+            let company_id = if args.clear_company_id {
+                Some(None)
+            } else if args.company_id.is_some() {
+                Some(args.company_id)
+            } else {
+                None
+            };
+
             let updates = UpdateSource {
                 name: args.new_name,
                 description,
@@ -309,6 +359,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 last_run: None, // Don't modify last_run via CLI
                 test_type: args.test_type,
                 arguments,
+                site_id,
+                company_id,
             };
 
             let updated = update_source(&mut connection, source_id, updates)?;

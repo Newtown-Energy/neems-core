@@ -32,6 +32,8 @@ fn test_create_and_list_sources() {
         interval_seconds: Some(1),
         test_type: Some("ping".to_string()),
         arguments: Some("{}".to_string()),
+        site_id: None,
+        company_id: None,
     };
 
     // Create a source
@@ -59,6 +61,8 @@ fn test_get_source_by_name() {
         interval_seconds: Some(1),
         test_type: Some("ping".to_string()),
         arguments: Some("{}".to_string()),
+        site_id: None,
+        company_id: None,
     };
     create_source(&mut conn, new_source).unwrap();
 
@@ -85,6 +89,8 @@ fn test_update_source() {
         interval_seconds: Some(1),
         test_type: Some("ping".to_string()),
         arguments: Some("{}".to_string()),
+        site_id: None,
+        company_id: None,
     };
     let source = create_source(&mut conn, initial_source).unwrap();
     let source_id = source.id.unwrap();
@@ -100,6 +106,8 @@ fn test_update_source() {
         last_run: None,
         test_type: None,
         arguments: None,
+        site_id: None,
+        company_id: None,
     };
 
     let updated_source =
@@ -123,6 +131,8 @@ fn test_insert_and_get_reading() {
         interval_seconds: Some(1),
         test_type: Some("ping".to_string()),
         arguments: Some("{}".to_string()),
+        site_id: None,
+        company_id: None,
     };
     let source = create_source(&mut conn, new_source).expect("Failed to create source");
     let source_id = source.id.unwrap();
@@ -159,6 +169,8 @@ async fn test_charging_state_source_integration() {
         interval_seconds: Some(1),
         test_type: Some("charging_state".to_string()),
         arguments: Some("{}".to_string()),
+        site_id: None,
+        company_id: None,
     };
     let source = create_source(&mut conn, new_source).expect("Failed to create source");
     let source_id = source.id.unwrap();

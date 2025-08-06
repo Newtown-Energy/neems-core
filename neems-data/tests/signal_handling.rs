@@ -21,6 +21,8 @@ fn setup_test_db_for_signal_test() -> (DataAggregator, NamedTempFile) {
             interval_seconds: Some(1),
             test_type: Some("charging_state".to_string()),
             arguments: Some("{}".to_string()),
+            site_id: None,
+            company_id: None,
         },
     )
     .unwrap();
@@ -58,6 +60,8 @@ async fn test_sighup_reloads_sources_and_collects_data() {
             interval_seconds: Some(1),
             test_type: Some("charging_state".to_string()),
             arguments: Some("{\"battery_id\":\"battery2\"}".to_string()),
+            site_id: None,
+            company_id: None,
         },
     )
     .unwrap();
