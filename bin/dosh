@@ -135,7 +135,9 @@ check() {
 }
 
 generate-types() {
-    NEEMS_TS_OUTPUT_DIR=bindings cargo test -p neems-api -p neems-data generate_typescript_types
+    # This should put the types in react/src/types/generated, which is a
+    # different repository from this one.
+    cargo test -p neems-api -p neems-data generate_typescript_types
 }
 
 run() {
