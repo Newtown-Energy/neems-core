@@ -3,6 +3,10 @@ name = "neems-admin"
 version = "1.0.0"
 edition = "2024"
 
+[features]
+default = []
+test-staging = [] # This is an empty feature, but it helps not to have to think about it when passing feature flags.
+
 [dependencies]
 neems-api = { path = "../neems-api" }
 clap = { workspace = true, features = ["derive"] }
