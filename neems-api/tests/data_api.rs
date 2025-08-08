@@ -13,7 +13,6 @@ use serde_json::json;
 
 use neems_api::api::data::{DataSourcesResponse, ReadingsResponse};
 use neems_api::orm::neems_data::testing::test_rocket_with_site_db;
-use neems_api::orm::testing::test_rocket;
 use neems_api::orm::DbConn;
 use neems_api::models::{CompanyNoTime, NewRole, UserNoTime};
 use neems_api::orm::company::{get_company_by_name, insert_company};
@@ -539,7 +538,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
             );
 
             // Create a regular user from Test Company
-            let test_user = insert_user(
+            let _test_user = insert_user(
                 conn,
                 UserNoTime {
                     email: "testuser@testcompany.com".to_string(),

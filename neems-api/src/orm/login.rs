@@ -249,7 +249,6 @@ mod tests {
     use crate::orm::company::insert_company;
     use crate::orm::testing::{setup_test_db, setup_test_dbconn};
     use crate::orm::user::insert_user;
-    use diesel::prelude::*;
     use rocket::http::Cookie;
 
     #[test]
