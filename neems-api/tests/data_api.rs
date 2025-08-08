@@ -298,9 +298,15 @@ async fn test_get_source_readings_not_found() {
         .await
         .expect("valid rocket instance");
     
+    setup_test_users_for_data_access(&client).await;
+    
+    // Login as newtown-staff user (has access to all sources)
+    let session_cookie = login_as_user(&client, "staff@newtown.energy", "staffpass").await;
+    
     // Use a source ID that definitely doesn't exist
     let response = client
         .get("/api/1/data/readings/99999?latest=1")
+        .cookie(session_cookie)
         .dispatch()
         .await;
     
