@@ -189,7 +189,7 @@ pub async fn list_data_sources(
 
 /// Get Readings for Single Data Source endpoint.
 ///
-/// - **URL:** `/api/1/data/readings/<source_id>`
+/// - **URL:** `/api/1/data/<source_id>`
 /// - **Method:** `GET`
 /// - **Purpose:** Returns readings for a specific data source with optional filtering
 /// - **Authentication:** Required - users can only access readings from sources in their company
@@ -242,7 +242,7 @@ pub async fn list_data_sources(
 /// **Error (HTTP 401 Unauthorized):** User not authenticated
 /// **Error (HTTP 403 Forbidden):** User lacks permission to access this source
 /// **Error (HTTP 404 Not Found):** Source ID does not exist
-#[get("/1/data/readings/<source_id>?<query..>")]
+#[get("/1/data/<source_id>?<query..>")]
 pub async fn get_source_readings(
     source_id: i32,
     query: ReadingsQuery,

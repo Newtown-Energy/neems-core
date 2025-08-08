@@ -196,7 +196,7 @@ async fn test_get_schema_contains_expected_tables() {
     assert!(schema.len() > 100, "Schema should be substantial (>100 chars)");
 }
 
-/// Test the /api/1/data/readings/<source_id> endpoint with latest parameter.
+/// Test the /api/1/data/<source_id> endpoint with latest parameter.
 /// 
 /// This test verifies the single source readings endpoint with the most basic
 /// query parameter (latest) to get recent readings.
@@ -227,7 +227,7 @@ async fn test_get_source_readings_latest() {
     let test_source_id = sources.sources[0].id.expect("Source should have ID");
     
     // Test with latest=10 parameter
-    let url = format!("/api/1/data/readings/{}?latest=10", test_source_id);
+    let url = format!("/api/1/data/{}?latest=10", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -251,7 +251,7 @@ async fn test_get_source_readings_latest() {
     }
 }
 
-/// Test the /api/1/data/readings/<source_id> endpoint with time window parameters.
+/// Test the /api/1/data/<source_id> endpoint with time window parameters.
 /// 
 /// This test verifies time-based filtering with since/until parameters.
 #[tokio::test]
@@ -273,7 +273,7 @@ async fn test_get_source_readings_time_window() {
     let test_source_id = sources.sources[0].id.unwrap();
     
     // Test with time window
-    let url = format!("/api/1/data/readings/{}?since=2024-01-01T00:00:00Z&until=2024-12-31T23:59:59Z", test_source_id);
+    let url = format!("/api/1/data/{}?since=2024-01-01T00:00:00Z&until=2024-12-31T23:59:59Z", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -289,7 +289,7 @@ async fn test_get_source_readings_time_window() {
     assert_eq!(readings_response.source_id, Some(test_source_id));
 }
 
-/// Test the /api/1/data/readings/<source_id> endpoint with invalid source ID.
+/// Test the /api/1/data/<source_id> endpoint with invalid source ID.
 /// 
 /// This test verifies that the endpoint returns 404 for non-existent sources.
 #[tokio::test]
@@ -305,7 +305,7 @@ async fn test_get_source_readings_not_found() {
     
     // Use a source ID that definitely doesn't exist
     let response = client
-        .get("/api/1/data/readings/99999?latest=1")
+        .get("/api/1/data/99999?latest=1")
         .cookie(session_cookie)
         .dispatch()
         .await;
@@ -313,7 +313,7 @@ async fn test_get_source_readings_not_found() {
     assert_eq!(response.status(), Status::NotFound);
 }
 
-/// Test the /api/1/data/readings/<source_id> endpoint with invalid query parameters.
+/// Test the /api/1/data/<source_id> endpoint with invalid query parameters.
 /// 
 /// This test verifies parameter validation (conflicting time parameters).
 #[tokio::test]
@@ -334,7 +334,7 @@ async fn test_get_source_readings_invalid_params() {
     let test_source_id = sources.sources[0].id.unwrap();
     
     // Test with conflicting parameters (both latest and since)
-    let url = format!("/api/1/data/readings/{}?latest=10&since=2024-01-01T00:00:00Z", test_source_id);
+    let url = format!("/api/1/data/{}?latest=10&since=2024-01-01T00:00:00Z", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -459,7 +459,7 @@ async fn test_readings_response_structure() {
     
     let test_source_id = sources.sources[0].id.unwrap();
     
-    let url = format!("/api/1/data/readings/{}?latest=1", test_source_id);
+    let url = format!("/api/1/data/{}?latest=1", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -614,7 +614,7 @@ async fn test_readings_endpoints_require_authentication() {
     
     // Test single source endpoint without authentication
     let response = client
-        .get("/api/1/data/readings/1?latest=1")
+        .get("/api/1/data/1?latest=1")
         .dispatch()
         .await;
     
@@ -657,7 +657,7 @@ async fn test_company_based_access_control() {
     let session_cookie = login_as_user(&client, "testuser@testcompany.com", "testpass").await;
     
     // Try to access a source (this might fail if the test source belongs to a different company)
-    let url = format!("/api/1/data/readings/{}?latest=1", test_source_id);
+    let url = format!("/api/1/data/{}?latest=1", test_source_id);
     let response = client
         .get(&url)
         .cookie(session_cookie)
@@ -701,7 +701,7 @@ async fn test_newtown_staff_access() {
     let session_cookie = login_as_user(&client, "staff@newtown.energy", "staffpass").await;
     
     // Try to access any source - should succeed due to newtown-staff role
-    let url = format!("/api/1/data/readings/{}?latest=1", test_source_id);
+    let url = format!("/api/1/data/{}?latest=1", test_source_id);
     let response = client
         .get(&url)
         .cookie(session_cookie)
