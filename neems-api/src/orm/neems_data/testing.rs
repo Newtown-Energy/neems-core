@@ -34,8 +34,9 @@ use crate::admin_init_fairing::admin_init_fairing;
 /// # Returns
 /// A configured Rocket instance ready for testing with real site data
 pub fn test_rocket_with_site_db() -> Rocket<Build> {
-    // Configure the main API database (in-memory for isolation)
-    let unique_db_name = format!("file:test_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+    // Configure the main API database (temporary file for isolation with unsafe fast pragmas)
+    let temp_db_path = std::env::temp_dir().join(format!("test_db_{}.sqlite", Uuid::new_v4()));
+    let unique_db_name = format!("sqlite://{}?synchronous=OFF&journal_mode=OFF&locking_mode=EXCLUSIVE&temp_store=MEMORY&cache_size=-64000", temp_db_path.display());
     let db_config: Map<_, Value> = map! {
         "url" => unique_db_name.into(),
         "pool_size" => 5.into(),

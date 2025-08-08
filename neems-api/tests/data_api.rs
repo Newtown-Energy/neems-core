@@ -549,6 +549,10 @@ async fn setup_test_users_for_data_access(client: &Client) {
             )
             .expect("Failed to create test user");
 
+            // Assign staff role to test user (required for authentication)
+            assign_user_role_by_name(conn, _test_user.id, "staff")
+                .expect("Failed to assign staff role to test user");
+
             // Create a newtown-staff user
             let newtown_staff = insert_user(
                 conn,
