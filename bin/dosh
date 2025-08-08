@@ -134,6 +134,10 @@ check() {
     fi
 }
 
+generate-types() {
+    NEEMS_TS_OUTPUT_DIR=bindings cargo test -p neems-api -p neems-data generate_typescript_types
+}
+
 run() {
     local cmd="$CARGO $NIGHTLY run $TARGET_BIN"
     echo "${cmd} $@"

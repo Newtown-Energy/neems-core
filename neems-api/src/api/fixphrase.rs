@@ -18,8 +18,11 @@ use serde::{Deserialize, Serialize};
 pub use fixphrase::{FixPhrase, FixPhraseError};
 
 #[cfg(feature = "fixphrase")]
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(crate = "rocket::serde")]
+use ts_rs::TS;
+
+#[cfg(feature = "fixphrase")]
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct FixPhraseResponse {
     pub phrase: String,
     pub latitude: f64,

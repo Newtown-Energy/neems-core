@@ -151,10 +151,12 @@ pub async fn list_roles(
 ///
 /// This structure represents the JSON payload for updating a role.
 /// All fields are optional to support partial updates.
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug, TS)]
+#[ts(export)]
 pub struct UpdateRoleRequest {
     pub name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_description")]
+    #[ts(skip)]
     pub description: Option<Option<String>>,
 }
 

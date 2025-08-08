@@ -98,6 +98,30 @@ mod tests {
         LoginErrorResponse::export().expect("Failed to export login::ErrorResponse type");
         LoginSuccessResponse::export().expect("Failed to export LoginSuccessResponse type");
 
+        // Status API types
+        use crate::api::status::HealthStatus;
+        HealthStatus::export().expect("Failed to export HealthStatus type");
+
+        // FixPhrase API types
+        #[cfg(feature = "fixphrase")]
+        use crate::api::fixphrase::FixPhraseResponse;
+        #[cfg(feature = "fixphrase")]
+        FixPhraseResponse::export().expect("Failed to export FixPhraseResponse type");
+
+        // Role API types
+        use crate::api::role::UpdateRoleRequest;
+        UpdateRoleRequest::export().expect("Failed to export UpdateRoleRequest type");
+
+        // Data API types
+        use crate::api::data::{DataSourcesResponse, ReadingsQuery, ReadingsResponse};
+        DataSourcesResponse::export().expect("Failed to export DataSourcesResponse type");
+        ReadingsResponse::export().expect("Failed to export ReadingsResponse type");
+        ReadingsQuery::export().expect("Failed to export ReadingsQuery type");
+
+        // Neems-data model types
+        neems_data::models::Source::export().expect("Failed to export neems_data::models::Source type");
+        neems_data::models::Reading::export().expect("Failed to export neems_data::models::Reading type");
+
         println!(
             "TypeScript types generated successfully in {:?}",
             output_dir

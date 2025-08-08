@@ -6,9 +6,10 @@
 use rocket::Route;
 use rocket::serde::json::Json;
 use serde::Serialize;
+use ts_rs::TS;
 
-#[derive(Serialize)]
-#[serde(crate = "rocket::serde")]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct HealthStatus {
     status: &'static str,
 }

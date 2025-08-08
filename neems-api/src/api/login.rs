@@ -76,7 +76,8 @@ async fn build_user_response(
 }
 
 /// Login request structure containing user credentials.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, TS)]
+#[ts(export)]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,

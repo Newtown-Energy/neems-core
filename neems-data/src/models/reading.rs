@@ -2,10 +2,12 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use ts_rs::TS;
 
 use crate::schema::readings;
 
-#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[diesel(table_name = readings)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Reading {

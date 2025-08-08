@@ -12,18 +12,21 @@ use rocket::serde::json::Json;
 use rocket::form::FromForm;
 use serde::{Serialize, Deserialize};
 use chrono::NaiveDateTime;
+use ts_rs::TS;
 
 use crate::orm::neems_data::db::SiteDbConn;
 use crate::session_guards::AuthenticatedUser;
 
 /// Response structure for data sources list
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct DataSourcesResponse {
     pub sources: Vec<neems_data::models::Source>,
 }
 
 /// Response structure for readings data
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ReadingsResponse {
     pub readings: Vec<neems_data::models::Reading>,
     pub source_id: Option<i32>,
@@ -31,7 +34,8 @@ pub struct ReadingsResponse {
 }
 
 /// Query parameters for readings endpoints
-#[derive(Serialize, Deserialize, FromForm)]
+#[derive(Serialize, Deserialize, FromForm, TS)]
+#[ts(export)]
 pub struct ReadingsQuery {
     /// ISO 8601 timestamp - start of time window
     pub since: Option<String>,

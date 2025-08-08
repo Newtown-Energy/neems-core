@@ -2,10 +2,12 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use ts_rs::TS;
 
 use crate::schema::sources;
 
-#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
+#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize, TS)]
+#[ts(export)]
 #[diesel(table_name = sources)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Source {
