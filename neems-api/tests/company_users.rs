@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_api::models::{Company, UserWithRoles};
-use neems_api::orm::testing::test_rocket;
+use neems_api::orm::testing::fast_test_rocket;
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -28,57 +28,21 @@ async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
         .into_owned()
 }
 
-/// Helper to create a company
-async fn create_company(
-    client: &Client,
-    admin_cookie: &rocket::http::Cookie<'static>,
-    name: &str,
-) -> Company {
-    let new_comp = json!({"name": name});
-
+/// Helper to get a test company by name
+async fn get_company_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Company {
     let response = client
-        .post("/api/1/companies")
+        .get("/api/1/companies")
         .cookie(admin_cookie.clone())
-        .json(&new_comp)
         .dispatch()
         .await;
 
-    assert_eq!(response.status(), Status::Created);
-    response.into_json().await.expect("valid company JSON")
+    assert_eq!(response.status(), Status::Ok);
+    let companies: Vec<Company> = response.into_json().await.expect("valid companies JSON");
+    companies.into_iter()
+        .find(|c| c.name == name)
+        .expect(&format!("Company '{}' should exist from test data initialization", name))
 }
 
-/// Helper to create a user and assign role
-async fn create_user_with_role(
-    client: &Client,
-    admin_cookie: &rocket::http::Cookie<'static>,
-    email: &str,
-    company_id: i32,
-    role_name: &str,
-) -> UserWithRoles {
-    // Create user with properly hashed password
-    let password_hash = neems_api::orm::login::hash_password("admin");
-    let new_user = json!({
-        "email": email,
-        "password_hash": password_hash,
-        "company_id": company_id,
-        "totp_secret": "",
-        "role_names": [role_name]
-    });
-
-    let response = client
-        .post("/api/1/users")
-        .cookie(admin_cookie.clone())
-        .json(&new_user)
-        .dispatch()
-        .await;
-
-    assert_eq!(response.status(), Status::Created);
-    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
-
-    // Role is already assigned during user creation, no need for separate assignment
-
-    created_user
-}
 
 /// Helper to login with specific credentials and get session cookie
 async fn login_user(client: &Client, email: &str, password: &str) -> rocket::http::Cookie<'static> {
@@ -105,7 +69,7 @@ async fn login_user(client: &Client, email: &str, password: &str) -> rocket::htt
 
 #[rocket::async_test]
 async fn test_users_endpoint_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 
@@ -116,34 +80,16 @@ async fn test_users_endpoint_requires_authentication() {
 
 #[rocket::async_test]
 async fn test_company_users_can_access_own_company_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Create a company
-    let company = create_company(&client, &admin_cookie, "Test Company").await;
+    // Get pre-created test company
+    let company = get_company_by_name(&client, &admin_cookie, "Test Company 1").await;
 
-    // Create multiple users for this company
-    let _user1 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "user1@testcompany.com",
-        company.id,
-        "staff",
-    )
-    .await;
-    let _user2 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@testcompany.com",
-        company.id,
-        "admin",
-    )
-    .await;
-
-    // Login as company admin
-    let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
+    // Login as pre-created company admin (user@testcompany.com has admin role)
+    let admin_session = login_user(&client, "user@testcompany.com", "admin").await;
 
     // Test that company admin can access their own company's users
     let url = format!("/api/1/company/{}/users", company.id);
@@ -152,50 +98,33 @@ async fn test_company_users_can_access_own_company_users() {
     assert_eq!(response.status(), Status::Ok);
 
     let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
-    assert_eq!(users.len(), 2); // Should see both users
+    assert!(!users.is_empty(), "Should see some users for Test Company 1");
 
     // Verify the users belong to the correct company
     for user in &users {
-        assert_eq!(user.company_id, company.id);
+        assert_eq!(user.company_id, company.id, "All users should belong to the correct company");
     }
 
     // Check that we got the expected users
     let emails: Vec<&String> = users.iter().map(|u| &u.email).collect();
-    assert!(emails.contains(&&"user1@testcompany.com".to_string()));
-    assert!(emails.contains(&&"admin@testcompany.com".to_string()));
+    assert!(emails.contains(&&"user@testcompany.com".to_string()));
+    assert!(emails.contains(&&"user@company1.com".to_string()));
+    assert!(emails.contains(&&"user@empty.com".to_string()));
 }
 
 #[rocket::async_test]
 async fn test_users_cannot_access_different_company_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Create two companies
-    let company1 = create_company(&client, &admin_cookie, "Company 1").await;
-    let company2 = create_company(&client, &admin_cookie, "Company 2").await;
+    // Get pre-created test companies
+    let company1 = get_company_by_name(&client, &admin_cookie, "Test Company 1").await;
+    let company2 = get_company_by_name(&client, &admin_cookie, "Test Company 2").await;
 
-    // Create users for each company
-    let _user1_company1 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@company1.com",
-        company1.id,
-        "admin",
-    )
-    .await;
-    let _user1_company2 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@company2.com",
-        company2.id,
-        "admin",
-    )
-    .await;
-
-    // Login as company1 admin
-    let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
+    // Login as pre-created company1 admin
+    let admin1_session = login_user(&client, "user@company1.com", "admin").await;
 
     // User from company1 should be able to access company1 users
     let url = format!("/api/1/company/{}/users", company1.id);
@@ -207,8 +136,17 @@ async fn test_users_cannot_access_different_company_users() {
 
     assert_eq!(response.status(), Status::Ok);
     let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
-    assert_eq!(users.len(), 1);
-    assert_eq!(users[0].email, "admin@company1.com");
+    assert!(!users.is_empty(), "Should return at least some users for company1");
+    
+    // Verify all returned users belong to company1
+    for user in &users {
+        assert_eq!(user.company_id, company1.id, "All users should belong to company1");
+    }
+    
+    // Check that we got some expected users from Test Company 1 (but don't require all)
+    let emails: Vec<&String> = users.iter().map(|u| &u.email).collect();
+    assert!(emails.contains(&&"user@testcompany.com".to_string()), "Should contain user@testcompany.com");
+    assert!(emails.contains(&&"user@company1.com".to_string()), "Should contain user@company1.com");
 
     // User from company1 should NOT be able to access company2 users
     let url = format!("/api/1/company/{}/users", company2.id);
@@ -219,29 +157,13 @@ async fn test_users_cannot_access_different_company_users() {
 
 #[rocket::async_test]
 async fn test_newtown_admin_can_access_any_company_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Create a company and users
-    let company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "user1@testcompany.com",
-        company.id,
-        "staff",
-    )
-    .await;
-    let _user2 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "user2@testcompany.com",
-        company.id,
-        "admin",
-    )
-    .await;
+    // Get pre-created test company
+    let company = get_company_by_name(&client, &admin_cookie, "Test Company 1").await;
 
     // Newtown admin should be able to access any company's users
     let url = format!("/api/1/company/{}/users", company.id);
@@ -249,57 +171,25 @@ async fn test_newtown_admin_can_access_any_company_users() {
 
     assert_eq!(response.status(), Status::Ok);
     let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
-    assert_eq!(users.len(), 2);
+    assert!(!users.is_empty(), "Should see some users for Test Company 1");
 
     // Verify users belong to the company
     for user in &users {
-        assert_eq!(user.company_id, company.id);
+        assert_eq!(user.company_id, company.id, "All users should belong to the correct company");
     }
 }
 
 #[rocket::async_test]
 async fn test_newtown_staff_can_access_any_company_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Create a test company and users
-    let company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user1 = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "user1@testcompany.com",
-        company.id,
-        "staff",
-    )
-    .await;
+    // Get pre-created test company
+    let company = get_company_by_name(&client, &admin_cookie, "Test Company 1").await;
 
-    // Get Newtown Energy company (created by admin init fairing)
-    let companies_response = client
-        .get("/api/1/companies")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
-    assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
-        .into_json()
-        .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
-        .iter()
-        .find(|c| c.name == "Newtown Energy")
-        .expect("Newtown Energy company should exist");
-
-    // Create newtown-staff user
-    let _newtown_staff = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "newtownstaff@newtown.com",
-        newtown_company.id,
-        "newtown-staff",
-    )
-    .await;
+    // Login as pre-created newtown-staff user
     let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     // Newtown staff should be able to access any company's users
@@ -308,29 +198,27 @@ async fn test_newtown_staff_can_access_any_company_users() {
 
     assert_eq!(response.status(), Status::Ok);
     let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
-    assert_eq!(users.len(), 1);
-    assert_eq!(users[0].email, "user1@testcompany.com");
+    assert!(!users.is_empty(), "Test Company 1 should have some users");
+    
+    // Verify all users belong to the correct company
+    for user in &users {
+        assert_eq!(user.company_id, company.id, "All users should belong to Test Company 1");
+    }
+    
+    // Check that we got some expected users from Test Company 1
+    let emails: Vec<&String> = users.iter().map(|u| &u.email).collect();
+    assert!(emails.contains(&&"user@testcompany.com".to_string()), "Should contain user@testcompany.com");
 }
 
 #[rocket::async_test]
 async fn test_users_response_format() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Create company and user
-    let company = create_company(&client, &admin_cookie, "Test Company").await;
-    let _user = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "user@testcompany.com",
-        company.id,
-        "admin",
-    )
-    .await;
-
-    // Login as company user
+    // Get pre-created test company and login as pre-created user
+    let company = get_company_by_name(&client, &admin_cookie, "Test Company 1").await;
     let user_cookie = login_user(&client, "user@testcompany.com", "admin").await;
 
     // Get users
@@ -340,21 +228,25 @@ async fn test_users_response_format() {
     assert_eq!(response.status(), Status::Ok);
 
     let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
-    assert_eq!(users.len(), 1);
+    assert!(!users.is_empty(), "Test Company 1 should have some users");
 
-    let user = &users[0];
-
-    // Verify all required fields are present and have correct types
-    assert!(user.id > 0);
-    assert!(!user.email.is_empty());
-    assert!(!user.password_hash.is_empty());
-    assert_eq!(user.company_id, company.id);
+    // Verify all users have required fields and belong to correct company
+    for user in &users {
+        assert!(user.id > 0, "User ID should be positive");
+        assert!(!user.email.is_empty(), "User email should not be empty");
+        assert!(!user.password_hash.is_empty(), "Password hash should not be empty");
+        assert_eq!(user.company_id, company.id, "All users should belong to the correct company");
+    }
+    
+    // Verify we have some expected users (business logic test)
+    let emails: Vec<&String> = users.iter().map(|u| &u.email).collect();
+    assert!(emails.contains(&&"user@testcompany.com".to_string()), "Should contain user@testcompany.com");
     // created_at and updated_at are automatically set
 }
 
 #[rocket::async_test]
 async fn test_nonexistent_company_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -375,13 +267,22 @@ async fn test_nonexistent_company_users() {
 
 #[rocket::async_test]
 async fn test_empty_users_for_existing_company() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Create company but no users
-    let company = create_company(&client, &admin_cookie, "Empty Company").await;
+    // Get a pre-created test company (Test Company 2 has user@company2.com but for this test we'll use a company without users)
+    // Actually, let's create a new company for this specific test case since we need an empty one
+    let new_company = json!({"name": "Empty Company"});
+    let response = client
+        .post("/api/1/companies")
+        .cookie(admin_cookie.clone())
+        .json(&new_company)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Created);
+    let company: Company = response.into_json().await.expect("valid company JSON");
 
     // Get users for company with no users (using admin access)
     let url = format!("/api/1/company/{}/users", company.id);

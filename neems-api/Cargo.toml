@@ -4,6 +4,10 @@ version = "0.1.2"
 edition = "2024"
 default-run = "neems-api"
 
+[[bin]]
+name = "create-golden-db"
+path = "src/bin/create-golden-db.rs"
+
 
 [dependencies]
 fixphrase = { path = "../crates/fixphrase", optional = true }
@@ -11,6 +15,7 @@ neems-data = { path = "../neems-data" }
 
 argon2 = { workspace = true }
 chrono = { workspace = true }
+ctor = { workspace = true }
 diesel.workspace = true
 diesel_migrations.workspace = true
 dotenvy.workspace = true
@@ -31,7 +36,7 @@ test-staging = []
 argon2 = { workspace = true }
 chrono = { workspace = true }
 rand_core = { workspace = true }
-reqwest = {workspace=true}
+reqwest = {workspace = true}
 rocket = { workspace = true }
 serde_json = { workspace = true }
 time-test = {workspace = true}

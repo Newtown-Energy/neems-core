@@ -2,11 +2,11 @@ use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
 
-use neems_api::orm::testing::test_rocket;
+use neems_api::orm::testing::fast_test_rocket;
 
 #[tokio::test]
 async fn test_logout() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
 

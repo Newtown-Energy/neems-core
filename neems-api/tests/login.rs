@@ -9,7 +9,7 @@ use neems_api::models::UserInput;
 use neems_api::orm::DbConn;
 use neems_api::orm::company::insert_company;
 use neems_api::orm::login::hash_password;
-use neems_api::orm::testing::test_rocket;
+use neems_api::orm::testing::fast_test_rocket;
 use neems_api::orm::user::insert_user;
 use neems_api::orm::user_role::assign_user_role_by_name;
 // Role guards are tested through the authentication system
@@ -37,7 +37,7 @@ pub async fn add_dummy_data(
                 conn,
                 UserInput {
                     email: "testuser@example.com".to_string(),
-                    password_hash: hash_password("testpassword"),
+                    password_hash: hash_password("admin"),
                     company_id: comp.id,
                     totp_secret: Some("dummy_secret".to_string()),
                 },
@@ -55,17 +55,16 @@ pub async fn add_dummy_data(
 
 #[tokio::test]
 async fn test_login_success() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
     time_test!("test_login_success");
-    add_dummy_data(&client).await;
-
+    
     let response = client
         .post("/api/1/login")
         .json(&json!({
             "email": "testuser@example.com",
-            "password": "testpassword"
+            "password": "admin"
         }))
         .dispatch()
         .await;
@@ -86,17 +85,16 @@ async fn test_login_success() {
 
 #[tokio::test]
 async fn test_wrong_email() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_wrong_email");
 
     let response = client
         .post("/api/1/login")
         .json(&json!({
             "email": "nonexistent@example.com",
-            "password": "testpassword"
+            "password": "admin"
         }))
         .dispatch()
         .await;
@@ -108,11 +106,10 @@ async fn test_wrong_email() {
 
 #[tokio::test]
 async fn test_wrong_password() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
     time_test!("test_wrong_password");
-    add_dummy_data(&client).await;
 
     let response = client
         .post("/api/1/login")
@@ -130,17 +127,16 @@ async fn test_wrong_password() {
 
 #[tokio::test]
 async fn test_empty_email() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_empty_email");
 
     let response = client
         .post("/api/1/login")
         .json(&json!({
             "email": "",
-            "password": "testpassword"
+            "password": "admin"
         }))
         .dispatch()
         .await;
@@ -150,11 +146,10 @@ async fn test_empty_email() {
 
 #[tokio::test]
 async fn test_empty_password() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
     time_test!("test_empty_password");
-    add_dummy_data(&client).await;
 
     let response = client
         .post("/api/1/login")
@@ -170,10 +165,9 @@ async fn test_empty_password() {
 
 #[tokio::test]
 async fn test_secure_hello_requires_auth() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_secure_hello_requires_auth");
 
     // 1. Test unauthenticated request fails
@@ -183,7 +177,7 @@ async fn test_secure_hello_requires_auth() {
     // 2. Login with correct credentials (using the test user created by add_dummy_data)
     let login_body = json!({
         "email": "testuser@example.com",
-        "password": "testpassword"  // Test user password from add_dummy_data
+        "password": "admin"  // Test user password from add_dummy_data
     });
     let response = client
         .post("/api/1/login")
@@ -234,7 +228,7 @@ async fn create_test_user_with_roles(
                 conn,
                 UserInput {
                     email: email.clone(),
-                    password_hash: hash_password("testpassword"),
+                    password_hash: hash_password("admin"),
                     company_id: 1, // Assumes company exists
                     totp_secret: Some("dummy_secret".to_string()),
                 },
@@ -254,10 +248,9 @@ async fn create_test_user_with_roles(
 
 #[tokio::test]
 async fn test_authenticated_user_has_roles() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_authenticated_user_has_roles");
 
     // Create a user with multiple roles
@@ -271,7 +264,7 @@ async fn test_authenticated_user_has_roles() {
     // Login with the multi-role user
     let login_body = json!({
         "email": "multirole@example.com",
-        "password": "testpassword"
+        "password": "admin"
     });
     let response = client
         .post("/api/1/login")
@@ -324,10 +317,9 @@ async fn test_authenticated_user_has_roles() {
 
 #[tokio::test]
 async fn test_role_helper_methods() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_role_helper_methods");
 
     // Create a user with specific roles for testing
@@ -341,7 +333,7 @@ async fn test_role_helper_methods() {
     // Login
     let login_body = json!({
         "email": "roletest@example.com",
-        "password": "testpassword"
+        "password": "admin"
     });
     let response = client
         .post("/api/1/login")
@@ -363,18 +355,17 @@ async fn test_role_helper_methods() {
 /// return the same structure for a given user to maintain API consistency.
 #[tokio::test]
 async fn test_login_hello_data_consistency() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
     time_test!("test_login_hello_data_consistency");
-    add_dummy_data(&client).await;
 
     // Login with test user
     let login_response = client
         .post("/api/1/login")
         .json(&json!({
             "email": "testuser@example.com",
-            "password": "testpassword"
+            "password": "admin"
         }))
         .dispatch()
         .await;
@@ -419,10 +410,9 @@ async fn test_login_hello_data_consistency() {
 
 #[tokio::test]
 async fn test_user_without_roles_fails() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_user_without_roles_fails");
 
     // This test verifies that our database constraint prevents users without roles
@@ -434,7 +424,7 @@ async fn test_user_without_roles_fails() {
         .post("/api/1/login")
         .json(&json!({
             "email": "testuser@example.com",
-            "password": "testpassword"
+            "password": "admin"
         }))
         .dispatch()
         .await;
@@ -443,10 +433,9 @@ async fn test_user_without_roles_fails() {
 
 #[tokio::test]
 async fn test_user_role_assignment() {
-    let client = rocket::local::asynchronous::Client::tracked(test_rocket())
+    let client = rocket::local::asynchronous::Client::tracked(fast_test_rocket())
         .await
         .unwrap();
-    add_dummy_data(&client).await;
     time_test!("test_user_role_assignment");
 
     // Create a user with a specific role
@@ -460,7 +449,7 @@ async fn test_user_role_assignment() {
     // Login with the staff user
     let login_body = json!({
         "email": "staffuser@example.com",
-        "password": "testpassword"
+        "password": "admin"
     });
     let response = client
         .post("/api/1/login")

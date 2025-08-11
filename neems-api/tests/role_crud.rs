@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_api::models::{Company, Role, UserWithRoles};
-use neems_api::orm::testing::test_rocket;
+use neems_api::orm::testing::fast_test_rocket;
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -128,7 +128,7 @@ async fn login_user(client: &Client, email: &str, password: &str) -> rocket::htt
 
 #[rocket::async_test]
 async fn test_get_role_endpoint_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 
@@ -139,7 +139,7 @@ async fn test_get_role_endpoint_requires_authentication() {
 
 #[rocket::async_test]
 async fn test_get_role_endpoint_success() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -170,7 +170,7 @@ async fn test_get_role_endpoint_success() {
 
 #[rocket::async_test]
 async fn test_get_role_endpoint_not_found() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -187,7 +187,7 @@ async fn test_get_role_endpoint_not_found() {
 
 #[rocket::async_test]
 async fn test_update_role_endpoint_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 
@@ -206,7 +206,7 @@ async fn test_update_role_endpoint_requires_authentication() {
 
 #[rocket::async_test]
 async fn test_update_role_endpoint_success() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -289,7 +289,7 @@ async fn test_update_role_endpoint_success() {
 
 #[rocket::async_test]
 async fn test_update_role_endpoint_set_description_to_null() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -320,7 +320,7 @@ async fn test_update_role_endpoint_set_description_to_null() {
 
 #[rocket::async_test]
 async fn test_update_role_endpoint_not_found() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -342,7 +342,7 @@ async fn test_update_role_endpoint_not_found() {
 
 #[rocket::async_test]
 async fn test_delete_role_endpoint_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 
@@ -353,7 +353,7 @@ async fn test_delete_role_endpoint_requires_authentication() {
 
 #[rocket::async_test]
 async fn test_delete_role_endpoint_success() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -393,7 +393,7 @@ async fn test_delete_role_endpoint_success() {
 
 #[rocket::async_test]
 async fn test_delete_role_endpoint_not_found() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -410,7 +410,7 @@ async fn test_delete_role_endpoint_not_found() {
 
 #[rocket::async_test]
 async fn test_role_crud_full_cycle_api() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -491,7 +491,7 @@ async fn test_role_crud_full_cycle_api() {
 
 #[rocket::async_test]
 async fn test_update_role_endpoint_empty_request() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -531,7 +531,7 @@ async fn test_update_role_endpoint_empty_request() {
 
 #[rocket::async_test]
 async fn test_create_role_requires_newtown_admin() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -552,19 +552,9 @@ async fn test_create_role_requires_newtown_admin() {
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
 
-    // Create a regular company and users with different roles
-    let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-
-    // Test with regular admin (should fail)
-    let _regular_admin = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@testcompany.com",
-        test_company.id,
-        "admin",
-    )
-    .await;
-    let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
+    // Test with regular admin from Test Company 1 (should fail)
+    // Using existing user from golden database: admin@company1.com
+    let admin_session = login_user(&client, "admin@company1.com", "admin").await;
 
     let new_role = json!({
         "name": "Test Role",
@@ -581,15 +571,8 @@ async fn test_create_role_requires_newtown_admin() {
     assert_eq!(response.status(), Status::Forbidden);
 
     // Test with newtown-staff (should fail)
-    let _newtown_staff = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "staff@newtown.com",
-        newtown_company.id,
-        "newtown-staff",
-    )
-    .await;
-    let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
+    // Using existing newtown-staff user from golden database
+    let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     let response = client
         .post("/api/1/roles")
@@ -615,7 +598,7 @@ async fn test_create_role_requires_newtown_admin() {
 
 #[rocket::async_test]
 async fn test_update_role_requires_newtown_admin() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -645,8 +628,7 @@ async fn test_update_role_requires_newtown_admin() {
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
 
-    // Create a regular company and users with different roles
-    let test_company = create_company(&client, &admin_cookie, "Test Company").await;
+    // Using existing companies from golden database
 
     let update_request = json!({
         "name": "Updated Name"
@@ -654,16 +636,8 @@ async fn test_update_role_requires_newtown_admin() {
 
     let url = format!("/api/1/roles/{}", created_role.id);
 
-    // Test with regular admin (should fail)
-    let _regular_admin = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@testcompany.com",
-        test_company.id,
-        "admin",
-    )
-    .await;
-    let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
+    // Test with regular admin (should fail) - using existing user from golden database
+    let admin_session = login_user(&client, "admin@company1.com", "admin").await;
 
     let response = client
         .put(&url)
@@ -675,15 +649,8 @@ async fn test_update_role_requires_newtown_admin() {
     assert_eq!(response.status(), Status::Forbidden);
 
     // Test with newtown-staff (should fail)
-    let _newtown_staff = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "staff@newtown.com",
-        newtown_company.id,
-        "newtown-staff",
-    )
-    .await;
-    let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
+    // Using existing newtown-staff user from golden database
+    let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     let response = client
         .put(&url)
@@ -709,7 +676,7 @@ async fn test_update_role_requires_newtown_admin() {
 
 #[rocket::async_test]
 async fn test_delete_role_requires_newtown_admin() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -753,19 +720,9 @@ async fn test_delete_role_requires_newtown_admin() {
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
 
-    // Create a regular company and users with different roles
-    let test_company = create_company(&client, &admin_cookie, "Test Company").await;
-
-    // Test with regular admin (should fail)
-    let _regular_admin = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@testcompany.com",
-        test_company.id,
-        "admin",
-    )
-    .await;
-    let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
+    // Test with regular admin from Test Company 1 (should fail)
+    // Using existing user from golden database: admin@company1.com
+    let admin_session = login_user(&client, "admin@company1.com", "admin").await;
 
     let url = format!("/api/1/roles/{}", role_for_admin.id);
     let response = client.delete(&url).cookie(admin_session).dispatch().await;
@@ -773,15 +730,8 @@ async fn test_delete_role_requires_newtown_admin() {
     assert_eq!(response.status(), Status::Forbidden);
 
     // Test with newtown-staff (should fail)
-    let _newtown_staff = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "staff@newtown.com",
-        newtown_company.id,
-        "newtown-staff",
-    )
-    .await;
-    let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
+    // Using existing newtown-staff user from golden database
+    let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     let url = format!("/api/1/roles/{}", role_for_staff.id);
     let response = client.delete(&url).cookie(staff_session).dispatch().await;
@@ -805,7 +755,7 @@ async fn test_delete_role_requires_newtown_admin() {
 
 #[rocket::async_test]
 async fn test_list_and_get_roles_allow_all_authenticated_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
@@ -835,19 +785,10 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
 
-    // Create a regular company and users with different roles
-    let test_company = create_company(&client, &admin_cookie, "Test Company").await;
+    // Using existing companies from golden database
 
-    // Test with regular admin
-    let _regular_admin = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "admin@testcompany.com",
-        test_company.id,
-        "admin",
-    )
-    .await;
-    let admin_session = login_user(&client, "admin@testcompany.com", "admin").await;
+    // Test with regular admin - using existing user from golden database
+    let admin_session = login_user(&client, "admin@company1.com", "admin").await;
 
     // Should be able to list roles
     let response = client
@@ -867,15 +808,8 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     assert_eq!(role.name, "Public Role");
 
     // Test with newtown-staff
-    let _newtown_staff = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "staff@newtown.com",
-        newtown_company.id,
-        "newtown-staff",
-    )
-    .await;
-    let staff_session = login_user(&client, "staff@newtown.com", "admin").await;
+    // Using existing newtown-staff user from golden database
+    let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     // Should be able to list roles
     let response = client
@@ -891,16 +825,8 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     let response = client.get(&url).cookie(staff_session).dispatch().await;
     assert_eq!(response.status(), Status::Ok);
 
-    // Test with regular user (non-admin)
-    let _regular_user = create_user_with_role(
-        &client,
-        &admin_cookie,
-        "user@testcompany.com",
-        test_company.id,
-        "staff",
-    )
-    .await;
-    let user_session = login_user(&client, "user@testcompany.com", "admin").await;
+    // Test with regular user (non-admin) - using existing user from golden database
+    let user_session = login_user(&client, "staff@testcompany.com", "admin").await;
 
     // Should be able to list roles
     let response = client
@@ -919,7 +845,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
 
 #[rocket::async_test]
 async fn test_unauthenticated_users_cannot_access_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 

@@ -16,7 +16,7 @@ use neems_api::models::{Company, CompanyInput, Role, User, UserInput};
 use neems_api::orm::DbConn;
 use neems_api::orm::company::{get_company_by_name, insert_company};
 use neems_api::orm::login::hash_password;
-use neems_api::orm::testing::test_rocket;
+use neems_api::orm::testing::fast_test_rocket;
 use neems_api::orm::user::insert_user;
 use neems_api::orm::user_role::{assign_user_role_by_name, get_user_roles};
 
@@ -195,7 +195,7 @@ async fn login_as_user(client: &Client, email: &str, password: &str) -> Cookie<'
 
 #[tokio::test]
 async fn test_get_user_roles_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -211,7 +211,7 @@ async fn test_get_user_roles_requires_authentication() {
 
 #[tokio::test]
 async fn test_get_user_roles_user_can_view_own_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -234,7 +234,7 @@ async fn test_get_user_roles_user_can_view_own_roles() {
 
 #[tokio::test]
 async fn test_get_user_roles_user_cannot_view_others_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -257,7 +257,7 @@ async fn test_get_user_roles_user_cannot_view_others_roles() {
 
 #[tokio::test]
 async fn test_get_user_roles_admin_can_view_any_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -284,7 +284,7 @@ async fn test_get_user_roles_admin_can_view_any_roles() {
 
 #[tokio::test]
 async fn test_add_user_role_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -301,7 +301,7 @@ async fn test_add_user_role_requires_authentication() {
 
 #[tokio::test]
 async fn test_newtown_admin_can_assign_any_role() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -342,7 +342,7 @@ async fn test_newtown_admin_can_assign_any_role() {
 
 #[tokio::test]
 async fn test_newtown_staff_can_assign_non_admin_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -369,7 +369,7 @@ async fn test_newtown_staff_can_assign_non_admin_roles() {
 
 #[tokio::test]
 async fn test_newtown_staff_cannot_assign_newtown_admin_role() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -396,7 +396,7 @@ async fn test_newtown_staff_cannot_assign_newtown_admin_role() {
 
 #[tokio::test]
 async fn test_regular_admin_can_assign_admin_to_same_company() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -422,7 +422,7 @@ async fn test_regular_admin_can_assign_admin_to_same_company() {
 
 #[tokio::test]
 async fn test_regular_admin_cannot_assign_admin_to_different_company() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -448,7 +448,7 @@ async fn test_regular_admin_cannot_assign_admin_to_different_company() {
 
 #[tokio::test]
 async fn test_regular_admin_cannot_assign_newtown_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -474,7 +474,7 @@ async fn test_regular_admin_cannot_assign_newtown_roles() {
 
 #[tokio::test]
 async fn test_newtown_roles_reserved_for_newtown_energy_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -501,7 +501,7 @@ async fn test_newtown_roles_reserved_for_newtown_energy_users() {
 
 #[tokio::test]
 async fn test_regular_user_cannot_assign_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -527,7 +527,7 @@ async fn test_regular_user_cannot_assign_roles() {
 
 #[tokio::test]
 async fn test_remove_user_role_requires_authentication() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -544,7 +544,7 @@ async fn test_remove_user_role_requires_authentication() {
 
 #[tokio::test]
 async fn test_cannot_remove_last_role() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -571,7 +571,7 @@ async fn test_cannot_remove_last_role() {
 
 #[tokio::test]
 async fn test_remove_role_with_proper_authorization() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -619,7 +619,7 @@ async fn test_remove_role_with_proper_authorization() {
 
 #[tokio::test]
 async fn test_newtown_staff_cannot_remove_newtown_admin_role() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -655,7 +655,7 @@ async fn test_newtown_staff_cannot_remove_newtown_admin_role() {
 
 #[tokio::test]
 async fn test_regular_admin_authorization_for_role_removal() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -690,7 +690,7 @@ async fn test_regular_admin_authorization_for_role_removal() {
 
 #[tokio::test]
 async fn test_database_constraint_prevents_newtown_roles_for_non_newtown_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;
@@ -722,7 +722,7 @@ async fn test_database_constraint_prevents_newtown_roles_for_non_newtown_users()
 
 #[tokio::test]
 async fn test_database_constraint_allows_newtown_roles_for_newtown_users() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
     let (users, _) = setup_test_data(&client).await;

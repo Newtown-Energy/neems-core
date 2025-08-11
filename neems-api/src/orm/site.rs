@@ -305,8 +305,8 @@ mod tests {
         let original_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
             .expect("Should have updated timestamp");
 
-        // Wait a moment to ensure updated_at changes
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Wait a moment to ensure updated_at changes (SQLite timestamps have 1-second resolution)
+        std::thread::sleep(std::time::Duration::from_millis(1100));
 
         // Test partial update (only name)
         let updated_site = update_site(

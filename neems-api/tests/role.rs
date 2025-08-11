@@ -3,7 +3,7 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 
 use neems_api::models::Role;
-use neems_api::orm::testing::test_rocket;
+use neems_api::orm::testing::fast_test_rocket;
 
 /// Helper to login and get session cookie
 async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static> {
@@ -30,7 +30,7 @@ async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static>
 
 #[rocket::async_test]
 async fn test_create_role() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 
@@ -68,7 +68,7 @@ async fn test_create_role() {
 
 #[rocket::async_test]
 async fn test_list_roles() {
-    let client = Client::tracked(test_rocket())
+    let client = Client::tracked(fast_test_rocket())
         .await
         .expect("valid rocket instance");
 

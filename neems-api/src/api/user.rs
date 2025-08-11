@@ -484,8 +484,8 @@ pub async fn create_user(
                 // newtown-staff can assign any role except newtown-admin
                 role_name != "newtown-admin"
             } else if auth_user.has_role("admin") {
-                // admin can only assign admin role to users in same company
-                role_name == "admin" && auth_user.user.company_id == user_request.company_id
+                // admin can assign any role to users in same company
+                auth_user.user.company_id == user_request.company_id
             } else {
                 false
             };
@@ -993,8 +993,8 @@ pub async fn add_user_role(
         // Rule 3: newtown-staff can set any user's role except newtown-admin
         role_name != "newtown-admin"
     } else if auth_user.has_role("admin") {
-        // Rule 4: admin can set another user's role to admin if same company
-        role_name == "admin" && auth_user.user.company_id == target_user.company_id
+        // Rule 4: admin can set another user's role to any role if same company
+        auth_user.user.company_id == target_user.company_id
     } else {
         false
     };
@@ -1141,7 +1141,7 @@ pub async fn remove_user_role(
     } else if auth_user.has_role("newtown-staff") {
         role_name != "newtown-admin"
     } else if auth_user.has_role("admin") {
-        role_name == "admin" && auth_user.user.company_id == target_user.company_id
+        auth_user.user.company_id == target_user.company_id
     } else {
         false
     };

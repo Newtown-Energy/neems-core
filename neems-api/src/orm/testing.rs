@@ -6,9 +6,147 @@ use rocket::figment::{
 };
 use rocket::{Build, Rocket, fairing::AdHoc};
 use rocket_sync_db_pools::diesel;
+use std::path::PathBuf;
 
 use super::db::{DbConn, run_pending_migrations, set_foreign_keys};
 use crate::admin_init_fairing::admin_init_fairing;
+
+/// Creates a golden database template with all test data pre-populated.
+/// This is created once and then copied for each test that needs it.
+#[cfg(feature = "test-staging")]
+/// Calculates a version hash based on schema and test data code to detect when golden DB needs regeneration
+#[cfg(feature = "test-staging")]
+pub fn calculate_schema_hash() -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    
+    let mut hasher = DefaultHasher::new();
+    
+    // Hash this source file (contains test data initialization logic)
+    include_str!("testing.rs").hash(&mut hasher);
+    
+    // Hash admin init logic
+    include_str!("../admin_init_fairing.rs").hash(&mut hasher);
+    
+    // Hash migration files if they exist (simple approach - could be more sophisticated)
+    if let Ok(entries) = std::fs::read_dir("migrations") {
+        for entry in entries.flatten() {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                content.hash(&mut hasher);
+            }
+        }
+    }
+    
+    format!("{:x}", hasher.finish())
+}
+
+/// Creates a golden database with the given version hash
+#[cfg(feature = "test-staging")]
+pub fn create_golden_database(version_hash: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    use diesel::Connection;
+    
+    // Create golden database in workspace target directory with version hash
+    let golden_db_path = PathBuf::from(format!("../target/golden_test_{}.db", version_hash));
+    let temp_db_path = PathBuf::from(format!("../target/golden_test_{}.db.tmp", version_hash));
+    
+    // Ensure target directory exists
+    if let Some(parent) = golden_db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    
+    // Remove any existing temp file
+    if temp_db_path.exists() {
+        std::fs::remove_file(&temp_db_path)?;
+    }
+    
+    eprintln!("[golden-db] Creating golden database v{} at: {:?}", version_hash, golden_db_path);
+    
+    // Create the database and populate it
+    let mut conn = SqliteConnection::establish(&golden_db_path.to_string_lossy())?;
+    
+    // Set up the database exactly like we do in normal tests
+    set_foreign_keys(&mut conn);
+    set_sqlite_test_pragmas(&mut conn);
+    // Run migrations to create the schema in the golden database
+    run_pending_migrations(&mut conn);
+    
+    // Create the admin user (normally done by admin_init_fairing)
+    create_admin_user_in_db(&mut conn)?;
+    
+    // Create all the test data (normally done by test_data_init_fairing)  
+    create_test_data(&mut conn)?;
+    
+    eprintln!("[golden-db] Golden database created successfully");
+    Ok(golden_db_path)
+}
+
+/// Creates the admin user directly in the database (replicating admin_init_fairing logic)
+#[cfg(feature = "test-staging")]
+fn create_admin_user_in_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
+    use crate::models::{CompanyInput, NewUserRole, UserInput};
+    use crate::orm::company::{get_company_by_name, insert_company};
+    use crate::orm::login::hash_password;
+    use crate::orm::user::insert_user;
+    use crate::schema::user_roles;
+    use diesel::prelude::*;
+    
+    // Create Newtown Energy company
+    let newtown_company = match get_company_by_name(conn, &CompanyInput { name: "Newtown Energy".to_string() })? {
+        Some(company) => company,
+        None => insert_company(conn, "Newtown Energy".to_string())?,
+    };
+    
+    // Create newtown-admin role
+    let admin_role = ensure_role_exists(conn, "newtown-admin", "Administrator for Newtown")?;
+    
+    // Create admin user
+    let admin_email = "superadmin@example.com";
+    let password_hash = hash_password("admin");
+    let admin_user = UserInput {
+        email: admin_email.to_string(),
+        password_hash,
+        company_id: newtown_company.id,
+        totp_secret: None,
+    };
+    
+    let user = insert_user(conn, admin_user)?;
+    
+    // Assign admin role
+    let new_user_role = NewUserRole {
+        user_id: user.id,
+        role_id: admin_role.id,
+    };
+    
+    diesel::insert_into(user_roles::table)
+        .values(&new_user_role)
+        .execute(conn)?;
+        
+    eprintln!("[golden-db] Created admin user: {}", admin_email);
+    Ok(())
+}
+
+
+/// Gets the golden database path by calculating current version hash
+#[cfg(feature = "test-staging")]
+fn get_golden_db_path() -> PathBuf {
+    let version_hash = calculate_schema_hash();
+    PathBuf::from(format!("../target/golden_test_{}.db", version_hash))
+}
+
+#[cfg(feature = "test-staging")]
+use diesel::prelude::*;
+#[cfg(feature = "test-staging")]
+use crate::models::{CompanyInput, NewRole, NewUserRole, Role, User, UserInput};
+#[cfg(feature = "test-staging")]
+use crate::orm::company::{get_company_by_name, insert_company};
+#[cfg(feature = "test-staging")]
+use crate::orm::login::hash_password;
+#[cfg(feature = "test-staging")]
+use crate::orm::role::{get_role_by_name, insert_role};
+#[cfg(feature = "test-staging")]
+use crate::orm::user::insert_user;
+#[cfg(feature = "test-staging")]
+use crate::schema::{user_roles, users};
 
 /// Configures SQLite with performance-optimized settings for testing.
 ///
@@ -48,6 +186,239 @@ fn set_sqlite_test_pragmas_fairing() -> AdHoc {
         .await;
         rocket
     })
+}
+
+/// Creates a Rocket fairing that initializes standard test data.
+///
+/// This fairing creates a consistent set of companies, users, and sites that all tests can rely on.
+/// It only runs when the `test-staging` feature is enabled to ensure it never runs in production.
+#[cfg(feature = "test-staging")]
+fn test_data_init_fairing() -> AdHoc {
+    AdHoc::on_ignite("Test Data Initialization", |rocket| async {
+        let conn = DbConn::get_one(&rocket)
+            .await
+            .expect("database connection for test data initialization");
+        
+        conn.run(|c| {
+            if let Err(e) = create_test_data(c) {
+                eprintln!("[test-data-init] ERROR: Failed to create test data: {:?}", e);
+            } else {
+                eprintln!("[test-data-init] Test data initialization completed");
+            }
+        }).await;
+        
+        rocket
+    })
+}
+
+/// Creates standard test data for all tests to use.
+#[cfg(feature = "test-staging")]
+fn create_test_data(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
+    // Create test companies
+    let test_company1 = find_or_create_company(conn, "Test Company 1")?;
+    let test_company2 = find_or_create_company(conn, "Test Company 2")?;
+    let _removable_company = find_or_create_company(conn, "Removable LLC")?;
+    
+    // Get the Newtown Energy company (created by admin_init_fairing)
+    let newtown_company = get_company_by_name(conn, &CompanyInput { name: "Newtown Energy".to_string() })?
+        .expect("Newtown Energy company should exist from admin_init_fairing");
+
+    // Create standard roles if they don't exist
+    ensure_role_exists(conn, "admin", "Administrator role")?;
+    ensure_role_exists(conn, "staff", "Staff role")?;
+    ensure_role_exists(conn, "newtown-admin", "Newtown Administrator role")?;
+    ensure_role_exists(conn, "newtown-staff", "Newtown Staff role")?;
+
+    // Create standard test users
+    create_test_user(conn, "user@testcompany.com", test_company1.id, "admin")?;
+    create_test_user(conn, "user@company1.com", test_company1.id, "admin")?;
+    create_test_user(conn, "user@company2.com", test_company2.id, "admin")?;
+    create_test_user(conn, "user@empty.com", test_company1.id, "admin")?;
+    create_test_user(conn, "admin@company1.com", test_company1.id, "admin")?;
+    create_test_user(conn, "admin@company2.com", test_company2.id, "admin")?;
+    create_test_user(conn, "staff@testcompany.com", test_company1.id, "staff")?;
+    create_test_user(conn, "newtownadmin@newtown.com", newtown_company.id, "newtown-admin")?;
+    create_test_user(conn, "newtownstaff@newtown.com", newtown_company.id, "newtown-staff")?;
+    
+    // Additional test users for login.rs tests
+    create_test_user(conn, "testuser@example.com", test_company1.id, "staff")?;
+    
+    // Additional test users for secure_test.rs tests
+    create_test_user_with_password(conn, "test_superadmin@example.com", newtown_company.id, "admin", "adminpass")?;
+    create_test_user_with_password(conn, "staff@example.com", test_company1.id, "staff", "staffpass")?;
+    create_test_user_with_password_and_roles(conn, "admin_staff@example.com", test_company1.id, &["admin", "staff"], "adminstaff")?;
+    create_test_user_with_password(conn, "newtown_superadmin@example.com", newtown_company.id, "newtown-admin", "newtownpass")?;
+    create_test_user_with_password(conn, "newtown_staff@example.com", newtown_company.id, "newtown-staff", "newtownstaffpass")?;
+    create_test_user_with_password(conn, "regular@example.com", test_company1.id, "staff", "regularpass")?;
+
+    Ok(())
+}
+
+/// Creates a test user with a custom password with the specified email, company, role, and password.
+#[cfg(feature = "test-staging")]
+fn create_test_user_with_password(conn: &mut SqliteConnection, email: &str, company_id: i32, role_name: &str, password: &str) -> Result<(), diesel::result::Error> {
+    // Check if user already exists
+    let existing_user = users::table
+        .filter(users::email.eq(email))
+        .first::<User>(conn)
+        .optional()?;
+        
+    if existing_user.is_some() {
+        println!("[test-data-init] User '{}' already exists", email);
+        return Ok(());
+    }
+
+    // Create user with custom password hash
+    let password_hash = hash_password(password);
+    let user_input = UserInput {
+        email: email.to_string(),
+        password_hash,
+        company_id,
+        totp_secret: None,
+    };
+
+    let user = insert_user(conn, user_input)?;
+    println!("[test-data-init] Created user with custom password: '{}'", email);
+
+    // Assign role to user
+    let role = get_role_by_name(conn, role_name)?
+        .expect(&format!("Role '{}' should exist", role_name));
+    
+    let new_user_role = NewUserRole {
+        user_id: user.id,
+        role_id: role.id,
+    };
+
+    diesel::insert_into(user_roles::table)
+        .values(&new_user_role)
+        .execute(conn)?;
+    
+    println!("[test-data-init] Assigned role '{}' to user '{}'", role_name, email);
+    
+    Ok(())
+}
+
+/// Creates a test user with a custom password and multiple roles.
+#[cfg(feature = "test-staging")]
+fn create_test_user_with_password_and_roles(conn: &mut SqliteConnection, email: &str, company_id: i32, role_names: &[&str], password: &str) -> Result<(), diesel::result::Error> {
+    // Check if user already exists
+    let existing_user = users::table
+        .filter(users::email.eq(email))
+        .first::<User>(conn)
+        .optional()?;
+        
+    if existing_user.is_some() {
+        println!("[test-data-init] User '{}' already exists", email);
+        return Ok(());
+    }
+
+    // Create user with custom password hash
+    let password_hash = hash_password(password);
+    let user_input = UserInput {
+        email: email.to_string(),
+        password_hash,
+        company_id,
+        totp_secret: None,
+    };
+
+    let user = insert_user(conn, user_input)?;
+    println!("[test-data-init] Created user with custom password: '{}'", email);
+
+    // Assign multiple roles to user
+    for role_name in role_names {
+        let role = get_role_by_name(conn, role_name)?
+            .expect(&format!("Role '{}' should exist", role_name));
+        
+        let new_user_role = NewUserRole {
+            user_id: user.id,
+            role_id: role.id,
+        };
+
+        diesel::insert_into(user_roles::table)
+            .values(&new_user_role)
+            .execute(conn)?;
+        
+        println!("[test-data-init] Assigned role '{}' to user '{}'", role_name, email);
+    }
+    
+    Ok(())
+}
+
+/// Finds or creates a company with the given name.
+#[cfg(feature = "test-staging")]
+fn find_or_create_company(conn: &mut SqliteConnection, name: &str) -> Result<crate::models::Company, diesel::result::Error> {
+    let company_input = CompanyInput { name: name.to_string() };
+    
+    match get_company_by_name(conn, &company_input)? {
+        Some(company) => {
+            eprintln!("[test-data-init] Found existing company: '{}'", name);
+            Ok(company)
+        },
+        None => {
+            eprintln!("[test-data-init] Creating company: '{}'", name);
+            insert_company(conn, name.to_string())
+        }
+    }
+}
+
+/// Ensures a role exists, creating it if necessary.
+#[cfg(feature = "test-staging")]
+fn ensure_role_exists(conn: &mut SqliteConnection, role_name: &str, description: &str) -> Result<Role, diesel::result::Error> {
+    match get_role_by_name(conn, role_name)? {
+        Some(role) => Ok(role),
+        None => {
+            eprintln!("[test-data-init] Creating role: '{}'", role_name);
+            let new_role = NewRole {
+                name: role_name.to_string(),
+                description: Some(description.to_string()),
+            };
+            insert_role(conn, new_role)
+        }
+    }
+}
+
+/// Creates a test user with the specified email, company, and role.
+#[cfg(feature = "test-staging")]
+fn create_test_user(conn: &mut SqliteConnection, email: &str, company_id: i32, role_name: &str) -> Result<(), diesel::result::Error> {
+    // Check if user already exists
+    let existing_user = users::table
+        .filter(users::email.eq(email))
+        .first::<User>(conn)
+        .optional()?;
+        
+    if existing_user.is_some() {
+        println!("[test-data-init] User '{}' already exists", email);
+        return Ok(());
+    }
+
+    // Create user with consistent password hash
+    let password_hash = hash_password("admin");
+    let user_input = UserInput {
+        email: email.to_string(),
+        password_hash,
+        company_id,
+        totp_secret: None,
+    };
+
+    let user = insert_user(conn, user_input)?;
+    println!("[test-data-init] Created user: '{}'", email);
+
+    // Assign role to user
+    let role = get_role_by_name(conn, role_name)?
+        .expect(&format!("Role '{}' should exist", role_name));
+    
+    let new_user_role = NewUserRole {
+        user_id: user.id,
+        role_id: role.id,
+    };
+
+    diesel::insert_into(user_roles::table)
+        .values(&new_user_role)
+        .execute(conn)?;
+    
+    println!("[test-data-init] Assigned role '{}' to user '{}'", role_name, email);
+    
+    Ok(())
 }
 
 /// Creates and configures a Rocket instance for testing with an in-memory SQLite database.
@@ -98,6 +469,12 @@ pub fn test_rocket() -> Rocket<Build> {
         .attach(set_sqlite_test_pragmas_fairing())
         .attach(super::db::run_migrations_fairing())
         .attach(admin_init_fairing());
+
+    // Attach test data initialization fairing when test-staging feature is enabled
+    #[cfg(feature = "test-staging")]
+    {
+        rocket = rocket.attach(test_data_init_fairing());
+    }
     
     // Attach SiteDbConn fairing when test-staging feature is enabled
     #[cfg(feature = "test-staging")]
@@ -106,6 +483,76 @@ pub fn test_rocket() -> Rocket<Build> {
                       .attach(super::neems_data::db::set_foreign_keys_fairing());
     }
     
+    crate::mount_api_routes(rocket)
+}
+
+/// Creates a fast Rocket instance for testing by copying a pre-populated golden database.
+/// This is much faster than test_rocket() because it skips all the initialization fairings.
+/// 
+/// Use this for tests that don't need to modify the core test data structure.
+#[cfg(feature = "test-staging")]
+pub fn fast_test_rocket() -> Rocket<Build> {
+    use uuid::Uuid;
+    
+    // Get the golden database template
+    let golden_db_path = get_golden_db_path();
+    
+    // Check if golden database exists
+    if !golden_db_path.exists() {
+        panic!(
+            "Golden database not found at {:?}. Run 'cargo run --bin create-golden-db --features test-staging' first.",
+            golden_db_path
+        );
+    }
+    
+    // Create a unique copy for this test in the workspace target directory
+    let test_db_path = PathBuf::from(format!("../target/test_db_{}.db", Uuid::new_v4()));
+    
+    // Copy the golden database - this creates a brand new file with no existing connections
+    std::fs::copy(&golden_db_path, &test_db_path)
+        .expect("Failed to copy golden database");
+    
+    // Verify the copied database exists
+    if !test_db_path.exists() {
+        panic!("Copied test database does not exist at: {:?}", test_db_path);
+    }
+    
+    println!("[fast-test] Copied golden DB to: {:?}", test_db_path);
+    
+    // Use the absolute path directly without file: prefix (like test_rocket uses bare paths)
+    let absolute_path = std::fs::canonicalize(&test_db_path)
+        .expect("Failed to get absolute path for test database");
+    let db_url = absolute_path.to_string_lossy().to_string();
+    println!("[fast-test] Database URL will be: {}", db_url);
+    let db_config: Map<_, Value> = map! {
+        "url" => db_url.clone().into(),
+        "pool_size" => 5.into(),     // Match test_rocket exactly
+        "timeout" => 5.into(),       // Match test_rocket timeout
+    };
+    
+    // Create site database config (using in-memory for fast tests)
+    let site_unique_db_name = format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+    let site_db_config: Map<_, Value> = map! {
+        "url" => site_unique_db_name.into(),
+        "pool_size" => 5.into(),
+        "timeout" => 5.into(),
+    };
+    
+    // Create database config map with both main and site databases
+    let databases = map![
+        "sqlite_db" => db_config.clone(),
+        "site_db" => site_db_config
+    ];
+    
+    // Merge DB config into Rocket's figment
+    let figment = rocket::Config::figment().merge(("databases", databases));
+    
+    // Build the Rocket instance with minimal fairings (no initialization fairings needed!)
+    // The golden database is already fully set up, so we only need basic database connections
+    let rocket = rocket::custom(figment)
+        .attach(DbConn::fairing())
+        .attach(super::neems_data::db::SiteDbConn::fairing());
+        
     crate::mount_api_routes(rocket)
 }
 

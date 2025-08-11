@@ -196,14 +196,25 @@ migrate() {
 }
 
 nextest() {
+    local recreate_db=false
+    local latest=$(find ../target/golden*.db migrations ../target/debug/create-golden-db -type f -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d' ' -f2-)
+
+    if [[ "$latest" != "../target/debug/create-golden-db" ]]; then
+        echo "Golden database is out of date or missing. Recreating..."
+        cargo run --bin create-golden-db --features test-staging
+    else
+        echo "Golden database is up to date."
+    fi
+
     local cmd="${CARGO} $NIGHTLY nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
-    echo "RUSTFLAGS=\"-Zcodegen-backend=cranelift\" $cmd $@"
+    echo "RUSTFLAGS=\"$-Zcodegen-backend=cranelift\" $cmd $@"
     if [ -z "$WAYLAND_DISPLAY" ]; then
         RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@"
     else
         RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
     fi
 }
+
 
 push() {
     echo "Don't push from here.  Use the deploy repo."
