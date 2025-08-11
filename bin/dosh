@@ -157,10 +157,11 @@ depends() {
   }
   set -e
   [ "$(id -u)" -eq 0 ] && { echo "Do NOT run as root. Script uses sudo as needed." >&2; exit 1; }
-  sudo apt install -y colorized-logs libsqlite3-dev
+  sudo apt install -y colorized-logs jq libsqlite3-dev libxml2-utils
   rustup update
   ${CARGO} nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }
   _install-cranelift
+  npm install -g junit-merge
 }
 
 migrate() {
@@ -213,6 +214,12 @@ nextest() {
     else
         RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
     fi
+
+    # Merge test result data
+    local junit_file=../target/nextest/all-results.xml
+    junit-merge --out $junit_file -d ../target/nextest
+
+    # xmllint --xpath '//testcase[failure or error]/@name' merged-results.xml
 }
 
 
