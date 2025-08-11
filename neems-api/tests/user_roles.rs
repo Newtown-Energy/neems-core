@@ -12,7 +12,7 @@
 //! 4. admin can set another user's role to admin if target user is at same company
 //! 5. Users must have at least one role
 
-use neems_api::models::{Company, CompanyNoTime, Role, User, UserNoTime};
+use neems_api::models::{Company, CompanyInput, Role, User, UserInput};
 use neems_api::orm::DbConn;
 use neems_api::orm::company::{get_company_by_name, insert_company};
 use neems_api::orm::login::hash_password;
@@ -56,7 +56,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             // Create test companys
             let newtown_energy = get_company_by_name(
                 conn,
-                &CompanyNoTime {
+                &CompanyInput {
                     name: "Newtown Energy".to_string(),
                 },
             )
@@ -72,7 +72,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             // Create users with different roles
             let newtown_admin = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "newtown_admin@newtownenergy.com".to_string(),
                     password_hash: hash_password("password123"),
                     company_id: newtown_energy.id,
@@ -85,7 +85,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
 
             let newtown_staff = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "newtown_staff@newtownenergy.com".to_string(),
                     password_hash: hash_password("password123"),
                     company_id: newtown_energy.id,
@@ -98,7 +98,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
 
             let regular_admin = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "admin@regularcorp.com".to_string(),
                     password_hash: hash_password("password123"),
                     company_id: regular_company.id,
@@ -111,7 +111,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
 
             let regular_user = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "user@regularcorp.com".to_string(),
                     password_hash: hash_password("password123"),
                     company_id: regular_company.id,
@@ -124,7 +124,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
 
             let other_company_admin = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "admin@othercorp.com".to_string(),
                     password_hash: hash_password("password123"),
                     company_id: other_company.id,
@@ -137,7 +137,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
 
             let other_company_user = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "user@othercorp.com".to_string(),
                     password_hash: hash_password("password123"),
                     company_id: other_company.id,

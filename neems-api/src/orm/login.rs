@@ -245,7 +245,7 @@ pub fn hash_password(password: &str) -> String {
 mod tests {
     use super::*;
     use crate::models::User;
-    use crate::models::UserNoTime;
+    use crate::models::UserInput;
     use crate::orm::company::insert_company;
     use crate::orm::testing::{setup_test_db, setup_test_dbconn};
     use crate::orm::user::insert_user;
@@ -257,14 +257,11 @@ mod tests {
         let wrong_password = "wrong_password";
         let hash = hash_password(password);
 
-        let now = Utc::now().naive_utc();
         let user = User {
             id: 1,
             email: "test@example.com".to_string(),
             password_hash: hash,
             company_id: 1,
-            created_at: now,
-            updated_at: now,
             totp_secret: Some("dummysecret".to_string()),
         };
 
@@ -282,7 +279,7 @@ mod tests {
 
         let hash = hash_password("dummy password");
 
-        let dummy_user = UserNoTime {
+        let dummy_user = UserInput {
             email: "legofkarl@ots.com".to_string(),
             password_hash: hash,
             company_id: company.id,

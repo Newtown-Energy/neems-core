@@ -1,7 +1,6 @@
-use chrono::Utc;
 use diesel::prelude::*;
 
-use crate::models::{NewSite, Site};
+use crate::models::{NewSite, Site, SiteWithTimestamps};
 
 /// Gets all sites for a specific company ID.
 pub fn get_sites_by_company(
@@ -12,10 +11,11 @@ pub fn get_sites_by_company(
     sites
         .filter(company_id.eq(comp_id))
         .order(id.asc())
-        .load::<Site>(conn)
+        .select(Site::as_select())
+        .load(conn)
 }
 
-/// Creates a new site in the database.
+/// Creates a new site in the database (timestamps handled automatically by database triggers)
 pub fn insert_site(
     conn: &mut SqliteConnection,
     site_name: String,
@@ -26,21 +26,18 @@ pub fn insert_site(
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
 
-    let now = Utc::now().naive_utc();
     let new_site = NewSite {
         name: site_name,
         address: site_address,
         latitude: site_latitude,
         longitude: site_longitude,
         company_id: site_company_id,
-        created_at: now,
-        updated_at: now,
     };
 
     diesel::insert_into(sites).values(&new_site).execute(conn)?;
 
     // Return the inserted site
-    sites.order(id.desc()).first::<Site>(conn)
+    sites.order(id.desc()).select(Site::as_select()).first(conn)
 }
 
 /// Gets a site by its ID.
@@ -49,7 +46,7 @@ pub fn get_site_by_id(
     site_id: i32,
 ) -> Result<Option<Site>, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
-    sites.filter(id.eq(site_id)).first::<Site>(conn).optional()
+    sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn).optional()
 }
 
 /// Gets a site by company ID and name (case-insensitive).
@@ -59,7 +56,7 @@ pub fn get_site_by_company_and_name(
     site_name: &str,
 ) -> Result<Option<Site>, diesel::result::Error> {
     // Use raw SQL for case-insensitive comparison
-    diesel::sql_query("SELECT * FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)")
+    diesel::sql_query("SELECT id, name, address, latitude, longitude, company_id FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)")
         .bind::<diesel::sql_types::Integer, _>(site_company_id)
         .bind::<diesel::sql_types::Text, _>(site_name)
         .get_result::<Site>(conn)
@@ -69,10 +66,10 @@ pub fn get_site_by_company_and_name(
 /// Gets all sites in the system.
 pub fn get_all_sites(conn: &mut SqliteConnection) -> Result<Vec<Site>, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
-    sites.order(id.asc()).load::<Site>(conn)
+    sites.order(id.asc()).select(Site::as_select()).load(conn)
 }
 
-/// Updates a site in the database.
+/// Updates a site in the database (timestamps handled automatically by database triggers)
 pub fn update_site(
     conn: &mut SqliteConnection,
     site_id: i32,
@@ -84,10 +81,8 @@ pub fn update_site(
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
 
-    let now = Utc::now().naive_utc();
-
     // First, get the current site to preserve existing values
-    let current_site = sites.filter(id.eq(site_id)).first::<Site>(conn)?;
+    let current_site = sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)?;
 
     // Update with new values or keep existing ones
     diesel::update(sites.filter(id.eq(site_id)))
@@ -97,12 +92,11 @@ pub fn update_site(
             latitude.eq(new_latitude.unwrap_or(current_site.latitude)),
             longitude.eq(new_longitude.unwrap_or(current_site.longitude)),
             company_id.eq(new_company_id.unwrap_or(current_site.company_id)),
-            updated_at.eq(now),
         ))
         .execute(conn)?;
 
     // Return the updated site
-    sites.filter(id.eq(site_id)).first::<Site>(conn)
+    sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)
 }
 
 /// Deletes a site from the database.
@@ -112,6 +106,35 @@ pub fn delete_site(
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
     diesel::delete(sites.filter(id.eq(site_id))).execute(conn)
+}
+
+/// Get a site with computed timestamps from activity log
+pub fn get_site_with_timestamps(
+    conn: &mut SqliteConnection,
+    site_id: i32,
+) -> Result<Option<SiteWithTimestamps>, diesel::result::Error> {
+    use crate::orm::entity_activity;
+    
+    // First get the site
+    let site = match get_site_by_id(conn, site_id)? {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    // Get timestamps from activity log
+    let created_at = entity_activity::get_created_at(conn, "sites", site_id)?;
+    let updated_at = entity_activity::get_updated_at(conn, "sites", site_id)?;
+
+    Ok(Some(SiteWithTimestamps {
+        id: site.id,
+        name: site.name,
+        address: site.address,
+        latitude: site.latitude,
+        longitude: site.longitude,
+        company_id: site.company_id,
+        created_at,
+        updated_at,
+    }))
 }
 
 #[cfg(test)]
@@ -276,8 +299,11 @@ mod tests {
         )
         .expect("Failed to insert site");
 
-        let original_created_at = created_site.created_at;
-        let original_updated_at = created_site.updated_at;
+        // Get timestamps from activity log
+        let original_created_at = crate::orm::entity_activity::get_created_at(&mut conn, "sites", created_site.id)
+            .expect("Should have created timestamp");
+        let original_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
+            .expect("Should have updated timestamp");
 
         // Wait a moment to ensure updated_at changes
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -299,8 +325,15 @@ mod tests {
         assert_eq!(updated_site.latitude, 40.0);
         assert_eq!(updated_site.longitude, -74.0);
         assert_eq!(updated_site.company_id, company1.id);
-        assert_eq!(updated_site.created_at, original_created_at); // Should not change
-        assert!(updated_site.updated_at > original_updated_at); // Should be updated
+        
+        // Check timestamps from activity log
+        let new_created_at = crate::orm::entity_activity::get_created_at(&mut conn, "sites", created_site.id)
+            .expect("Should have created timestamp");
+        let new_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
+            .expect("Should have updated timestamp");
+            
+        assert_eq!(new_created_at, original_created_at); // Should not change
+        assert!(new_updated_at > original_updated_at); // Should be updated
 
         // Test full update
         let fully_updated_site = update_site(
@@ -388,6 +421,44 @@ mod tests {
 
         let deleted_count = delete_site(&mut conn, 99999).expect("Delete should succeed");
         assert_eq!(deleted_count, 0); // No rows affected
+    }
+
+    #[test]
+    fn test_site_with_timestamps() {
+        let mut conn = setup_test_db();
+        
+        let company = crate::company::insert_company(&mut conn, "Timestamp Test Company".to_string())
+            .expect("Failed to insert company");
+        
+        // Insert site
+        let site = insert_site(
+            &mut conn,
+            "Timestamp Test Site".to_string(),
+            "123 Test St".to_string(),
+            40.7128,
+            -74.0060,
+            company.id,
+        ).unwrap();
+        
+        // Get site with timestamps
+        let site_with_timestamps = get_site_with_timestamps(&mut conn, site.id)
+            .expect("Should get timestamps")
+            .expect("Site should exist");
+            
+        assert_eq!(site_with_timestamps.id, site.id);
+        assert_eq!(site_with_timestamps.name, "Timestamp Test Site");
+        assert_eq!(site_with_timestamps.address, "123 Test St");
+        assert_eq!(site_with_timestamps.latitude, 40.7128);
+        assert_eq!(site_with_timestamps.longitude, -74.0060);
+        assert_eq!(site_with_timestamps.company_id, company.id);
+        
+        // Timestamps should be recent (within last few seconds)
+        let now = chrono::Utc::now().naive_utc();
+        let created_diff = (site_with_timestamps.created_at - now).num_seconds().abs();
+        let updated_diff = (site_with_timestamps.updated_at - now).num_seconds().abs();
+        
+        assert!(created_diff <= 5, "Created timestamp should be recent");
+        assert!(updated_diff <= 5, "Updated timestamp should be recent");
     }
 
     #[test]

@@ -3,7 +3,7 @@ use dotenvy::dotenv;
 use rocket::Rocket;
 use rocket::fairing::AdHoc;
 
-use crate::models::{CompanyNoTime, NewRole, NewUserRole, Role, User, UserNoTime};
+use crate::models::{CompanyInput, NewRole, NewUserRole, Role, User, UserInput};
 use crate::orm::DbConn;
 use crate::orm::company::{get_company_by_name, insert_company};
 use crate::orm::login::hash_password;
@@ -65,10 +65,10 @@ fn find_or_create_company(
     ];
 
     for cand in candidate_names {
-        let comp_no_time = CompanyNoTime {
+        let comp_input = CompanyInput {
             name: cand.to_string(),
         };
-        match get_company_by_name(c, &comp_no_time) {
+        match get_company_by_name(c, &comp_input) {
             Ok(Some(found)) => {
                 info!("[admin-init] Matched company: '{}'", cand);
                 return Ok(found);
@@ -145,7 +145,7 @@ fn create_admin_user(
     let admin_password = get_admin_password();
     let passhash = hash_password(&admin_password);
 
-    let admin_user = UserNoTime {
+    let admin_user = UserInput {
         email: admin_email.to_string(),
         password_hash: passhash,
         company_id: company.id,

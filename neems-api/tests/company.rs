@@ -2,7 +2,7 @@ use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_api::models::{Company, CompanyNoTime};
+use neems_api::models::{Company, CompanyInput};
 use neems_api::orm::testing::test_rocket;
 
 /// Helper to login and get session cookie
@@ -35,7 +35,7 @@ async fn test_create_company() {
         .expect("valid rocket instance");
 
     // Test unauthenticated request fails
-    let new_comp = CompanyNoTime {
+    let new_comp = CompanyInput {
         name: "Test Company".to_string(),
     };
 
@@ -77,7 +77,7 @@ async fn test_list_companies() {
     let session_cookie = login_and_get_session(&client).await;
 
     // 1. Create a test company
-    let new_comp = CompanyNoTime {
+    let new_comp = CompanyInput {
         name: "Test LLC".to_string(),
     };
     let create_response = client
@@ -117,7 +117,7 @@ async fn test_delete_company() {
     let session_cookie = login_and_get_session(&client).await;
 
     // 1. Create a test company
-    let new_comp = CompanyNoTime {
+    let new_comp = CompanyInput {
         name: "Company to Delete".to_string(),
     };
     let create_response = client

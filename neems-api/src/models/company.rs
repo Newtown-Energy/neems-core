@@ -1,4 +1,3 @@
-use chrono::NaiveDateTime;
 use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -9,28 +8,29 @@ use ts_rs::TS;
 pub struct Company {
     pub id: i32,
     pub name: String,
-    #[ts(type = "string")]
-    pub created_at: NaiveDateTime,
-    #[ts(type = "string")]
-    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Insertable, Debug, Deserialize)]
 #[diesel(table_name = crate::schema::companies)]
 pub struct NewCompany {
     pub name: String,
-    pub created_at: Option<NaiveDateTime>,
-    pub updated_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Deserialize, TS)]
-#[ts(export)]
-pub struct CompanyName {
-    pub name: String,
-}
-
+// For API inputs and validation
 #[derive(Debug, Deserialize, Serialize, TS)]
 #[ts(export)]
-pub struct CompanyNoTime {
+pub struct CompanyInput {
     pub name: String,
+}
+
+// Response struct that includes computed timestamps from activity log
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct CompanyWithTimestamps {
+    pub id: i32,
+    pub name: String,
+    #[ts(type = "string")]
+    pub created_at: chrono::NaiveDateTime,
+    #[ts(type = "string")]  
+    pub updated_at: chrono::NaiveDateTime,
 }

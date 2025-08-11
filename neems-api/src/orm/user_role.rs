@@ -123,7 +123,7 @@ pub fn remove_all_user_roles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserNoTime;
+    use crate::models::UserInput;
     use crate::orm::login::hash_password;
     use crate::orm::role::get_all_roles;
     use crate::orm::testing::setup_test_db;
@@ -141,7 +141,7 @@ mod tests {
         // Create a test user
         let user = insert_user(
             &mut conn,
-            UserNoTime {
+            UserInput {
                 email: "test@example.com".to_string(),
                 password_hash: hash_password("password"),
                 company_id: 1,
@@ -170,7 +170,7 @@ mod tests {
         // Create a test user
         let user = insert_user(
             &mut conn,
-            UserNoTime {
+            UserInput {
                 email: "test2@example.com".to_string(),
                 password_hash: hash_password("password"),
                 company_id: 1,
@@ -197,7 +197,7 @@ mod tests {
         // Create a test user
         let user = insert_user(
             &mut conn,
-            UserNoTime {
+            UserInput {
                 email: "test3@example.com".to_string(),
                 password_hash: hash_password("password"),
                 company_id: 1,
@@ -225,7 +225,7 @@ mod tests {
         // Create a test user
         let user = insert_user(
             &mut conn,
-            UserNoTime {
+            UserInput {
                 email: "test4@example.com".to_string(),
                 password_hash: hash_password("password"),
                 company_id: 1,

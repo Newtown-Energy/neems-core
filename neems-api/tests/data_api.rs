@@ -14,7 +14,7 @@ use serde_json::json;
 use neems_api::api::data::{DataSourcesResponse, ReadingsResponse};
 use neems_api::orm::neems_data::testing::test_rocket_with_site_db;
 use neems_api::orm::DbConn;
-use neems_api::models::{CompanyNoTime, NewRole, UserNoTime};
+use neems_api::models::{CompanyInput, NewRole, UserInput};
 use neems_api::orm::company::{get_company_by_name, insert_company};
 use neems_api::orm::login::hash_password;
 use neems_api::orm::role::insert_role;
@@ -512,7 +512,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
             // Get or create Newtown Energy company
             let newtown_energy = match get_company_by_name(
                 conn,
-                &CompanyNoTime {
+                &CompanyInput {
                     name: "Newtown Energy".to_string(),
                 },
             ) {
@@ -546,7 +546,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
             // Create a regular user from Test Company
             let _test_user = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "testuser@testcompany.com".to_string(),
                     password_hash: hash_password("testpass"),
                     company_id: test_company.id,
@@ -562,7 +562,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
             // Create a newtown-staff user
             let newtown_staff = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "staff@newtown.energy".to_string(),
                     password_hash: hash_password("staffpass"),
                     company_id: newtown_energy.id,

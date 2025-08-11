@@ -66,12 +66,14 @@ mod tests {
 
         // Export all the types
         User::export().expect("Failed to export User type");
-        UserNoTime::export().expect("Failed to export UserNoTime type");
+        UserInput::export().expect("Failed to export UserInput type");
         UserWithRoles::export().expect("Failed to export UserWithRoles type");
+        UserWithTimestamps::export().expect("Failed to export UserWithTimestamps type");
+        UserWithRolesAndTimestamps::export().expect("Failed to export UserWithRolesAndTimestamps type");
 
         Company::export().expect("Failed to export Company type");
-        CompanyName::export().expect("Failed to export CompanyName type");
-        CompanyNoTime::export().expect("Failed to export CompanyNoTime type");
+        CompanyInput::export().expect("Failed to export CompanyInput type");
+        CompanyWithTimestamps::export().expect("Failed to export CompanyWithTimestamps type");
 
         Site::export().expect("Failed to export Site type");
 

@@ -2,7 +2,7 @@ use diesel::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 
-use crate::models::{Company, CompanyNoTime, NewCompany};
+use crate::models::{Company, CompanyInput, CompanyWithTimestamps, NewCompany};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
@@ -14,7 +14,7 @@ struct LastInsertRowId {
 /// Returns Ok(Some(Company)) if found, Ok(None) if not, Err on DB error.
 pub fn get_company_by_name(
     conn: &mut SqliteConnection,
-    comp: &CompanyNoTime,
+    comp: &CompanyInput,
 ) -> Result<Option<Company>, diesel::result::Error> {
     use crate::schema::companies::dsl::*;
     let result = companies
@@ -37,17 +37,15 @@ pub fn get_company_by_name_case_insensitive(
         .optional()
 }
 
+/// Insert a new company (timestamps handled automatically by database triggers)
 pub fn insert_company(
     conn: &mut SqliteConnection,
     comp_name: String,
 ) -> Result<Company, diesel::result::Error> {
     use crate::schema::companies::dsl::*;
-    let now = chrono::Utc::now().naive_utc();
 
     let new_comp = NewCompany {
         name: comp_name,
-        created_at: Some(now),
-        updated_at: Some(now),
     };
 
     diesel::insert_into(companies)
@@ -61,6 +59,31 @@ pub fn insert_company(
     companies
         .filter(id.eq(last_id as i32))
         .first::<Company>(conn)
+}
+
+/// Get a company with computed timestamps from activity log
+pub fn get_company_with_timestamps(
+    conn: &mut SqliteConnection,
+    company_id: i32,
+) -> Result<Option<CompanyWithTimestamps>, diesel::result::Error> {
+    use crate::orm::entity_activity;
+    
+    // First get the company
+    let company = match get_company_by_id(conn, company_id)? {
+        Some(comp) => comp,
+        None => return Ok(None),
+    };
+
+    // Get timestamps from activity log
+    let created_at = entity_activity::get_created_at(conn, "companies", company_id)?;
+    let updated_at = entity_activity::get_updated_at(conn, "companies", company_id)?;
+
+    Ok(Some(CompanyWithTimestamps {
+        id: company.id,
+        name: company.name,
+        created_at,
+        updated_at,
+    }))
 }
 
 /// Returns all companies in ascending order by id.
@@ -108,21 +131,31 @@ mod tests {
         assert!(result.is_ok());
         let comp = result.unwrap();
         assert_eq!(comp.name, "Test Company");
+        assert!(comp.id > 0);
+    }
 
+    #[test]
+    fn test_company_with_timestamps() {
+        let mut conn = setup_test_db();
+        
+        // Insert company
+        let company = insert_company(&mut conn, "Timestamp Test Company".to_string()).unwrap();
+        
+        // Get company with timestamps
+        let company_with_timestamps = get_company_with_timestamps(&mut conn, company.id)
+            .expect("Should get timestamps")
+            .expect("Company should exist");
+            
+        assert_eq!(company_with_timestamps.id, company.id);
+        assert_eq!(company_with_timestamps.name, "Timestamp Test Company");
+        
+        // Timestamps should be recent (within last few seconds)
         let now = chrono::Utc::now().naive_utc();
-        let diff_created = (comp.created_at - now).num_seconds().abs();
-        let diff_updated = (comp.updated_at - now).num_seconds().abs();
-
-        assert!(
-            diff_created <= 1,
-            "created_at should be within 1 second of now (diff: {})",
-            diff_created
-        );
-        assert!(
-            diff_updated <= 1,
-            "updated_at should be within 1 second of now (diff: {})",
-            diff_updated
-        );
+        let created_diff = (company_with_timestamps.created_at - now).num_seconds().abs();
+        let updated_diff = (company_with_timestamps.updated_at - now).num_seconds().abs();
+        
+        assert!(created_diff <= 5, "Created timestamp should be recent");
+        assert!(updated_diff <= 5, "Updated timestamp should be recent");
     }
 
     #[test]

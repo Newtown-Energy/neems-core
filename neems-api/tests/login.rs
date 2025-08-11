@@ -5,7 +5,7 @@ use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
 
-use neems_api::models::UserNoTime;
+use neems_api::models::UserInput;
 use neems_api::orm::DbConn;
 use neems_api::orm::company::insert_company;
 use neems_api::orm::login::hash_password;
@@ -35,7 +35,7 @@ pub async fn add_dummy_data(
             // Create test user directly using ORM
             let user = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: "testuser@example.com".to_string(),
                     password_hash: hash_password("testpassword"),
                     company_id: comp.id,
@@ -232,7 +232,7 @@ async fn create_test_user_with_roles(
             // Create test user
             let user = insert_user(
                 conn,
-                UserNoTime {
+                UserInput {
                     email: email.clone(),
                     password_hash: hash_password("testpassword"),
                     company_id: 1, // Assumes company exists

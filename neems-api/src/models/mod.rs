@@ -1,4 +1,5 @@
 pub mod company;
+pub mod entity_activity;
 pub mod role;
 pub mod session;
 pub mod site;
@@ -7,6 +8,7 @@ pub mod user_role;
 
 // Re-export models for easier access
 pub use company::*;
+pub use entity_activity::*;
 pub use role::*;
 pub use session::*;
 pub use site::*;

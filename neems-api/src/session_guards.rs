@@ -346,8 +346,6 @@ impl RoleGuard {
                 id: 0,
                 email: String::new(),
                 password_hash: String::new(),
-                created_at: chrono::Utc::now().naive_utc(),
-                updated_at: chrono::Utc::now().naive_utc(),
                 company_id: 0,
                 totp_secret: None,
             },

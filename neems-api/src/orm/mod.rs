@@ -1,5 +1,6 @@
 pub mod company;
 mod db;
+pub mod entity_activity;
 pub mod login;
 pub mod logout;
 pub mod neems_data;

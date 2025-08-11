@@ -14,7 +14,7 @@ use serde_json::json;
 #[cfg(feature = "test-staging")]
 use neems_api::company::random_energy_company_names;
 #[cfg(feature = "test-staging")]
-use neems_api::models::{CompanyNoTime, NewRole, UserNoTime};
+use neems_api::models::{CompanyInput, NewRole, UserInput};
 #[cfg(feature = "test-staging")]
 use neems_api::orm::DbConn;
 #[cfg(feature = "test-staging")]
@@ -42,7 +42,7 @@ async fn setup_test_users(client: &Client) {
             // Get Newtown Energy company (should already exist)
             let newtown_energy = get_company_by_name(
                 conn,
-                &CompanyNoTime {
+                &CompanyInput {
                     name: "Newtown Energy".to_string(),
                 },
             )
@@ -115,7 +115,7 @@ async fn setup_test_users(client: &Client) {
             for (email, password, roles, company_id) in test_users {
                 let user = insert_user(
                     conn,
-                    UserNoTime {
+                    UserInput {
                         email: email.to_string(),
                         password_hash: hash_password(password),
                         company_id,

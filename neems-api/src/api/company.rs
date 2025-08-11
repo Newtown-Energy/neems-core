@@ -13,7 +13,7 @@ use ts_rs::TS;
 
 use crate::company::{get_company_by_name_case_insensitive, insert_company};
 use crate::models::Site;
-use crate::models::{Company, CompanyName, UserWithRoles};
+use crate::models::{Company, CompanyInput, UserWithRoles};
 use crate::orm::DbConn;
 use crate::orm::company::{delete_company, get_all_companies};
 use crate::orm::site::get_sites_by_company;
@@ -67,7 +67,7 @@ pub struct ErrorResponse {
 #[post("/1/companies", data = "<new_company>")]
 pub async fn create_company(
     db: DbConn,
-    new_company: Json<CompanyName>,
+    new_company: Json<CompanyInput>,
     _auth_user: AuthenticatedUser,
 ) -> Result<status::Created<Json<Company>>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {

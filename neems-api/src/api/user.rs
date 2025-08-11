@@ -14,7 +14,7 @@ use rocket::serde::Serialize;
 use rocket::serde::json::{Json, json};
 
 use crate::logged_json::LoggedJson;
-use crate::models::{CompanyNoTime, Role, UserNoTime, UserWithRoles};
+use crate::models::{CompanyInput, Role, UserInput, UserWithRoles};
 use crate::orm::DbConn;
 use crate::orm::company::get_company_by_name;
 use crate::orm::role::get_role_by_name;
@@ -268,7 +268,7 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
 /// # Panics
 /// This function will panic if the API request fails or returns invalid data,
 /// as it's intended for testing scenarios where such failures indicate test problems.
-pub async fn create_user_by_api(client: &Client, user: &UserNoTime) -> UserWithRoles {
+pub async fn create_user_by_api(client: &Client, user: &UserInput) -> UserWithRoles {
     let body = json!({
         "email": &user.email,
         "password_hash": &user.password_hash,
@@ -310,7 +310,7 @@ pub async fn create_user_by_api(client: &Client, user: &UserNoTime) -> UserWithR
 /// as it's intended for testing scenarios where such failures indicate test problems.
 pub async fn create_user_with_roles_by_api(
     client: &Client,
-    user: &UserNoTime,
+    user: &UserInput,
     role_names: &[&str],
 ) -> UserWithRoles {
     let body = json!({
@@ -499,7 +499,7 @@ pub async fn create_user(
 
             // Check if role is newtown-staff or newtown-admin (company restriction)
             if role_name == "newtown-staff" || role_name == "newtown-admin" {
-                let newtown_company_search = CompanyNoTime {
+                let newtown_company_search = CompanyInput {
                     name: "Newtown Energy".to_string(),
                 };
                 let newtown_company = match get_company_by_name(conn, &newtown_company_search) {
@@ -554,7 +554,7 @@ pub async fn create_user(
         }
 
         // THIRD: Create the user (now that all roles are validated and email is unique)
-        let user_no_time = UserNoTime {
+        let user_no_time = UserInput {
             email: user_request.email,
             password_hash: user_request.password_hash,
             company_id: user_request.company_id,
@@ -586,7 +586,13 @@ pub async fn create_user(
 
         // Get the user with roles after creation and role assignment
         match get_user_with_roles(conn, created_user.id) {
-            Ok(user_with_roles) => Ok(status::Created::new("/").body(Json(user_with_roles))),
+            Ok(Some(user_with_roles)) => Ok(status::Created::new("/").body(Json(user_with_roles))),
+            Ok(None) => {
+                let err = Json(ErrorResponse {
+                    error: "User created but not found when retrieving with roles".to_string(),
+                });
+                Err(response::status::Custom(Status::InternalServerError, err))
+            },
             Err(e) => {
                 eprintln!("Error getting created user with roles: {:?}", e);
                 let err = Json(ErrorResponse {
@@ -768,7 +774,7 @@ pub async fn get_user_endpoint(
 ) -> Result<Json<UserWithRoles>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         match get_user_with_roles(conn, user_id) {
-            Ok(user) => {
+            Ok(Some(user)) => {
                 // Authorization: who can view this user?
                 let can_view = if auth_user.user.id == user_id {
                     // Users can always view their own profile
@@ -791,6 +797,12 @@ pub async fn get_user_endpoint(
                 }
 
                 Ok(Json(user))
+            }
+            Ok(None) => {
+                let err = Json(ErrorResponse {
+                    error: "User not found".to_string(),
+                });
+                Err(response::status::Custom(Status::NotFound, err))
             }
             Err(diesel::result::Error::NotFound) => {
                 let err = Json(ErrorResponse {
@@ -970,7 +982,8 @@ pub async fn add_user_role(
         .map_err(|e| {
             eprintln!("Error getting target user: {:?}", e);
             Status::InternalServerError
-        })?;
+        })?
+        .ok_or(Status::NotFound)?;
 
     // Authorization check based on business rules
     let can_assign = if auth_user.has_role("newtown-admin") {
@@ -992,7 +1005,7 @@ pub async fn add_user_role(
 
     // Rule 1: newtown-staff and newtown-admin roles are reserved for Newtown Energy
     if role_name == "newtown-staff" || role_name == "newtown-admin" {
-        let newtown_company_search = CompanyNoTime {
+        let newtown_company_search = CompanyInput {
             name: "Newtown Energy".to_string(),
         };
         let newtown_company = db
@@ -1105,7 +1118,8 @@ pub async fn remove_user_role(
         .map_err(|e| {
             eprintln!("Error getting target user: {:?}", e);
             Status::InternalServerError
-        })?;
+        })?
+        .ok_or(Status::NotFound)?;
 
     // Check if user would have any roles left after removal
     let current_roles = db
@@ -1215,7 +1229,8 @@ pub async fn update_user_endpoint(
     db.run(move |conn| {
         // First, get the target user to check authorization
         let target_user = match get_user(conn, user_id) {
-            Ok(user) => user,
+            Ok(Some(user)) => user,
+            Ok(None) => return Err(Status::NotFound),
             Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
             Err(e) => {
                 eprintln!("Error getting user for update: {:?}", e);
@@ -1252,7 +1267,8 @@ pub async fn update_user_endpoint(
             Ok(_user) => {
                 // Get the updated user with roles
                 match get_user_with_roles(conn, user_id) {
-                    Ok(user_with_roles) => Ok(Json(user_with_roles)),
+                    Ok(Some(user_with_roles)) => Ok(Json(user_with_roles)),
+                    Ok(None) => Err(Status::NotFound),
                     Err(e) => {
                         eprintln!("Error getting updated user with roles: {:?}", e);
                         Err(Status::InternalServerError)
@@ -1316,7 +1332,8 @@ pub async fn delete_user_endpoint(
     db.run(move |conn| {
         // First, get the target user to check authorization
         let target_user = match get_user(conn, user_id) {
-            Ok(user) => user,
+            Ok(Some(user)) => user,
+            Ok(None) => return Err(Status::NotFound),
             Err(diesel::result::Error::NotFound) => return Err(Status::NotFound),
             Err(e) => {
                 eprintln!("Error getting user for deletion: {:?}", e);

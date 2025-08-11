@@ -1,0 +1,59 @@
+-- Restore timestamps to sites table (rollback)
+-- Drop existing triggers temporarily
+DROP TRIGGER IF EXISTS sites_insert_log;
+DROP TRIGGER IF EXISTS sites_update_log;
+DROP TRIGGER IF EXISTS sites_delete_log;
+
+-- Disable foreign key constraints temporarily for safe schema changes
+PRAGMA foreign_keys = OFF;
+
+-- Create sites table with timestamps restored
+CREATE TABLE sites_new (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR NOT NULL,
+    address VARCHAR NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    company_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(company_id) REFERENCES companies(id)
+);
+
+-- Copy data from old table to new table, setting timestamps to current time
+INSERT INTO sites_new (id, name, address, latitude, longitude, company_id, created_at, updated_at)
+SELECT id, name, address, latitude, longitude, company_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM sites;
+
+-- Drop the old table
+DROP TABLE sites;
+
+-- Rename new table to original name
+ALTER TABLE sites_new RENAME TO sites;
+
+-- Re-enable foreign key constraints
+PRAGMA foreign_keys = ON;
+
+-- Recreate the triggers for sites table
+CREATE TRIGGER sites_insert_log 
+AFTER INSERT ON sites
+FOR EACH ROW
+BEGIN 
+    INSERT INTO entity_activity (table_name, entity_id, operation_type, timestamp) 
+    VALUES ('sites', NEW.id, 'create', CURRENT_TIMESTAMP);
+END;
+
+CREATE TRIGGER sites_update_log 
+AFTER UPDATE ON sites
+FOR EACH ROW
+BEGIN 
+    INSERT INTO entity_activity (table_name, entity_id, operation_type, timestamp) 
+    VALUES ('sites', NEW.id, 'update', CURRENT_TIMESTAMP);
+END;
+
+CREATE TRIGGER sites_delete_log 
+AFTER DELETE ON sites
+FOR EACH ROW
+BEGIN 
+    INSERT INTO entity_activity (table_name, entity_id, operation_type, timestamp) 
+    VALUES ('sites', OLD.id, 'delete', CURRENT_TIMESTAMP);
+END;
