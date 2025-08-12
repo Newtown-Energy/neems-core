@@ -142,7 +142,7 @@ mod tests {
         user_add_role_impl, user_edit_impl, user_rm_role_impl, user_set_roles_impl,
     };
     use argon2::{Argon2, PasswordHash, PasswordVerifier};
-    use neems_api::models::CompanyNoTime;
+    use neems_api::models::CompanyInput;
     use neems_api::orm::company::insert_company;
     use neems_api::orm::company::{get_all_companies, get_company_by_id, get_company_by_name};
     use neems_api::orm::role::get_all_roles;
@@ -169,7 +169,8 @@ mod tests {
 
         // Verify user was created
         let user = get_user_by_email(&mut conn, "cli_test@example.com")
-            .expect("Failed to get CLI created user");
+            .expect("Failed to get CLI created user")
+            .expect("User should exist");
         assert_eq!(user.email, "cli_test@example.com");
         assert_eq!(user.company_id, company.id);
     }
@@ -191,7 +192,9 @@ mod tests {
         handle_user_command_with_conn(&mut conn, create_action).expect("Failed to create user");
 
         let original_user =
-            get_user_by_email(&mut conn, "change_test@example.com").expect("Failed to get user");
+            get_user_by_email(&mut conn, "change_test@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
         let original_hash = original_user.password_hash.clone();
 
         // Change password
@@ -205,7 +208,8 @@ mod tests {
 
         // Verify password changed
         let updated_user = get_user_by_email(&mut conn, "change_test@example.com")
-            .expect("Failed to get updated user");
+            .expect("Failed to get updated user")
+            .expect("User should exist");
         assert_ne!(updated_user.password_hash, original_hash);
     }
 
@@ -409,7 +413,9 @@ mod tests {
 
         // Verify user was created by fetching it
         let created_user =
-            get_user_by_email(&mut conn, "test@example.com").expect("Failed to get created user");
+            get_user_by_email(&mut conn, "test@example.com")
+            .expect("Failed to get created user")
+            .expect("User should exist");
 
         assert_eq!(created_user.email, "test@example.com");
         assert_eq!(created_user.company_id, company.id);
@@ -467,7 +473,9 @@ mod tests {
         .expect("Failed to create user");
 
         let original_user =
-            get_user_by_email(&mut conn, "test@example.com").expect("Failed to get user");
+            get_user_by_email(&mut conn, "test@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
         let original_hash = original_user.password_hash.clone();
 
         // Change password
@@ -480,7 +488,9 @@ mod tests {
 
         // Verify password was changed
         let updated_user =
-            get_user_by_email(&mut conn, "test@example.com").expect("Failed to get updated user");
+            get_user_by_email(&mut conn, "test@example.com")
+            .expect("Failed to get updated user")
+            .expect("User should exist");
 
         assert_ne!(updated_user.password_hash, original_hash);
         assert!(updated_user.password_hash.starts_with("$argon2"));
@@ -768,7 +778,9 @@ mod tests {
         .expect("Failed to create user");
 
         let original_user =
-            get_user_by_email(&mut conn, "password_test@example.com").expect("Failed to get user");
+            get_user_by_email(&mut conn, "password_test@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
         let original_hash = original_user.password_hash.clone();
 
         let result = change_password_impl(
@@ -779,7 +791,8 @@ mod tests {
         assert!(result.is_ok());
 
         let updated_user = get_user_by_email(&mut conn, "password_test@example.com")
-            .expect("Failed to get updated user");
+            .expect("Failed to get updated user")
+            .expect("User should exist");
 
         assert_ne!(updated_user.password_hash, original_hash);
         assert!(updated_user.password_hash.starts_with("$argon2"));
@@ -802,7 +815,8 @@ mod tests {
         assert!(result.is_ok());
 
         let created_user = get_user_by_email(&mut conn, "create_test@example.com")
-            .expect("Failed to get created user");
+            .expect("Failed to get created user")
+            .expect("User should exist");
 
         assert_eq!(created_user.email, "create_test@example.com");
         assert_eq!(created_user.company_id, company.id);
@@ -1118,7 +1132,9 @@ mod tests {
         .expect("Failed to create user");
 
         let user =
-            get_user_by_email(&mut conn, "original@example.com").expect("Failed to get user");
+            get_user_by_email(&mut conn, "original@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
 
         // Edit email
         let result = user_edit_impl(
@@ -1130,7 +1146,9 @@ mod tests {
         );
         assert!(result.is_ok());
 
-        let updated_user = get_user(&mut conn, user.id).expect("Failed to get updated user");
+        let updated_user = get_user(&mut conn, user.id)
+            .expect("Failed to get updated user")
+            .expect("User should exist");
         assert_eq!(updated_user.email, "updated@example.com");
         assert_eq!(updated_user.company_id, company1.id);
 
@@ -1144,7 +1162,9 @@ mod tests {
         );
         assert!(result.is_ok());
 
-        let updated_user = get_user(&mut conn, user.id).expect("Failed to get updated user");
+        let updated_user = get_user(&mut conn, user.id)
+            .expect("Failed to get updated user")
+            .expect("User should exist");
         assert_eq!(updated_user.company_id, company2.id);
         assert_eq!(updated_user.totp_secret, Some("new_totp".to_string()));
     }
@@ -1179,7 +1199,9 @@ mod tests {
         )
         .expect("Failed to create user");
 
-        let user = get_user_by_email(&mut conn, "user@example.com").expect("Failed to get user");
+        let user = get_user_by_email(&mut conn, "user@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
 
         let result = user_edit_impl(&mut conn, user.id, None, Some(99999), None);
         assert!(result.is_err());
@@ -1340,7 +1362,7 @@ mod tests {
 
         let company = get_company_by_name(
             &mut conn,
-            &CompanyNoTime {
+            &CompanyInput {
                 name: "Newtown Energy".to_string(),
             },
         )
@@ -1366,7 +1388,7 @@ mod tests {
 
         let company = get_company_by_name(
             &mut conn,
-            &CompanyNoTime {
+            &CompanyInput {
                 name: "Newtown Energy".to_string(),
             },
         )
@@ -1396,7 +1418,7 @@ mod tests {
 
         let company = get_company_by_name(
             &mut conn,
-            &CompanyNoTime {
+            &CompanyInput {
                 name: "Newtown Energy".to_string(),
             },
         )

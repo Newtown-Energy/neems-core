@@ -4,6 +4,7 @@ use diesel::sqlite::SqliteConnection;
 use neems_api::orm::company::{
     delete_company, get_all_companies, get_company_by_id, insert_company,
 };
+use neems_api::orm::entity_activity::{get_created_at};
 use neems_api::orm::site::{delete_site, get_sites_by_company};
 use neems_api::orm::user::{delete_user_with_cleanup, get_users_by_company};
 use regex::Regex;
@@ -109,9 +110,12 @@ pub fn company_ls_impl(
     } else {
         println!("Companies:");
         for company in filtered_companies {
+            let created_at = get_created_at(conn, "companies", company.id)
+                .map(|dt| dt.to_string())
+                .unwrap_or_else(|_| "Unknown".to_string());
             println!(
                 "  ID: {}, Name: {}, Created: {}",
-                company.id, company.name, company.created_at
+                company.id, company.name, created_at
             );
         }
     }
@@ -128,7 +132,10 @@ pub fn company_add_impl(
     println!("Company created successfully!");
     println!("ID: {}", created_company.id);
     println!("Name: {}", created_company.name);
-    println!("Created: {}", created_company.created_at);
+    let created_at = get_created_at(conn, "companies", created_company.id)
+        .map(|dt| dt.to_string())
+        .unwrap_or_else(|_| "Unknown".to_string());
+    println!("Created: {}", created_at);
 
     Ok(())
 }
@@ -284,10 +291,9 @@ fn update_company(
     use neems_api::schema::companies::dsl::*;
 
     if let Some(name_val) = new_name {
-        let now = chrono::Utc::now().naive_utc();
-
+        // Only update the name field - triggers will handle timestamp updates automatically
         diesel::update(companies.filter(id.eq(company_id)))
-            .set((name.eq(name_val), updated_at.eq(now)))
+            .set(name.eq(name_val))
             .execute(conn)?;
     }
 

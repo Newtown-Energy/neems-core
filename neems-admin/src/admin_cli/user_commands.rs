@@ -2,8 +2,9 @@ use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher};
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_api::models::UserNoTime;
+use neems_api::models::UserInput;
 use neems_api::orm::company::get_company_by_id;
+use neems_api::orm::entity_activity::{get_created_at};
 use neems_api::orm::role::get_role_by_name;
 use neems_api::orm::user::{
     delete_user_with_cleanup, get_user, get_user_by_email, insert_user, list_all_users, update_user,
@@ -168,7 +169,7 @@ pub fn add_user_impl(
     let password_hash =
         hash_password(&password).map_err(|e| format!("Failed to hash password: {}", e))?;
 
-    let new_user = UserNoTime {
+    let new_user = UserInput {
         email: email.to_string(),
         password_hash,
         company_id,
@@ -197,7 +198,8 @@ pub fn change_password_impl(
 
     let password_hash =
         hash_password(&password).map_err(|e| format!("Failed to hash password: {}", e))?;
-    let user = get_user_by_email(conn, email)?;
+    let user = get_user_by_email(conn, email)?
+        .ok_or_else(|| format!("User with email '{}' not found", email))?;
     update_user(conn, user.id, None, Some(password_hash), None, None)?;
 
     println!("Password changed successfully for user: {}", email);
@@ -234,9 +236,12 @@ pub fn list_users_impl(
     } else {
         println!("Users:");
         for user in filtered_users {
+            let created_at = get_created_at(conn, "users", user.id)
+                .map(|dt| dt.to_string())
+                .unwrap_or_else(|_| "Unknown".to_string());
             println!(
                 "  ID: {}, Email: {}, Company ID: {}, Created: {}",
-                user.id, user.email, user.company_id, user.created_at
+                user.id, user.email, user.company_id, created_at
             );
         }
     }
@@ -410,8 +415,8 @@ pub fn user_add_role_impl(
     role_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
-    let user = get_user_by_email(conn, email)
-        .map_err(|_| format!("User with email '{}' not found", email))?;
+    let user = get_user_by_email(conn, email)?
+        .ok_or_else(|| format!("User with email '{}' not found", email))?;
 
     // Check if role exists
     let _role = get_role_by_name(conn, role_name)?
@@ -440,8 +445,8 @@ pub fn user_rm_role_impl(
     role_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
-    let user = get_user_by_email(conn, email)
-        .map_err(|_| format!("User with email '{}' not found", email))?;
+    let user = get_user_by_email(conn, email)?
+        .ok_or_else(|| format!("User with email '{}' not found", email))?;
 
     // Check if role exists
     let _role = get_role_by_name(conn, role_name)?
@@ -479,8 +484,8 @@ pub fn user_set_roles_impl(
     roles_str: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
-    let user = get_user_by_email(conn, email)
-        .map_err(|_| format!("User with email '{}' not found", email))?;
+    let user = get_user_by_email(conn, email)?
+        .ok_or_else(|| format!("User with email '{}' not found", email))?;
 
     // Parse roles from comma-separated string
     let role_names: Vec<&str> = roles_str
