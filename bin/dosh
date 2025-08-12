@@ -197,14 +197,16 @@ migrate() {
 }
 
 nextest() {
-    local recreate_db=false
-    local latest=$(find ../target/golden*.db ../neems-api/migrations ../target/debug/create-golden-db -type f -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d' ' -f2-)
 
-    if [[ "$latest" != "../target/debug/create-golden-db" ]]; then
-        echo "Golden database is out of date or missing. Recreating..."
-        cargo run --bin create-golden-db --features test-staging
-    else
-        echo "Golden database is up to date."
+    # Rebuild golden db of test accounts if needed
+    if [ "$PROJ_NAME" = "neems-api" ]; then
+        local latest=$(find ../target/golden*.db ../neems-api/migrations ../target/debug/create-golden-db -type f -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d' ' -f2-)
+        if [[ "$latest" != "../target/debug/create-golden-db" ]]; then
+            echo "Golden database is out of date or missing. Recreating..."
+            cargo run --bin create-golden-db --features test-staging
+        else
+            echo "Golden database is up to date."
+        fi
     fi
 
     local cmd="${CARGO} $NIGHTLY nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
