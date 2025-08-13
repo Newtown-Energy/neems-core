@@ -1,3 +1,15 @@
+//! create-golden-db
+
+//! Tests were taking a long time because of db setup.  We're using sqlite for db setup, which is
+//! notoriously slow on writes unless you do some work to speed it up.  I am too lazy to do that.
+//! Instead, I created one testing db that can be copied as needed (i.e. once per test).  That
+//! testing db is the golden database.  The fast_test_rocket function in orm/testing.rs will
+//! return a rocket with a copy of the golden db attached.
+
+//! This file is a binary that makes the goldendb.  It puts that db in target.  It names the
+//! goldendb with a version number.  I'm not entirely sure what determines the version number, but
+//! the goal of this is that if you change the code the version changes.
+
 use neems_api::orm::testing::{calculate_schema_hash, create_golden_database};
 use std::path::PathBuf;
 
