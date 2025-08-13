@@ -9,20 +9,23 @@ The backend uses Rocket, a common rust web framework, and is reachable
 by the front end via RESTful APIs.
 
 The backend stores time-series data readings from various sensors and
-ships them offsite once per day.  It also displays some graphs based
+ships them offsite once per day.  It will also displays some graphs based
 on those readings.
 
 Database access goes through diesel to an sqlite database.  If
-necessary, we want to be able to replace with postgres in production.
+necessary, we want to be able to replace with postgres in production.  There are
+two sqlite databases.  One stores user info and the other data readings from the
+site.
 
 ## Config
 
  * You'll want some way to set the values indicated in `env.example`.  I
    do this by putting them in `.env` and then loading that.
 
- * You should definitely edit `rocket.toml` and change the
-   `secret_key`.  The key that is there is not secure.  I copied it
-   from the documentation.  This should get you a usable key:
+ * We don't use the secret key, but in case we do in the future, prod use should
+   definitely edit `rocket.toml` and change the `secret_key`.  The key that is
+   there is not secure.  I copied it from the documentation.  This should get
+   you a usable key:
 
 ```bash
 openssl rand -base64 32
@@ -59,38 +62,15 @@ Rust ORM.
 
 There are a variety of workflows we might use with Diesel.  The one we
 use is to add sql migrations to the migrations directory, then
-generate `schema.rs` with `diesel migration run`.  We try to keep this
-code as neutral as possible, so we can use it with any database
-backend that Diesel supports.
+generate `schema.rs` with `diesel migration run`.  
 
 ## Testing
 
-There is a test suite for the backend.  Run it with `dosh test` or
-`dosh nextest` if you prefer.
-
-To run unit and integration tests that contain the name role:
-
-```
-dosh test role
-```
-
-To run the unit tests in the main crate:
-
-```
-dosh test --lib 
-```
-
-To run the unit tests in the main crate for role:
-
-```
-dosh test --lib role 
-```
-
-To run a specific set of integration tests (in this case, institution):
-
-```
-dosh test --test institution
-```
+There is a test suite for the backend.  Run it with `cargo test`, which points
+at `dosh` and wraps the real cargo.  It is a drop-in replacement for `cargo
+test`, which is to say test selectors will work.  What won't work is stderr
+redirection, mostly because we're already doing that in the wrapper to put the
+contents of the run in a temp file and on the clipboard.
 
 ## Planned Features
 
