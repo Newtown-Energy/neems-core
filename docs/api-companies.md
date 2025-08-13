@@ -6,9 +6,17 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ## Company Management
 
+### OData Features
+
+The Companies endpoint supports OData v4 features:
+
+- **Query Options**: Use `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`, and `$expand`
+- **Collection Response Format**: Results are wrapped in OData envelope with `@odata.context`, `@odata.count`, and `value` properties
+- **Navigation Properties**: Access related data via `/api/1/Companies/{id}/Users` or `/api/1/Companies/{id}/Sites`, or use `$expand=Users` or `$expand=Sites`
+
 ### Create Company
 
-- **URL:** `/api/1/companies`
+- **URL:** `/api/1/Companies`
 - **Method:** `POST`
 - **Purpose:** Creates a new company in the system
 - **Authentication:** Required
@@ -35,7 +43,7 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ### List Companies
 
-- **URL:** `/api/1/companies`
+- **URL:** `/api/1/Companies`
 - **Method:** `GET`
 - **Purpose:** Retrieves all companies in the system (ordered by ID)
 - **Authentication:** Required
@@ -44,25 +52,29 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 **Success (HTTP 200 OK):**
 ```json
-[
-  {
-    "id": 1,
-    "name": "Example Corporation",
-    "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
-  },
-  {
-    "id": 2,
-    "name": "Another Company",
-    "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
-  }
-]
+{
+  "@odata.context": "http://localhost/api/1/$metadata#Companies",
+  "@odata.count": 2,
+  "value": [
+    {
+      "id": 1,
+      "name": "Example Corporation",
+      "created_at": "2023-01-01T00:00:00Z",
+      "updated_at": "2023-01-01T00:00:00Z"
+    },
+    {
+      "id": 2,
+      "name": "Another Company",
+      "created_at": "2023-01-01T00:00:00Z",
+      "updated_at": "2023-01-01T00:00:00Z"
+    }
+  ]
+}
 ```
 
 ### Delete Company
 
-- **URL:** `/api/1/companies/<company_id>`
+- **URL:** `/api/1/Companies/<company_id>`
 - **Method:** `DELETE`
 - **Purpose:** Deletes a company from the system
 - **Authentication:** Required
@@ -87,7 +99,7 @@ Database error during deletion
 
 ### List Company Sites
 
-- **URL:** `/api/1/company/<company_id>/sites`
+- **URL:** `/api/1/Companies/<company_id>/Sites`
 - **Method:** `GET`
 - **Purpose:** Retrieves all sites for a specific company
 - **Authentication:** Required
@@ -139,7 +151,7 @@ Database error during retrieval
 #### Example
 
 ```js
-const response = await fetch('/api/1/company/123/sites', {
+const response = await fetch('/api/1/Companies/123/Sites', {
   method: 'GET',
   credentials: 'include'
 });
@@ -147,7 +159,7 @@ const response = await fetch('/api/1/company/123/sites', {
 
 ### List Company Users
 
-- **URL:** `/api/1/company/<company_id>/users`
+- **URL:** `/api/1/Companies/<company_id>/Users`
 - **Method:** `GET`
 - **Purpose:** Retrieves all users for a specific company with their roles
 - **Authentication:** Required
@@ -216,7 +228,7 @@ Database error during retrieval
 #### Example
 
 ```js
-const response = await fetch('/api/1/company/123/users', {
+const response = await fetch('/api/1/Companies/123/Users', {
   method: 'GET',
   credentials: 'include'
 });

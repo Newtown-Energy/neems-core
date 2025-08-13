@@ -6,9 +6,16 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ## Data Access
 
+### OData Features
+
+The DataSources endpoint supports OData v4 features:
+
+- **Query Options**: Use `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`, and `$expand`
+- **Collection Response Format**: Results are wrapped in OData envelope with `@odata.context`, `@odata.count`, and `value` properties
+
 ### List Data Sources
 
-- **URL:** `/api/1/data`
+- **URL:** `/api/1/DataSources`
 - **Method:** `GET`
 - **Purpose:** Returns a list of all data sources in the database
 - **Authentication:** Not required
@@ -18,7 +25,9 @@ See [api.md](api.md) for general information about the API including base URL, e
 **Success (HTTP 200 OK):**
 ```json
 {
-  "sources": [
+  "@odata.context": "http://localhost/api/1/$metadata#DataSources", 
+  "@odata.count": 1,
+  "value": [
     {
       "id": 1,
       "name": "Temperature Sensor A",

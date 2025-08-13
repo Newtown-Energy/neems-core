@@ -37,6 +37,244 @@ testing purposes, as they shouldn't be enabled in production.
 
 All API endpoints are prefixed with `/api/1/`
 
+## OData v4 Compliance
+
+The neems-api now conforms to the OData v4 standard for REST APIs. Key changes include:
+
+### Entity Set Naming
+Entity sets use capitalized plural naming:
+- **Users** (previously `users`)
+- **Companies** (previously `companies`) 
+- **Sites** (previously `sites`)
+- **Roles** (previously `roles`)
+- **DataSources** (previously `data_sources`)
+
+### OData Response Format
+All collection responses are wrapped in an OData envelope:
+```json
+{
+  "@odata.context": "http://localhost/api/1/$metadata#Users",
+  "@odata.count": 25,
+  "value": [
+    { "id": 1, "name": "John Doe", ... },
+    { "id": 2, "name": "Jane Smith", ... }
+  ]
+}
+```
+
+Individual entity responses remain unchanged:
+```json
+{ "id": 1, "name": "John Doe", ... }
+```
+
+### OData Service Endpoints
+- **Service Document**: `GET /api/1/` - Lists all available entity sets
+- **Metadata Document**: `GET /api/1/$metadata` - OData metadata describing the data model
+
+## OData Service Endpoints Reference
+
+### Service Document
+The service document provides a machine-readable list of all available entity sets.
+
+**Endpoint:** `GET /api/1/`
+
+**Response:**
+```json
+{
+  "@odata.context": "http://localhost/api/1/$metadata",
+  "value": [
+    {
+      "name": "Users",
+      "kind": "EntitySet",
+      "url": "Users"
+    },
+    {
+      "name": "Companies", 
+      "kind": "EntitySet",
+      "url": "Companies"
+    },
+    {
+      "name": "Sites",
+      "kind": "EntitySet", 
+      "url": "Sites"
+    },
+    {
+      "name": "Roles",
+      "kind": "EntitySet",
+      "url": "Roles"
+    },
+    {
+      "name": "DataSources",
+      "kind": "EntitySet",
+      "url": "DataSources"
+    }
+  ]
+}
+```
+
+### Metadata Document
+The metadata document provides complete schema information about the data model, including entity types, properties, and relationships.
+
+**Endpoint:** `GET /api/1/$metadata`
+
+**Response:** XML document containing the OData schema definition with:
+- Entity types and their properties
+- Entity sets and containers
+- Navigation properties and relationships
+- Data types and constraints
+
+**Example (excerpt):**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+  <edmx:DataServices>
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="neems">
+      <EntityType Name="User">
+        <Key>
+          <PropertyRef Name="id"/>
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="email" Type="Edm.String" Nullable="false"/>
+        <Property Name="company_id" Type="Edm.Int32" Nullable="false"/>
+        <NavigationProperty Name="Company" Type="neems.Company"/>
+        <NavigationProperty Name="Roles" Type="Collection(neems.Role)"/>
+      </EntityType>
+      
+      <EntityType Name="Company">
+        <Key>
+          <PropertyRef Name="id"/>
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="name" Type="Edm.String" Nullable="false"/>
+        <NavigationProperty Name="Users" Type="Collection(neems.User)"/>
+        <NavigationProperty Name="Sites" Type="Collection(neems.Site)"/>
+      </EntityType>
+      
+      <EntityContainer Name="Container">
+        <EntitySet Name="Users" EntityType="neems.User">
+          <NavigationPropertyBinding Path="Company" Target="Companies"/>
+          <NavigationPropertyBinding Path="Roles" Target="Roles"/>
+        </EntitySet>
+        <EntitySet Name="Companies" EntityType="neems.Company">
+          <NavigationPropertyBinding Path="Users" Target="Users"/>
+          <NavigationPropertyBinding Path="Sites" Target="Sites"/>
+        </EntitySet>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+```
+
+### OData Query Options
+All collection endpoints support standard OData query parameters:
+- **$select**: Choose specific fields - `GET /api/1/Users?$select=id,name,email`
+- **$filter**: Filter results - `GET /api/1/Users?$filter=name eq 'John'`
+- **$orderby**: Sort results - `GET /api/1/Users?$orderby=name desc`
+- **$top**: Limit results - `GET /api/1/Users?$top=10`
+- **$skip**: Skip results for paging - `GET /api/1/Users?$skip=20`
+- **$count**: Include total count - `GET /api/1/Users?$count=true`
+- **$expand**: Include related entities - `GET /api/1/Users?$expand=Company`
+
+### Navigation Properties
+Direct access to related entities via navigation paths:
+- `GET /api/1/Users/{id}/Company` - Get user's company
+- `GET /api/1/Users/{id}/Roles` - Get user's roles
+- `GET /api/1/Companies/{id}/Users` - Get company's users
+- `GET /api/1/Companies/{id}/Sites` - Get company's sites
+
+## OData Query Options Reference
+
+### $select - Field Selection
+Choose specific fields to include in the response:
+
+```bash
+GET /api/1/Users?$select=id,name,email
+GET /api/1/Companies?$select=id,name
+```
+
+### $filter - Data Filtering
+Filter results using OData filter expressions:
+
+```bash
+# Simple equality
+GET /api/1/Users?$filter=name eq 'John Doe'
+
+# String functions
+GET /api/1/Users?$filter=contains(name,'John')
+GET /api/1/Users?$filter=startswith(email,'admin')
+
+# Comparison operators
+GET /api/1/Users?$filter=id gt 100
+GET /api/1/Users?$filter=created_at ge 2024-01-01T00:00:00Z
+
+# Logical operators
+GET /api/1/Users?$filter=name eq 'John' and company_id eq 1
+GET /api/1/Companies?$filter=name eq 'Acme Corp' or name eq 'Beta Inc'
+```
+
+### $orderby - Sorting
+Sort results by one or more fields:
+
+```bash
+GET /api/1/Users?$orderby=name
+GET /api/1/Users?$orderby=name desc
+GET /api/1/Users?$orderby=company_id,name desc
+GET /api/1/Companies?$orderby=created_at desc
+```
+
+### $top and $skip - Pagination
+Limit and offset results for pagination:
+
+```bash
+# Get first 10 users
+GET /api/1/Users?$top=10
+
+# Skip first 20 users, get next 10
+GET /api/1/Users?$top=10&$skip=20
+
+# Page 3 of results (20 per page)
+GET /api/1/Users?$top=20&$skip=40
+```
+
+### $count - Result Count
+Include total count of matching records:
+
+```bash
+GET /api/1/Users?$count=true
+GET /api/1/Companies?$count=true&$filter=name contains 'Corp'
+```
+
+Response includes `@odata.count` property:
+```json
+{
+  "@odata.context": "http://localhost/api/1/$metadata#Users",
+  "@odata.count": 150,
+  "value": [...]
+}
+```
+
+### $expand - Related Data
+Include related entity data in the response:
+
+```bash
+# Include user's company data
+GET /api/1/Users?$expand=Company
+
+# Include company's users and sites
+GET /api/1/Companies?$expand=Users,Sites
+
+# Expand with filtering
+GET /api/1/Users?$expand=Company&$filter=company_id eq 1
+```
+
+### Combining Query Options
+Multiple query options can be combined:
+
+```bash
+# Complex query example
+GET /api/1/Users?$select=id,name,email&$filter=company_id eq 1&$orderby=name&$top=25&$skip=0&$count=true&$expand=Company
+```
+
 ## JSON-Only API Responses
 
 **Important:** This API should return JSON responses only. No HTML error pages should ever be served from `/api/*` routes.  If the API returns non-JSON, that is a bug.
@@ -127,7 +365,7 @@ All authenticated endpoints use session cookies with the following properties:
 Always include `credentials: 'include'` in your fetch requests:
 
 ```js
-const response = await fetch('/api/1/users', {
+const response = await fetch('/api/1/Users', {
   method: 'GET',
   credentials: 'include'
 });

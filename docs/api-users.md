@@ -6,11 +6,19 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ## User Management
 
-**Note:** All user endpoints now return user data with embedded role information for improved efficiency. This eliminates the need for separate API calls to fetch user roles in most cases. The separate role endpoints (`/api/1/users/<user_id>/roles`) are deprecated but remain temporarily available for backwards compatibility and specific role management operations.
+**Note:** All user endpoints now return user data with embedded role information for improved efficiency. This eliminates the need for separate API calls to fetch user roles in most cases. The separate role endpoints (`/api/1/Users/<user_id>/Roles`) are deprecated but remain temporarily available for backwards compatibility and specific role management operations.
+
+### OData Features
+
+The Users endpoint supports OData v4 features:
+
+- **Query Options**: Use `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`, and `$expand`
+- **Collection Response Format**: Results are wrapped in OData envelope with `@odata.context`, `@odata.count`, and `value` properties
+- **Navigation Properties**: Access related data via `/api/1/Users/{id}/Company` or use `$expand=Company`
 
 ### Create User
 
-- **URL:** `/api/1/users`
+- **URL:** `/api/1/Users`
 - **Method:** `POST`
 - **Purpose:** Creates a new user in the system with assigned roles
 - **Authentication:** Required
@@ -74,7 +82,7 @@ Database error or validation failure
 
 ### List Users
 
-- **URL:** `/api/1/users`
+- **URL:** `/api/1/Users`
 - **Method:** `GET`
 - **Purpose:** Retrieves users with their roles based on authorization level
 - **Authentication:** Required
@@ -90,45 +98,49 @@ Database error or validation failure
 
 **Success (HTTP 200 OK):**
 ```json
-[
-  {
-    "id": 1,
-    "email": "user1@example.com",
-    "password_hash": "hashed_password",
-    "company_id": 1,
-    "totp_secret": null,
-    "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z",
-    "roles": [
-      {
-        "id": 1,
-        "name": "admin",
-        "description": "Administrator role"
-      }
-    ]
-  },
-  {
-    "id": 2,
-    "email": "user2@example.com",
-    "password_hash": "hashed_password",
-    "company_id": 2,
-    "totp_secret": "secret",
-    "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z",
-    "roles": [
-      {
-        "id": 2,
-        "name": "user",
-        "description": "Basic user role"
-      },
-      {
-        "id": 3,
-        "name": "staff",
-        "description": "Staff role"
-      }
-    ]
-  }
-]
+{
+  "@odata.context": "http://localhost/api/1/$metadata#Users",
+  "@odata.count": 2,
+  "value": [
+    {
+      "id": 1,
+      "email": "user1@example.com",
+      "password_hash": "hashed_password",
+      "company_id": 1,
+      "totp_secret": null,
+      "created_at": "2023-01-01T00:00:00Z",
+      "updated_at": "2023-01-01T00:00:00Z",
+      "roles": [
+        {
+          "id": 1,
+          "name": "admin",
+          "description": "Administrator role"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "email": "user2@example.com",
+      "password_hash": "hashed_password",
+      "company_id": 2,
+      "totp_secret": "secret",
+      "created_at": "2023-01-01T00:00:00Z",
+      "updated_at": "2023-01-01T00:00:00Z",
+      "roles": [
+        {
+          "id": 2,
+          "name": "user",
+          "description": "Basic user role"
+        },
+        {
+          "id": 3,
+          "name": "staff",
+          "description": "Staff role"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 **Failure (HTTP 403 Forbidden):**
@@ -136,7 +148,7 @@ User doesn't have permission to list users
 
 ### Get User
 
-- **URL:** `/api/1/users/<user_id>`
+- **URL:** `/api/1/Users/<user_id>`
 - **Method:** `GET`
 - **Purpose:** Retrieves a specific user by ID with their roles
 - **Authentication:** Required
@@ -187,7 +199,7 @@ User with specified ID doesn't exist
 
 ### Update User
 
-- **URL:** `/api/1/users/<user_id>`
+- **URL:** `/api/1/Users/<user_id>`
 - **Method:** `PUT`
 - **Purpose:** Updates a user's information and returns the updated user with roles
 - **Authentication:** Required
@@ -246,7 +258,7 @@ User with specified ID doesn't exist
 
 ### Delete User
 
-- **URL:** `/api/1/users/<user_id>`
+- **URL:** `/api/1/Users/<user_id>`
 - **Method:** `DELETE`
 - **Purpose:** Deletes a user from the system
 - **Authentication:** Required
@@ -278,7 +290,7 @@ User with specified ID doesn't exist
 
 ### Get User Roles
 
-- **URL:** `/api/1/users/<user_id>/roles`
+- **URL:** `/api/1/Users/<user_id>/Roles`
 - **Method:** `GET`
 - **Purpose:** Retrieves all roles assigned to a specific user
 - **Authentication:** Required (users can view their own roles, or users with admin privileges can view any user's roles)
@@ -315,7 +327,7 @@ User doesn't have permission to view the specified user's roles
 #### Example
 
 ```js
-const response = await fetch('/api/1/users/123/roles', {
+const response = await fetch('/api/1/Users/123/Roles', {
   method: 'GET',
   credentials: 'include'
 });
@@ -323,7 +335,7 @@ const response = await fetch('/api/1/users/123/roles', {
 
 ### Add User Role
 
-- **URL:** `/api/1/users/<user_id>/roles`
+- **URL:** `/api/1/Users/<user_id>/Roles`
 - **Method:** `POST`
 - **Purpose:** Assigns a role to a user with authorization checks
 - **Authentication:** Required (admin privileges with specific business rules)
@@ -362,7 +374,7 @@ Database error or validation failure
 #### Example
 
 ```js
-const response = await fetch('/api/1/users/123/roles', {
+const response = await fetch('/api/1/Users/123/Roles', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -374,7 +386,7 @@ const response = await fetch('/api/1/users/123/roles', {
 
 ### Remove User Role
 
-- **URL:** `/api/1/users/<user_id>/roles`
+- **URL:** `/api/1/Users/<user_id>/Roles`
 - **Method:** `DELETE`
 - **Purpose:** Removes a role from a user with authorization checks
 - **Authentication:** Required (same authorization rules as adding roles)
@@ -413,7 +425,7 @@ Database error or validation failure
 #### Example
 
 ```js
-const response = await fetch('/api/1/users/123/roles', {
+const response = await fetch('/api/1/Users/123/Roles', {
   method: 'DELETE',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({

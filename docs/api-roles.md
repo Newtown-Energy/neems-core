@@ -6,9 +6,16 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ## Role Management
 
+### OData Features
+
+The Roles endpoint supports OData v4 features:
+
+- **Query Options**: Use `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`, and `$expand`
+- **Collection Response Format**: Results are wrapped in OData envelope with `@odata.context`, `@odata.count`, and `value` properties
+
 ### Create Role
 
-- **URL:** `/api/1/roles`
+- **URL:** `/api/1/Roles`
 - **Method:** `POST`
 - **Purpose:** Creates a new role in the system
 - **Authentication:** Required
@@ -54,7 +61,7 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ### List Roles
 
-- **URL:** `/api/1/roles`
+- **URL:** `/api/1/Roles`
 - **Method:** `GET`
 - **Purpose:** Retrieves all roles in the system
 - **Authentication:** Required
@@ -64,23 +71,27 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 **Success (HTTP 200 OK):**
 ```json
-[
-  {
-    "id": 1,
-    "name": "Administrator",
-    "description": "Full system access"
-  },
-  {
-    "id": 2,
-    "name": "User",
-    "description": "Basic user access"
-  }
-]
+{
+  "@odata.context": "http://localhost/api/1/$metadata#Roles",
+  "@odata.count": 2,
+  "value": [
+    {
+      "id": 1,
+      "name": "Administrator",
+      "description": "Full system access"
+    },
+    {
+      "id": 2,
+      "name": "User",
+      "description": "Basic user access"
+    }
+  ]
+}
 ```
 
 ### Get Role
 
-- **URL:** `/api/1/roles/<role_id>`
+- **URL:** `/api/1/Roles/<role_id>`
 - **Method:** `GET`
 - **Purpose:** Retrieves a specific role by ID
 - **Authentication:** Required
@@ -117,7 +128,7 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ### Update Role
 
-- **URL:** `/api/1/roles/<role_id>`
+- **URL:** `/api/1/Roles/<role_id>`
 - **Method:** `PUT`
 - **Purpose:** Updates a role's information
 - **Authentication:** Required
@@ -176,7 +187,7 @@ All fields are optional - only provided fields will be updated:
 
 ### Delete Role
 
-- **URL:** `/api/1/roles/<role_id>`
+- **URL:** `/api/1/Roles/<role_id>`
 - **Method:** `DELETE`
 - **Purpose:** Deletes a role from the system
 - **Authentication:** Required

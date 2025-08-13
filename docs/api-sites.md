@@ -6,9 +6,17 @@ See [api.md](api.md) for general information about the API including base URL, e
 
 ## Site Management
 
+### OData Features
+
+The Sites endpoint supports OData v4 features:
+
+- **Query Options**: Use `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count`, and `$expand`
+- **Collection Response Format**: Results are wrapped in OData envelope with `@odata.context`, `@odata.count`, and `value` properties
+- **Navigation Properties**: Access related company data via `/api/1/Sites/{id}/Company` or use `$expand=Company`
+
 ### Create Site
 
-- **URL:** `/api/1/sites`
+- **URL:** `/api/1/Sites`
 - **Method:** `POST`
 - **Purpose:** Creates a new site in the system
 - **Authentication:** Required
@@ -46,7 +54,7 @@ Database error or validation failure
 
 ### Get Site
 
-- **URL:** `/api/1/sites/<site_id>`
+- **URL:** `/api/1/Sites/<site_id>`
 - **Method:** `GET`
 - **Purpose:** Retrieves a specific site by ID
 - **Authentication:** Required
@@ -76,7 +84,7 @@ Site with specified ID doesn't exist
 
 ### List Sites
 
-- **URL:** `/api/1/sites`
+- **URL:** `/api/1/Sites`
 - **Method:** `GET`
 - **Purpose:** Retrieves all sites in the system
 - **Authentication:** Required
@@ -85,33 +93,37 @@ Site with specified ID doesn't exist
 
 **Success (HTTP 200 OK):**
 ```json
-[
-  {
-    "id": 1,
-    "name": "Main Office",
-    "address": "123 Main St, City, State",
-    "latitude": 40.7128,
-    "longitude": -74.0060,
-    "company_id": 1,
-    "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
-  },
-  {
-    "id": 2,
-    "name": "Branch Office",
-    "address": "456 Oak Ave, City, State",
-    "latitude": 40.7589,
-    "longitude": -73.9851,
-    "company_id": 1,
-    "created_at": "2023-01-01T00:00:00Z",
-    "updated_at": "2023-01-01T00:00:00Z"
-  }
-]
+{
+  "@odata.context": "http://localhost/api/1/$metadata#Sites",
+  "@odata.count": 2,
+  "value": [
+    {
+      "id": 1,
+      "name": "Main Office",
+      "address": "123 Main St, City, State",
+      "latitude": 40.7128,
+      "longitude": -74.0060,
+      "company_id": 1,
+      "created_at": "2023-01-01T00:00:00Z",
+      "updated_at": "2023-01-01T00:00:00Z"
+    },
+    {
+      "id": 2,
+      "name": "Branch Office",
+      "address": "456 Oak Ave, City, State",
+      "latitude": 40.7589,
+      "longitude": -73.9851,
+      "company_id": 1,
+      "created_at": "2023-01-01T00:00:00Z",
+      "updated_at": "2023-01-01T00:00:00Z"
+    }
+  ]
+}
 ```
 
 ### Update Site
 
-- **URL:** `/api/1/sites/<site_id>`
+- **URL:** `/api/1/Sites/<site_id>`
 - **Method:** `PUT`
 - **Purpose:** Updates a site's information
 - **Authentication:** Required
@@ -154,7 +166,7 @@ Site with specified ID doesn't exist
 
 ### Delete Site
 
-- **URL:** `/api/1/sites/<site_id>`
+- **URL:** `/api/1/Sites/<site_id>`
 - **Method:** `DELETE`
 - **Purpose:** Deletes a site from the system
 - **Authentication:** Required
