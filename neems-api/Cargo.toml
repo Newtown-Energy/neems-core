@@ -7,6 +7,7 @@ default-run = "neems-api"
 [[bin]]
 name = "create-golden-db"
 path = "src/bin/create-golden-db.rs"
+required-features = ["test-staging"]
 
 
 [dependencies]

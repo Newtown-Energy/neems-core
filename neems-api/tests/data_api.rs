@@ -21,6 +21,30 @@ use neems_api::orm::role::insert_role;
 use neems_api::orm::user::insert_user;
 use neems_api::orm::user_role::assign_user_role_by_name;
 
+/// Helper function to retry operations that may fail due to database locks
+async fn retry_on_db_lock<F, Fut, T, E>(mut operation: F, max_retries: usize) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let mut retries = 0;
+    loop {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                let error_msg = format!("{}", e);
+                if error_msg.contains("database is locked") && retries < max_retries {
+                    retries += 1;
+                    println!("Database locked, retrying ({}/{})", retries, max_retries);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100 * retries as u64)).await;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
 
 /// Test the /api/1/data endpoint returns a valid list of data sources.
 /// 
@@ -166,34 +190,49 @@ async fn test_get_schema_success() {
 #[cfg(feature = "test-staging")]
 #[tokio::test]
 async fn test_get_schema_contains_expected_tables() {
-    let client = Client::tracked(test_rocket_with_site_db())
+    let test_operation = || async {
+        let client = Client::tracked(test_rocket_with_site_db())
+            .await
+            .map_err(|e| format!("Failed to create client: {}", e))?;
+        
+        let response = client.get("/api/1/$metadata/schema").dispatch().await;
+        
+        if response.status() != Status::Ok {
+            return Err(format!("Expected OK status, got: {}", response.status()));
+        }
+        
+        let schema_response: serde_json::Value = response
+            .into_json()
+            .await
+            .ok_or_else(|| "Failed to parse JSON response".to_string())?;
+        
+        let schema = schema_response["schema"].as_str()
+            .ok_or_else(|| "schema field should be a string".to_string())?;
+        
+        // Verify schema contains CREATE statements for core tables
+        if !(schema.contains("CREATE TABLE sources") || schema.contains("CREATE TABLE `sources`")) {
+            return Err("Schema should contain sources table creation".to_string());
+        }
+        if !(schema.contains("CREATE TABLE readings") || schema.contains("CREATE TABLE `readings`")) {
+            return Err("Schema should contain readings table creation".to_string());
+        }
+        
+        // Verify schema contains expected indexes from migrations
+        if !(schema.contains("idx_readings_source_time") || schema.contains("readings")) {
+            return Err("Schema should reference readings table structures".to_string());
+        }
+        
+        // Verify schema is substantial (not just empty or error message)
+        if schema.len() <= 100 {
+            return Err("Schema should be substantial (>100 chars)".to_string());
+        }
+        
+        Ok(())
+    };
+    
+    retry_on_db_lock(test_operation, 3)
         .await
-        .expect("valid rocket instance");
-    
-    let response = client.get("/api/1/$metadata/schema").dispatch().await;
-    
-    assert_eq!(response.status(), Status::Ok);
-    
-    let schema_response: serde_json::Value = response
-        .into_json()
-        .await
-        .expect("valid JSON response");
-    
-    let schema = schema_response["schema"].as_str()
-        .expect("schema field should be a string");
-    
-    // Verify schema contains CREATE statements for core tables
-    assert!(schema.contains("CREATE TABLE sources") || schema.contains("CREATE TABLE `sources`"), 
-            "Schema should contain sources table creation");
-    assert!(schema.contains("CREATE TABLE readings") || schema.contains("CREATE TABLE `readings`"), 
-            "Schema should contain readings table creation");
-    
-    // Verify schema contains expected indexes from migrations
-    assert!(schema.contains("idx_readings_source_time") || schema.contains("readings"), 
-            "Schema should reference readings table structures");
-    
-    // Verify schema is substantial (not just empty or error message)
-    assert!(schema.len() > 100, "Schema should be substantial (>100 chars)");
+        .expect("Test should pass after retries");
 }
 
 /// Test the /api/1/data/<source_id> endpoint with latest parameter.
@@ -294,23 +333,33 @@ async fn test_get_source_readings_time_window() {
 /// This test verifies that the endpoint returns 404 for non-existent sources.
 #[tokio::test]
 async fn test_get_source_readings_not_found() {
-    let client = Client::tracked(test_rocket_with_site_db())
+    let test_operation = || async {
+        let client = Client::tracked(test_rocket_with_site_db())
+            .await
+            .map_err(|e| format!("Failed to create client: {}", e))?;
+        
+        setup_test_users_for_data_access(&client).await;
+        
+        // Login as newtown-staff user (has access to all sources)
+        let session_cookie = login_as_user(&client, "staff@newtown.energy", "staffpass").await;
+        
+        // Use a source ID that definitely doesn't exist
+        let response = client
+            .get("/api/1/DataSources/99999/Readings?latest=1")
+            .cookie(session_cookie)
+            .dispatch()
+            .await;
+        
+        if response.status() != Status::NotFound {
+            return Err(format!("Expected NotFound status, got: {}", response.status()));
+        }
+        
+        Ok(())
+    };
+    
+    retry_on_db_lock(test_operation, 3)
         .await
-        .expect("valid rocket instance");
-    
-    setup_test_users_for_data_access(&client).await;
-    
-    // Login as newtown-staff user (has access to all sources)
-    let session_cookie = login_as_user(&client, "staff@newtown.energy", "staffpass").await;
-    
-    // Use a source ID that definitely doesn't exist
-    let response = client
-        .get("/api/1/DataSources/99999/Readings?latest=1")
-        .cookie(session_cookie)
-        .dispatch()
-        .await;
-    
-    assert_eq!(response.status(), Status::NotFound);
+        .expect("Test should pass after retries");
 }
 
 /// Test the /api/1/data/<source_id> endpoint with invalid query parameters.

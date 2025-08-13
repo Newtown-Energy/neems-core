@@ -73,19 +73,48 @@ pub fn test_rocket_with_site_db() -> Rocket<Build> {
         panic!("Test database file not found at: {}. Please ensure test-data.db exists.", test_db_path.display());
     }
     
-    // Test database connection and schema in tests
+    // Test database connection and schema in tests with retry logic
     {
         use diesel::prelude::*;
         use diesel::sqlite::SqliteConnection;
+        use std::thread::sleep;
+        use std::time::Duration;
         
-        let mut conn = SqliteConnection::establish(&format!("sqlite://{}", test_db_path.display()))
-            .unwrap_or_else(|_| panic!("Failed to connect to test database at: {}", test_db_path.display()));
+        let mut retries = 0;
+        let max_retries = 3;
         
-        // Verify the sources table exists by trying to query it
-        let result = diesel::sql_query("SELECT COUNT(*) FROM sources").execute(&mut conn);
-        match result {
-            Ok(_) => println!("✓ Sources table found and accessible in test database"),
-            Err(e) => panic!("Sources table not accessible in test database at {}: {}", test_db_path.display(), e),
+        loop {
+            match SqliteConnection::establish(&format!("sqlite://{}", test_db_path.display())) {
+                Ok(mut conn) => {
+                    // Verify the sources table exists by trying to query it
+                    match diesel::sql_query("SELECT COUNT(*) FROM sources").execute(&mut conn) {
+                        Ok(_) => {
+                            println!("✓ Sources table found and accessible in test database");
+                            break;
+                        }
+                        Err(e) => {
+                            let error_msg = format!("{}", e);
+                            if error_msg.contains("database is locked") && retries < max_retries {
+                                retries += 1;
+                                println!("Database locked during verification, retrying ({}/{})", retries, max_retries);
+                                sleep(Duration::from_millis(100 * retries as u64));
+                            } else {
+                                panic!("Sources table not accessible in test database at {}: {}", test_db_path.display(), e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let error_msg = format!("{}", e);
+                    if error_msg.contains("database is locked") && retries < max_retries {
+                        retries += 1;
+                        println!("Database locked during connection, retrying ({}/{})", retries, max_retries);
+                        sleep(Duration::from_millis(100 * retries as u64));
+                    } else {
+                        panic!("Failed to connect to test database at: {} - {}", test_db_path.display(), e);
+                    }
+                }
+            }
         }
     }
     
