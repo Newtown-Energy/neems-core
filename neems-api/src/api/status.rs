@@ -12,6 +12,7 @@ use ts_rs::TS;
 #[ts(export)]
 pub struct HealthStatus {
     status: &'static str,
+    version: &'static str,
 }
 
 /// Health Status endpoint.
@@ -30,7 +31,8 @@ pub struct HealthStatus {
 /// **Success (HTTP 200 OK):**
 /// ```json
 /// {
-///   "status": "running"
+///   "status": "running",
+///   "version": "0.1.3"
 /// }
 /// ```
 ///
@@ -38,7 +40,10 @@ pub struct HealthStatus {
 /// A JSON response containing the application's health status
 #[rocket::get("/1/status")]
 pub fn health_status() -> Json<HealthStatus> {
-    Json(HealthStatus { status: "running" })
+    Json(HealthStatus { 
+        status: "running",
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 /// Returns a vector of all routes defined in this module.

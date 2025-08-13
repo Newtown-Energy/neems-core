@@ -103,6 +103,8 @@ pub fn metadata_document() -> RawXml<String> {
         <Property Name="totp_secret" Type="Edm.String" Nullable="true"/>
         <Property Name="created_at" Type="Edm.DateTimeOffset" Nullable="false"/>
         <Property Name="updated_at" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="activity_created_at" Type="Edm.DateTimeOffset" Nullable="true"/>
+        <Property Name="activity_updated_at" Type="Edm.DateTimeOffset" Nullable="true"/>
         <NavigationProperty Name="Company" Type="NeemsAPI.Company" Nullable="false">
           <ReferentialConstraint Property="company_id" ReferencedProperty="id"/>
         </NavigationProperty>

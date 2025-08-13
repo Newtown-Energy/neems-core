@@ -215,3 +215,130 @@ async fn test_expand_with_select() {
                serde_json::to_string_pretty(&user).unwrap());
     }
 }
+
+#[rocket::async_test]
+async fn test_select_activity_timestamps() {
+    let client = Client::tracked(fast_test_rocket())
+        .await
+        .expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Test $select with activity timestamps
+    let response = client
+        .get("/api/1/Users?$select=id,email,activity_created_at,activity_updated_at&$top=1")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    
+    let odata_response: Value = response
+        .into_json()
+        .await
+        .expect("valid OData JSON");
+    
+    let users = odata_response["value"].as_array().expect("users array");
+    if let Some(user) = users.first() {
+        // Should have selected basic properties
+        assert!(user.get("id").is_some());
+        assert!(user.get("email").is_some());
+        
+        // Should have activity timestamps (may be null if no activity logged)
+        assert!(user.get("activity_created_at").is_some());
+        assert!(user.get("activity_updated_at").is_some());
+        
+        // Should not have non-selected properties
+        assert!(user.get("password_hash").is_none());
+        assert!(user.get("company_id").is_none());
+        assert!(user.get("created_at").is_none());
+        assert!(user.get("updated_at").is_none());
+        
+        println!("✓ User with activity timestamps: {}", 
+               serde_json::to_string_pretty(&user).unwrap());
+    }
+}
+
+#[rocket::async_test]
+async fn test_select_without_activity_timestamps() {
+    let client = Client::tracked(fast_test_rocket())
+        .await
+        .expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Test default select (should not include activity timestamps for performance)
+    let response = client
+        .get("/api/1/Users?$top=1")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    
+    let odata_response: Value = response
+        .into_json()
+        .await
+        .expect("valid OData JSON");
+    
+    let users = odata_response["value"].as_array().expect("users array");
+    if let Some(user) = users.first() {
+        // Should have all regular UserWithRoles properties
+        assert!(user.get("id").is_some());
+        assert!(user.get("email").is_some());
+        assert!(user.get("password_hash").is_some());
+        assert!(user.get("company_id").is_some());
+        assert!(user.get("roles").is_some());
+        
+        // UserWithRoles doesn't include regular created_at/updated_at
+        assert!(user.get("created_at").is_none());
+        assert!(user.get("updated_at").is_none());
+        
+        // Should NOT have activity timestamps by default
+        assert!(user.get("activity_created_at").is_none());
+        assert!(user.get("activity_updated_at").is_none());
+        
+        println!("✓ Default user response (no activity timestamps): {}", 
+               serde_json::to_string_pretty(&user).unwrap());
+    }
+}
+
+#[rocket::async_test]
+async fn test_activity_timestamps_for_existing_users() {
+    let client = Client::tracked(fast_test_rocket())
+        .await
+        .expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Query for activity timestamps on existing test users
+    let response = client
+        .get("/api/1/Users?$select=id,email,activity_created_at,activity_updated_at&$top=3")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    
+    let odata_response: Value = response
+        .into_json()
+        .await
+        .expect("valid OData JSON");
+    
+    let users = odata_response["value"].as_array().expect("users array");
+    assert!(!users.is_empty(), "Should have test users in golden database");
+    
+    for user in users {
+        // Should have selected properties
+        assert!(user.get("id").is_some());
+        assert!(user.get("email").is_some());
+        
+        // Should have activity timestamps (may be null if no activity logged for these test users)
+        assert!(user.get("activity_created_at").is_some());
+        assert!(user.get("activity_updated_at").is_some());
+        
+        // Should not have non-selected properties
+        assert!(user.get("password_hash").is_none());
+        assert!(user.get("company_id").is_none());
+        
+        println!("✓ Test user with activity timestamps: {}", 
+               serde_json::to_string_pretty(&user).unwrap());
+    }
+}

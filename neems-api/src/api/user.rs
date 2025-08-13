@@ -279,7 +279,7 @@ pub async fn create_user_by_api(client: &Client, user: &UserInput) -> UserWithRo
     })
     .to_string();
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .header(ContentType::JSON)
         .body(body)
         .dispatch()
@@ -323,7 +323,7 @@ pub async fn create_user_with_roles_by_api(
     })
     .to_string();
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .header(ContentType::JSON)
         .body(body)
         .dispatch()
@@ -745,9 +745,19 @@ pub async fn list_users(
         filtered_users = filtered_users.into_iter().take(top as usize).collect();
     }
 
-    // Handle $expand first, then $select
+    // Handle $expand and computed properties, then $select
     let expand_props = query.parse_expand();
+    let select_props = query.parse_select();
     let mut expanded_users: Vec<serde_json::Value> = Vec::new();
+    
+    // Check if activity timestamps are requested in $select
+    let needs_activity_timestamps = if let Some(ref select_fields) = select_props {
+        select_fields.iter().any(|field| 
+            field == "activity_created_at" || field == "activity_updated_at"
+        )
+    } else {
+        false // Default behavior doesn't include activity timestamps
+    };
     
     for user in &filtered_users {
         let mut user_json = serde_json::to_value(user).map_err(|_| Status::InternalServerError)?;
@@ -770,11 +780,39 @@ pub async fn list_users(
             }
         }
         
+        // Handle computed activity timestamps if requested
+        if needs_activity_timestamps {
+            let user_id = user.id;
+            let timestamps = db.run(move |conn| {
+                use crate::orm::entity_activity::{get_created_at, get_updated_at};
+                
+                let created_at = get_created_at(conn, "users", user_id).ok();
+                let updated_at = get_updated_at(conn, "users", user_id).ok();
+                
+                (created_at, updated_at)
+            }).await;
+            
+            // Add activity timestamps to user object
+            let user_obj = user_json.as_object_mut().unwrap();
+            if let Some(created_at) = timestamps.0 {
+                user_obj.insert("activity_created_at".to_string(), 
+                    serde_json::Value::String(created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()));
+            } else {
+                user_obj.insert("activity_created_at".to_string(), serde_json::Value::Null);
+            }
+            
+            if let Some(updated_at) = timestamps.1 {
+                user_obj.insert("activity_updated_at".to_string(), 
+                    serde_json::Value::String(updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()));
+            } else {
+                user_obj.insert("activity_updated_at".to_string(), serde_json::Value::Null);
+            }
+        }
+        
         expanded_users.push(user_json);
     }
 
     // Apply $select to each expanded user if specified
-    let select_props = query.parse_select();
     let selected_users: Result<Vec<serde_json::Value>, _> = expanded_users
         .iter()
         .map(|user| apply_select(user, select_props.as_deref()))

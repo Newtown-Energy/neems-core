@@ -136,6 +136,8 @@ The metadata document provides complete schema information about the data model,
         <Property Name="id" Type="Edm.Int32" Nullable="false"/>
         <Property Name="email" Type="Edm.String" Nullable="false"/>
         <Property Name="company_id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="activity_created_at" Type="Edm.DateTimeOffset" Nullable="true"/>
+        <Property Name="activity_updated_at" Type="Edm.DateTimeOffset" Nullable="true"/>
         <NavigationProperty Name="Company" Type="neems.Company"/>
         <NavigationProperty Name="Roles" Type="Collection(neems.Role)"/>
       </EntityType>
@@ -191,6 +193,22 @@ Choose specific fields to include in the response:
 GET /api/1/Users?$select=id,name,email
 GET /api/1/Companies?$select=id,name
 ```
+
+#### Activity-Based Timestamps
+Users can include computed activity timestamps in their queries by selecting the special fields:
+
+- **`activity_created_at`** - Timestamp from the earliest "create" operation for this entity
+- **`activity_updated_at`** - Timestamp from the most recent operation for this entity
+
+```bash
+# Get users with activity timestamps
+GET /api/1/Users?$select=id,email,activity_created_at,activity_updated_at
+
+# Activity timestamps with other fields
+GET /api/1/Users?$select=id,email,company_id,activity_created_at
+```
+
+**Note:** Activity timestamps are only computed when explicitly requested via `$select` for performance reasons. They are not included in default responses.
 
 ### $filter - Data Filtering
 Filter results using OData filter expressions:
