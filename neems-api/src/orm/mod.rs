@@ -6,6 +6,7 @@ pub mod logout;
 pub mod neems_data;
 pub mod role;
 pub mod site;
+#[cfg(feature = "test-staging")]
 pub mod testing;
 pub mod user;
 pub mod user_role;

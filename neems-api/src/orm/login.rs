@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::DbConn;
 use crate::models::{NewSession, User};
+#[cfg(feature = "test-staging")]
 use crate::orm::testing::FakeDbConn;
 use crate::schema::{sessions, users};
 
@@ -46,6 +47,7 @@ impl DbRunner for DbConn {
     }
 }
 
+#[cfg(feature = "test-staging")]
 impl<'a> DbRunner for FakeDbConn<'a> {
     fn run<F, R>(&self, f: F) -> impl std::future::Future<Output = R>
     where
@@ -247,6 +249,7 @@ mod tests {
     use crate::models::User;
     use crate::models::UserInput;
     use crate::orm::company::insert_company;
+    #[cfg(feature = "test-staging")]
     use crate::orm::testing::{setup_test_db, setup_test_dbconn};
     use crate::orm::user::insert_user;
     use rocket::http::Cookie;
@@ -289,6 +292,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "test-staging")]
     async fn test_find_user_by_email() {
         // Set up in-memory test database and async-compatible wrapper
         let mut conn = setup_test_db();
@@ -311,6 +315,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "test-staging")]
     async fn test_create_and_store_session() {
         // Set up in-memory test database and async-compatible wrapper
         let mut conn = setup_test_db();

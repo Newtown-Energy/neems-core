@@ -20,10 +20,34 @@ use crate::admin_init_fairing::admin_init_fairing;
 
 
 
-/// Gets the golden database path by calculating current version hash
+/// Gets the golden database path by finding the most recent timestamp-based golden database
 fn get_golden_db_path() -> PathBuf {
-    let version_hash = calculate_schema_hash();
-    PathBuf::from(format!("../target/golden_test_{}.db", version_hash))
+    use std::fs;
+    
+    let target_dir = PathBuf::from("../target");
+    
+    if let Ok(entries) = fs::read_dir(&target_dir) {
+        let mut golden_dbs: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with("golden_test_") && name.ends_with(".db"))
+                    .unwrap_or(false)
+            })
+            .collect();
+            
+        // Sort by filename (which includes timestamp) to get the most recent
+        golden_dbs.sort();
+        
+        if let Some(latest) = golden_dbs.last() {
+            return latest.clone();
+        }
+    }
+    
+    // Fallback: return a path that won't exist to trigger the error in fast_test_rocket
+    PathBuf::from("../target/golden_test_not_found.db")
 }
 
 use diesel::prelude::*;
@@ -258,7 +282,6 @@ fn ensure_role_exists(conn: &mut SqliteConnection, role_name: &str, description:
 }
 
 /// Creates a test user with the specified email, company, and role.
-#[cfg(feature = "test-staging")]
 fn create_test_user(conn: &mut SqliteConnection, email: &str, company_id: i32, role_name: &str) -> Result<(), diesel::result::Error> {
     // Check if user already exists
     let existing_user = users::table
@@ -328,7 +351,6 @@ pub fn test_rocket() -> Rocket<Build> {
     let mut databases = map!["sqlite_db" => db_config.clone()];
     
     // Add site_db configuration when test-staging feature is enabled
-    #[cfg(feature = "test-staging")]
     {
         let site_unique_db_name = format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
         let site_db_config: Map<_, Value> = map! {
@@ -351,13 +373,11 @@ pub fn test_rocket() -> Rocket<Build> {
         .attach(admin_init_fairing());
 
     // Attach test data initialization fairing when test-staging feature is enabled
-    #[cfg(feature = "test-staging")]
     {
         rocket = rocket.attach(test_data_init_fairing());
     }
     
     // Attach SiteDbConn fairing when test-staging feature is enabled
-    #[cfg(feature = "test-staging")]
     {
         rocket = rocket.attach(super::neems_data::db::SiteDbConn::fairing())
                       .attach(super::neems_data::db::set_foreign_keys_fairing());
@@ -370,7 +390,6 @@ pub fn test_rocket() -> Rocket<Build> {
 /// This is much faster than test_rocket() because it skips all the initialization fairings.
 /// 
 /// Use this for tests that don't need to modify the core test data structure.
-#[cfg(feature = "test-staging")]
 pub fn fast_test_rocket() -> Rocket<Build> {
     use uuid::Uuid;
     
