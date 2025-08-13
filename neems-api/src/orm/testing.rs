@@ -50,13 +50,6 @@ fn get_golden_db_path() -> PathBuf {
     PathBuf::from("../target/golden_test_not_found.db")
 }
 
-use diesel::prelude::*;
-use crate::models::{CompanyInput, NewRole, NewUserRole, Role, User, UserInput};
-use crate::orm::company::{get_company_by_name, insert_company};
-use crate::orm::login::hash_password;
-use crate::orm::role::{get_role_by_name, insert_role};
-use crate::orm::user::insert_user;
-use crate::schema::{user_roles, users};
 
 /// Configures SQLite with performance-optimized settings for testing.
 ///
@@ -98,231 +91,12 @@ fn set_sqlite_test_pragmas_fairing() -> AdHoc {
     })
 }
 
-/// Creates a Rocket fairing that initializes standard test data.
-///
-/// This fairing creates a consistent set of companies, users, and sites that all tests can rely on.
-/// It only runs when the `test-staging` feature is enabled to ensure it never runs in production.
-fn test_data_init_fairing() -> AdHoc {
-    AdHoc::on_ignite("Test Data Initialization", |rocket| async {
-        let conn = DbConn::get_one(&rocket)
-            .await
-            .expect("database connection for test data initialization");
-        
-        conn.run(|c| {
-            if let Err(e) = create_test_data(c) {
-                eprintln!("[test-data-init] ERROR: Failed to create test data: {:?}", e);
-            } else {
-                eprintln!("[test-data-init] Test data initialization completed");
-            }
-        }).await;
-        
-        rocket
-    })
-}
 
-/// Creates standard test data for all tests to use.
-fn create_test_data(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
-    // Create test companies
-    let test_company1 = find_or_create_company(conn, "Test Company 1")?;
-    let test_company2 = find_or_create_company(conn, "Test Company 2")?;
-    let _removable_company = find_or_create_company(conn, "Removable LLC")?;
-    
-    // Get the Newtown Energy company (created by admin_init_fairing)
-    let newtown_company = get_company_by_name(conn, &CompanyInput { name: "Newtown Energy".to_string() })?
-        .expect("Newtown Energy company should exist from admin_init_fairing");
 
-    // Create standard roles if they don't exist
-    ensure_role_exists(conn, "admin", "Administrator role")?;
-    ensure_role_exists(conn, "staff", "Staff role")?;
-    ensure_role_exists(conn, "newtown-admin", "Newtown Administrator role")?;
-    ensure_role_exists(conn, "newtown-staff", "Newtown Staff role")?;
 
-    // Create standard test users
-    create_test_user(conn, "user@testcompany.com", test_company1.id, "admin")?;
-    create_test_user(conn, "user@company1.com", test_company1.id, "admin")?;
-    create_test_user(conn, "user@company2.com", test_company2.id, "admin")?;
-    create_test_user(conn, "user@empty.com", test_company1.id, "admin")?;
-    create_test_user(conn, "admin@company1.com", test_company1.id, "admin")?;
-    create_test_user(conn, "admin@company2.com", test_company2.id, "admin")?;
-    create_test_user(conn, "staff@testcompany.com", test_company1.id, "staff")?;
-    create_test_user(conn, "newtownadmin@newtown.com", newtown_company.id, "newtown-admin")?;
-    create_test_user(conn, "newtownstaff@newtown.com", newtown_company.id, "newtown-staff")?;
-    
-    // Additional test users for login.rs tests
-    create_test_user(conn, "testuser@example.com", test_company1.id, "staff")?;
-    
-    // Additional test users for secure_test.rs tests
-    create_test_user_with_password(conn, "test_superadmin@example.com", newtown_company.id, "admin", "adminpass")?;
-    create_test_user_with_password(conn, "staff@example.com", test_company1.id, "staff", "staffpass")?;
-    create_test_user_with_password_and_roles(conn, "admin_staff@example.com", test_company1.id, &["admin", "staff"], "adminstaff")?;
-    create_test_user_with_password(conn, "newtown_superadmin@example.com", newtown_company.id, "newtown-admin", "newtownpass")?;
-    create_test_user_with_password(conn, "newtown_staff@example.com", newtown_company.id, "newtown-staff", "newtownstaffpass")?;
-    create_test_user_with_password(conn, "regular@example.com", test_company1.id, "staff", "regularpass")?;
 
-    Ok(())
-}
 
-/// Creates a test user with a custom password with the specified email, company, role, and password.
-fn create_test_user_with_password(conn: &mut SqliteConnection, email: &str, company_id: i32, role_name: &str, password: &str) -> Result<(), diesel::result::Error> {
-    // Check if user already exists
-    let existing_user = users::table
-        .filter(users::email.eq(email))
-        .first::<User>(conn)
-        .optional()?;
-        
-    if existing_user.is_some() {
-        println!("[test-data-init] User '{}' already exists", email);
-        return Ok(());
-    }
 
-    // Create user with custom password hash
-    let password_hash = hash_password(password);
-    let user_input = UserInput {
-        email: email.to_string(),
-        password_hash,
-        company_id,
-        totp_secret: None,
-    };
-
-    let user = insert_user(conn, user_input)?;
-    println!("[test-data-init] Created user with custom password: '{}'", email);
-
-    // Assign role to user
-    let role = get_role_by_name(conn, role_name)?
-        .expect(&format!("Role '{}' should exist", role_name));
-    
-    let new_user_role = NewUserRole {
-        user_id: user.id,
-        role_id: role.id,
-    };
-
-    diesel::insert_into(user_roles::table)
-        .values(&new_user_role)
-        .execute(conn)?;
-    
-    println!("[test-data-init] Assigned role '{}' to user '{}'", role_name, email);
-    
-    Ok(())
-}
-
-/// Creates a test user with a custom password and multiple roles.
-fn create_test_user_with_password_and_roles(conn: &mut SqliteConnection, email: &str, company_id: i32, role_names: &[&str], password: &str) -> Result<(), diesel::result::Error> {
-    // Check if user already exists
-    let existing_user = users::table
-        .filter(users::email.eq(email))
-        .first::<User>(conn)
-        .optional()?;
-        
-    if existing_user.is_some() {
-        println!("[test-data-init] User '{}' already exists", email);
-        return Ok(());
-    }
-
-    // Create user with custom password hash
-    let password_hash = hash_password(password);
-    let user_input = UserInput {
-        email: email.to_string(),
-        password_hash,
-        company_id,
-        totp_secret: None,
-    };
-
-    let user = insert_user(conn, user_input)?;
-    println!("[test-data-init] Created user with custom password: '{}'", email);
-
-    // Assign multiple roles to user
-    for role_name in role_names {
-        let role = get_role_by_name(conn, role_name)?
-            .expect(&format!("Role '{}' should exist", role_name));
-        
-        let new_user_role = NewUserRole {
-            user_id: user.id,
-            role_id: role.id,
-        };
-
-        diesel::insert_into(user_roles::table)
-            .values(&new_user_role)
-            .execute(conn)?;
-        
-        println!("[test-data-init] Assigned role '{}' to user '{}'", role_name, email);
-    }
-    
-    Ok(())
-}
-
-/// Finds or creates a company with the given name.
-fn find_or_create_company(conn: &mut SqliteConnection, name: &str) -> Result<crate::models::Company, diesel::result::Error> {
-    let company_input = CompanyInput { name: name.to_string() };
-    
-    match get_company_by_name(conn, &company_input)? {
-        Some(company) => {
-            eprintln!("[test-data-init] Found existing company: '{}'", name);
-            Ok(company)
-        },
-        None => {
-            eprintln!("[test-data-init] Creating company: '{}'", name);
-            insert_company(conn, name.to_string())
-        }
-    }
-}
-
-/// Ensures a role exists, creating it if necessary.
-fn ensure_role_exists(conn: &mut SqliteConnection, role_name: &str, description: &str) -> Result<Role, diesel::result::Error> {
-    match get_role_by_name(conn, role_name)? {
-        Some(role) => Ok(role),
-        None => {
-            eprintln!("[test-data-init] Creating role: '{}'", role_name);
-            let new_role = NewRole {
-                name: role_name.to_string(),
-                description: Some(description.to_string()),
-            };
-            insert_role(conn, new_role)
-        }
-    }
-}
-
-/// Creates a test user with the specified email, company, and role.
-fn create_test_user(conn: &mut SqliteConnection, email: &str, company_id: i32, role_name: &str) -> Result<(), diesel::result::Error> {
-    // Check if user already exists
-    let existing_user = users::table
-        .filter(users::email.eq(email))
-        .first::<User>(conn)
-        .optional()?;
-        
-    if existing_user.is_some() {
-        println!("[test-data-init] User '{}' already exists", email);
-        return Ok(());
-    }
-
-    // Create user with consistent password hash
-    let password_hash = hash_password("admin");
-    let user_input = UserInput {
-        email: email.to_string(),
-        password_hash,
-        company_id,
-        totp_secret: None,
-    };
-
-    let user = insert_user(conn, user_input)?;
-    println!("[test-data-init] Created user: '{}'", email);
-
-    // Assign role to user
-    let role = get_role_by_name(conn, role_name)?
-        .expect(&format!("Role '{}' should exist", role_name));
-    
-    let new_user_role = NewUserRole {
-        user_id: user.id,
-        role_id: role.id,
-    };
-
-    diesel::insert_into(user_roles::table)
-        .values(&new_user_role)
-        .execute(conn)?;
-    
-    println!("[test-data-init] Assigned role '{}' to user '{}'", role_name, email);
-    
-    Ok(())
-}
 
 /// Creates and configures a Rocket instance for testing with an in-memory SQLite database.
 ///
@@ -373,9 +147,9 @@ pub fn test_rocket() -> Rocket<Build> {
         .attach(admin_init_fairing());
 
     // Attach test data initialization fairing when test-staging feature is enabled
-    {
-        rocket = rocket.attach(test_data_init_fairing());
-    }
+    // {
+    //     rocket = rocket.attach(test_data_init_fairing());
+    // }
     
     // Attach SiteDbConn fairing when test-staging feature is enabled
     {
