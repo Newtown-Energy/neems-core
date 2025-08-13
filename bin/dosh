@@ -241,7 +241,7 @@ release() {
     rustup update
     echo "🚀 Building release version..."
     local flags="--features fixphrase"
-    FORCE_TEST_ALL=1 ${CARGO} $NIGHTLY test --quiet --release $flags  --features test-staging "$@" || {
+    FORCE_TEST_ALL=1 ${CARGO} $NIGHTLY nextest run --release $flags  --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
 	exit 1
     }
