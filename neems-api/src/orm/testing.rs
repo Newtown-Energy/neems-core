@@ -1,3 +1,5 @@
+#![cfg(feature = "test-staging")]
+
 use diesel::connection::SimpleConnection;
 use diesel::sqlite::SqliteConnection;
 use rocket::figment::{
@@ -13,139 +15,23 @@ use crate::admin_init_fairing::admin_init_fairing;
 
 /// Creates a golden database template with all test data pre-populated.
 /// This is created once and then copied for each test that needs it.
-#[cfg(feature = "test-staging")]
-/// Calculates a version hash based on schema and test data code to detect when golden DB needs regeneration
-#[cfg(feature = "test-staging")]
-pub fn calculate_schema_hash() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    
-    let mut hasher = DefaultHasher::new();
-    
-    // Hash this source file (contains test data initialization logic)
-    include_str!("testing.rs").hash(&mut hasher);
-    
-    // Hash admin init logic
-    include_str!("../admin_init_fairing.rs").hash(&mut hasher);
-    
-    // Hash migration files if they exist (simple approach - could be more sophisticated)
-    if let Ok(entries) = std::fs::read_dir("migrations") {
-        for entry in entries.flatten() {
-            if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                content.hash(&mut hasher);
-            }
-        }
-    }
-    
-    format!("{:x}", hasher.finish())
-}
+/// The golden database is identified by timestamp and located automatically.
 
-/// Creates a golden database with the given version hash
-#[cfg(feature = "test-staging")]
-pub fn create_golden_database(version_hash: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    use diesel::Connection;
-    
-    // Create golden database in workspace target directory with version hash
-    let golden_db_path = PathBuf::from(format!("../target/golden_test_{}.db", version_hash));
-    let temp_db_path = PathBuf::from(format!("../target/golden_test_{}.db.tmp", version_hash));
-    
-    // Ensure target directory exists
-    if let Some(parent) = golden_db_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    
-    // Remove any existing temp file
-    if temp_db_path.exists() {
-        std::fs::remove_file(&temp_db_path)?;
-    }
-    
-    eprintln!("[golden-db] Creating golden database v{} at: {:?}", version_hash, golden_db_path);
-    
-    // Create the database and populate it
-    let mut conn = SqliteConnection::establish(&golden_db_path.to_string_lossy())?;
-    
-    // Set up the database exactly like we do in normal tests
-    set_foreign_keys(&mut conn);
-    set_sqlite_test_pragmas(&mut conn);
-    // Run migrations to create the schema in the golden database
-    run_pending_migrations(&mut conn);
-    
-    // Create the admin user (normally done by admin_init_fairing)
-    create_admin_user_in_db(&mut conn)?;
-    
-    // Create all the test data (normally done by test_data_init_fairing)  
-    create_test_data(&mut conn)?;
-    
-    eprintln!("[golden-db] Golden database created successfully");
-    Ok(golden_db_path)
-}
 
-/// Creates the admin user directly in the database (replicating admin_init_fairing logic)
-#[cfg(feature = "test-staging")]
-fn create_admin_user_in_db(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
-    use crate::models::{CompanyInput, NewUserRole, UserInput};
-    use crate::orm::company::{get_company_by_name, insert_company};
-    use crate::orm::login::hash_password;
-    use crate::orm::user::insert_user;
-    use crate::schema::user_roles;
-    use diesel::prelude::*;
-    
-    // Create Newtown Energy company
-    let newtown_company = match get_company_by_name(conn, &CompanyInput { name: "Newtown Energy".to_string() })? {
-        Some(company) => company,
-        None => insert_company(conn, "Newtown Energy".to_string())?,
-    };
-    
-    // Create newtown-admin role
-    let admin_role = ensure_role_exists(conn, "newtown-admin", "Administrator for Newtown")?;
-    
-    // Create admin user
-    let admin_email = "superadmin@example.com";
-    let password_hash = hash_password("admin");
-    let admin_user = UserInput {
-        email: admin_email.to_string(),
-        password_hash,
-        company_id: newtown_company.id,
-        totp_secret: None,
-    };
-    
-    let user = insert_user(conn, admin_user)?;
-    
-    // Assign admin role
-    let new_user_role = NewUserRole {
-        user_id: user.id,
-        role_id: admin_role.id,
-    };
-    
-    diesel::insert_into(user_roles::table)
-        .values(&new_user_role)
-        .execute(conn)?;
-        
-    eprintln!("[golden-db] Created admin user: {}", admin_email);
-    Ok(())
-}
 
 
 /// Gets the golden database path by calculating current version hash
-#[cfg(feature = "test-staging")]
 fn get_golden_db_path() -> PathBuf {
     let version_hash = calculate_schema_hash();
     PathBuf::from(format!("../target/golden_test_{}.db", version_hash))
 }
 
-#[cfg(feature = "test-staging")]
 use diesel::prelude::*;
-#[cfg(feature = "test-staging")]
 use crate::models::{CompanyInput, NewRole, NewUserRole, Role, User, UserInput};
-#[cfg(feature = "test-staging")]
 use crate::orm::company::{get_company_by_name, insert_company};
-#[cfg(feature = "test-staging")]
 use crate::orm::login::hash_password;
-#[cfg(feature = "test-staging")]
 use crate::orm::role::{get_role_by_name, insert_role};
-#[cfg(feature = "test-staging")]
 use crate::orm::user::insert_user;
-#[cfg(feature = "test-staging")]
 use crate::schema::{user_roles, users};
 
 /// Configures SQLite with performance-optimized settings for testing.
@@ -192,7 +78,6 @@ fn set_sqlite_test_pragmas_fairing() -> AdHoc {
 ///
 /// This fairing creates a consistent set of companies, users, and sites that all tests can rely on.
 /// It only runs when the `test-staging` feature is enabled to ensure it never runs in production.
-#[cfg(feature = "test-staging")]
 fn test_data_init_fairing() -> AdHoc {
     AdHoc::on_ignite("Test Data Initialization", |rocket| async {
         let conn = DbConn::get_one(&rocket)
@@ -212,7 +97,6 @@ fn test_data_init_fairing() -> AdHoc {
 }
 
 /// Creates standard test data for all tests to use.
-#[cfg(feature = "test-staging")]
 fn create_test_data(conn: &mut SqliteConnection) -> Result<(), diesel::result::Error> {
     // Create test companies
     let test_company1 = find_or_create_company(conn, "Test Company 1")?;
@@ -255,7 +139,6 @@ fn create_test_data(conn: &mut SqliteConnection) -> Result<(), diesel::result::E
 }
 
 /// Creates a test user with a custom password with the specified email, company, role, and password.
-#[cfg(feature = "test-staging")]
 fn create_test_user_with_password(conn: &mut SqliteConnection, email: &str, company_id: i32, role_name: &str, password: &str) -> Result<(), diesel::result::Error> {
     // Check if user already exists
     let existing_user = users::table
@@ -299,7 +182,6 @@ fn create_test_user_with_password(conn: &mut SqliteConnection, email: &str, comp
 }
 
 /// Creates a test user with a custom password and multiple roles.
-#[cfg(feature = "test-staging")]
 fn create_test_user_with_password_and_roles(conn: &mut SqliteConnection, email: &str, company_id: i32, role_names: &[&str], password: &str) -> Result<(), diesel::result::Error> {
     // Check if user already exists
     let existing_user = users::table
@@ -345,7 +227,6 @@ fn create_test_user_with_password_and_roles(conn: &mut SqliteConnection, email: 
 }
 
 /// Finds or creates a company with the given name.
-#[cfg(feature = "test-staging")]
 fn find_or_create_company(conn: &mut SqliteConnection, name: &str) -> Result<crate::models::Company, diesel::result::Error> {
     let company_input = CompanyInput { name: name.to_string() };
     
@@ -362,7 +243,6 @@ fn find_or_create_company(conn: &mut SqliteConnection, name: &str) -> Result<cra
 }
 
 /// Ensures a role exists, creating it if necessary.
-#[cfg(feature = "test-staging")]
 fn ensure_role_exists(conn: &mut SqliteConnection, role_name: &str, description: &str) -> Result<Role, diesel::result::Error> {
     match get_role_by_name(conn, role_name)? {
         Some(role) => Ok(role),
@@ -500,7 +380,7 @@ pub fn fast_test_rocket() -> Rocket<Build> {
     // Check if golden database exists
     if !golden_db_path.exists() {
         panic!(
-            "Golden database not found at {:?}. Run 'cargo run --bin create-golden-db --features test-staging' first.",
+            "Golden database not found at {:?}. Run './bin/create-golden-db.sh' first.",
             golden_db_path
         );
     }

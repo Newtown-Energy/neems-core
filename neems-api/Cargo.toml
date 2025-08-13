@@ -4,12 +4,6 @@ version = "0.1.3"
 edition = "2024"
 default-run = "neems-api"
 
-[[bin]]
-name = "create-golden-db"
-path = "src/bin/create-golden-db.rs"
-required-features = ["test-staging"]
-
-
 [dependencies]
 fixphrase = { path = "../crates/fixphrase", optional = true }
 neems-data = { path = "../neems-data" }

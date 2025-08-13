@@ -198,23 +198,7 @@ migrate() {
 
 nextest() {
 
-    # Rebuild golden db of test accounts if needed
-    if [ "$PROJ_NAME" = "neems-api" ]; then
-        if ! find "${BASEDIR}/target" -maxdepth 1 -type f -regex ".*/golden.*\.db" -quit 2>/dev/null; then
-            local latest="DB MISSING"
-            echo "No golden DB files found in ${BASEDIR}/target" >&2
-        else
-            local latest=$(find ${BASEDIR}/target/golden*.db ../neems-api/migrations ../target/debug/create-golden-db -type f -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d' ' -f2-)
-        fi
-
-        if [[ "$latest" != "../target/debug/create-golden-db" ]]; then
-            echo "Golden database is out of date or missing. Recreating..."
-            cargo run --bin create-golden-db --features test-staging
-        else
-            echo "Golden database is up to date."
-        fi
-    fi
-
+    ${BASEDIR}/bin/create-golden-db.sh
     local cmd="${CARGO} $NIGHTLY nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
     echo "RUSTFLAGS=\"$-Zcodegen-backend=cranelift\" $cmd $@"
     if [ -z "$WAYLAND_DISPLAY" ]; then
@@ -241,7 +225,7 @@ release() {
     rustup update
     echo "🚀 Building release version..."
     local flags="--features fixphrase"
-    FORCE_TEST_ALL=1 ${CARGO} $NIGHTLY nextest run -p neems-api -p neems-data --release $flags  --features test-staging "$@" || {
+    ${CARGO} $NIGHTLY nextest run -p neems-api -p neems-admin -p neems-data --release $flags  --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
 	exit 1
     }
