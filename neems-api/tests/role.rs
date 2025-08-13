@@ -41,7 +41,7 @@ async fn test_create_role() {
     });
 
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .header(ContentType::JSON)
         .body(new_role.to_string())
         .dispatch()
@@ -53,7 +53,7 @@ async fn test_create_role() {
     let session_cookie = login_and_get_session(&client).await;
 
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .header(ContentType::JSON)
         .cookie(session_cookie)
         .body(new_role.to_string())
@@ -73,14 +73,14 @@ async fn test_list_roles() {
         .expect("valid rocket instance");
 
     // Test unauthenticated request fails
-    let response = client.get("/api/1/roles").dispatch().await;
+    let response = client.get("/api/1/Roles").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     // Test authenticated request succeeds
     let session_cookie = login_and_get_session(&client).await;
 
     let response = client
-        .get("/api/1/roles")
+        .get("/api/1/Roles")
         .cookie(session_cookie)
         .dispatch()
         .await;

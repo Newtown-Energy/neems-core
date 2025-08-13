@@ -200,7 +200,13 @@ nextest() {
 
     # Rebuild golden db of test accounts if needed
     if [ "$PROJ_NAME" = "neems-api" ]; then
-        local latest=$(find ../target/golden*.db ../neems-api/migrations ../target/debug/create-golden-db -type f -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d' ' -f2-)
+        if ! find "${BASEDIR}/target" -maxdepth 1 -type f -regex ".*/golden.*\.db" -quit 2>/dev/null; then
+            local latest="DB MISSING"
+            echo "No golden DB files found in ${BASEDIR}/target" >&2
+        else
+            local latest=$(find ${BASEDIR}/target/golden*.db ../neems-api/migrations ../target/debug/create-golden-db -type f -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d' ' -f2-)
+        fi
+
         if [[ "$latest" != "../target/debug/create-golden-db" ]]; then
             echo "Golden database is out of date or missing. Recreating..."
             cargo run --bin create-golden-db --features test-staging
@@ -218,9 +224,10 @@ nextest() {
     fi
 
     # Merge test result data
-    local junit_file=../target/nextest/all-results.xml
-    junit-merge --out $junit_file -d ../target/nextest
-
+    # if [ "$PROJ_NAME" = "neems-api" ]; then
+    #     local junit_file=${BASEDIR}/target/nextest/all-results.xml
+    #     junit-merge --out $junit_file -d ${BASEDIR}/target/nextest
+    # fi
     # xmllint --xpath '//testcase[failure or error]/@name' merged-results.xml
 }
 

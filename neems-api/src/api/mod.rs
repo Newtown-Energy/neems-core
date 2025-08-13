@@ -10,6 +10,7 @@ pub mod data;
 pub mod fixphrase;
 pub mod login;
 pub mod logout;
+pub mod odata;
 pub mod role;
 pub mod secure_test;
 pub mod site;
@@ -34,6 +35,7 @@ pub fn routes() -> Vec<Route> {
     routes.extend(data::routes());
     routes.extend(login::routes());
     routes.extend(logout::routes());
+    routes.extend(odata::routes());
     routes.extend(role::routes());
     routes.extend(secure_test::routes());
     routes.extend(site::routes());

@@ -165,7 +165,7 @@ impl ReadingsQuery {
 ///   ]
 /// }
 /// ```
-#[get("/1/data")]
+#[get("/1/DataSources")]
 pub async fn list_data_sources(
     site_db: SiteDbConn,
 ) -> Result<Json<DataSourcesResponse>, Status> {
@@ -242,7 +242,7 @@ pub async fn list_data_sources(
 /// **Error (HTTP 401 Unauthorized):** User not authenticated
 /// **Error (HTTP 403 Forbidden):** User lacks permission to access this source
 /// **Error (HTTP 404 Not Found):** Source ID does not exist
-#[get("/1/data/<source_id>?<query..>")]
+#[get("/1/DataSources/<source_id>/Readings?<query..>")]
 pub async fn get_source_readings(
     source_id: i32,
     query: ReadingsQuery,
@@ -411,7 +411,7 @@ pub async fn get_source_readings(
 /// **Error (HTTP 401 Unauthorized):** User not authenticated
 /// **Error (HTTP 403 Forbidden):** User lacks permission to access one or more sources
 /// **Error (HTTP 404 Not Found):** One or more source IDs do not exist
-#[get("/1/data/readings?<query..>")]
+#[get("/1/Readings?<query..>")]
 pub async fn get_multi_source_readings(
     query: ReadingsQuery,
     user: AuthenticatedUser,
@@ -565,7 +565,7 @@ pub async fn get_multi_source_readings(
 ///
 /// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
 #[cfg(feature = "test-staging")]
-#[get("/1/data/schema")]
+#[get("/1/$metadata/schema")]
 pub async fn get_site_schema(
     site_db: SiteDbConn,
 ) -> Result<Json<serde_json::Value>, Status> {

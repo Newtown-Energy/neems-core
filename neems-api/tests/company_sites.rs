@@ -37,13 +37,14 @@ async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
 /// Helper to get a test company by name
 async fn get_company_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Company {
     let response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let companies: Vec<Company> = response.into_json().await.expect("valid companies JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
     companies.into_iter()
         .find(|c| c.name == name)
         .expect(&format!("Company '{}' should exist from test data initialization", name))
@@ -68,7 +69,7 @@ async fn setup_sites_for_company(
         });
 
         let response = client
-            .post("/api/1/sites")
+            .post("/api/1/Sites")
             .cookie(admin_cookie.clone())
             .json(&new_site)
             .dispatch()
@@ -89,7 +90,7 @@ async fn test_sites_endpoint_requires_authentication() {
         .expect("valid rocket instance");
 
     // Test unauthenticated request fails
-    let response = client.get("/api/1/company/1/sites").dispatch().await;
+    let response = client.get("/api/1/Companies/1/Sites").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -107,7 +108,7 @@ async fn test_company_users_can_access_own_company_sites() {
     let user_cookie = login_user(&client, "user@testcompany.com", "admin").await;
 
     // Test that company user can access their own company's sites
-    let url = format!("/api/1/company/{}/sites", company.id);
+    let url = format!("/api/1/Companies/{}/Sites", company.id);
     let response = client.get(&url).cookie(user_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
@@ -138,7 +139,7 @@ async fn test_users_cannot_access_different_company_sites() {
     let _sites = setup_sites_for_company(&client, &admin_cookie, company1.id, 2).await;
 
     // User from company1 should be able to access company1 sites
-    let url = format!("/api/1/company/{}/sites", company1.id);
+    let url = format!("/api/1/Companies/{}/Sites", company1.id);
     let response = client
         .get(&url)
         .cookie(user_cookie.clone())
@@ -150,7 +151,7 @@ async fn test_users_cannot_access_different_company_sites() {
     assert_eq!(sites.len(), 2);
 
     // User from company1 should NOT be able to access company2 sites
-    let url = format!("/api/1/company/{}/sites", company2.id);
+    let url = format!("/api/1/Companies/{}/Sites", company2.id);
     let response = client.get(&url).cookie(user_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
@@ -175,7 +176,7 @@ async fn test_newtown_admin_can_access_any_company_sites() {
     let newtown_admin_cookie = login_user(&client, "newtownadmin@newtown.com", "admin").await;
 
     // Newtown admin should be able to access any company's sites
-    let url = format!("/api/1/company/{}/sites", company1.id);
+    let url = format!("/api/1/Companies/{}/Sites", company1.id);
     let response = client
         .get(&url)
         .cookie(newtown_admin_cookie.clone())
@@ -186,7 +187,7 @@ async fn test_newtown_admin_can_access_any_company_sites() {
     let sites: Vec<Site> = response.into_json().await.expect("valid sites JSON");
     assert_eq!(sites.len(), 2);
 
-    let url = format!("/api/1/company/{}/sites", company2.id);
+    let url = format!("/api/1/Companies/{}/Sites", company2.id);
     let response = client
         .get(&url)
         .cookie(newtown_admin_cookie)
@@ -215,7 +216,7 @@ async fn test_newtown_staff_can_access_any_company_sites() {
     let newtown_staff_cookie = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     // Newtown staff should be able to access any company's sites
-    let url = format!("/api/1/company/{}/sites", company.id);
+    let url = format!("/api/1/Companies/{}/Sites", company.id);
     let response = client
         .get(&url)
         .cookie(newtown_staff_cookie)
@@ -244,7 +245,7 @@ async fn test_sites_response_format() {
     let user_cookie = login_user(&client, "user@testcompany.com", "admin").await;
 
     // Get sites
-    let url = format!("/api/1/company/{}/sites", company.id);
+    let url = format!("/api/1/Companies/{}/Sites", company.id);
     let response = client.get(&url).cookie(user_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
@@ -273,7 +274,7 @@ async fn test_nonexistent_company_sites() {
 
     // Login as admin (who should have access to any company)
     let response = client
-        .get("/api/1/company/99999/sites")
+        .get("/api/1/Companies/99999/Sites")
         .cookie(admin_cookie)
         .dispatch()
         .await;
@@ -299,7 +300,7 @@ async fn test_empty_sites_for_existing_company() {
     let user_cookie = login_user(&client, "user@empty.com", "admin").await;
 
     // Get sites for company with no sites
-    let url = format!("/api/1/company/{}/sites", company.id);
+    let url = format!("/api/1/Companies/{}/Sites", company.id);
     let response = client.get(&url).cookie(user_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);

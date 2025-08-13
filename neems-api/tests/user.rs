@@ -44,7 +44,7 @@ async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie
     let unique_company_name = format!("Test Company {}", Uuid::new_v4());
     let new_comp = json!({ "name": unique_company_name });
     let response = client
-        .post("/api/1/companies")
+        .post("/api/1/Companies")
         .header(ContentType::JSON)
         .cookie(login_cookie.clone())
         .body(new_comp.to_string())
@@ -129,7 +129,7 @@ async fn test_create_user_requires_auth() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .header(ContentType::JSON)
         .body(new_user.to_string())
         .dispatch()
@@ -153,7 +153,7 @@ async fn test_create_user_requires_auth() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .header(ContentType::JSON)
         .cookie(session_cookie)
         .body(new_user_auth.to_string())
@@ -175,21 +175,22 @@ async fn test_list_users_requires_auth() {
         .expect("valid rocket instance");
 
     // Test unauthenticated request fails
-    let response = client.get("/api/1/users").dispatch().await;
+    let response = client.get("/api/1/Users").dispatch().await;
     assert_eq!(response.status(), rocket::http::Status::Unauthorized);
 
     // Test authenticated request succeeds
     let session_cookie = login_and_get_session(&client).await;
 
     let response = client
-        .get("/api/1/users")
+        .get("/api/1/Users")
         .cookie(session_cookie)
         .dispatch()
         .await;
 
     assert_eq!(response.status(), rocket::http::Status::Ok);
 
-    let list: Vec<UserWithRoles> = response.into_json().await.expect("valid JSON response");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let list: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
     assert!(!list.is_empty()); // Should have at least the admin user
 }
 
@@ -213,7 +214,7 @@ async fn test_user_crud_endpoints() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .header(ContentType::JSON)
         .cookie(session_cookie.clone())
         .body(new_user.to_string())
@@ -236,7 +237,7 @@ async fn test_user_crud_endpoints() {
     let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
 
     // Test GET single user
-    let url = format!("/api/1/users/{}", created_user.id);
+    let url = format!("/api/1/Users/{}", created_user.id);
     let response = client
         .get(&url)
         .cookie(session_cookie.clone())

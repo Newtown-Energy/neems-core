@@ -66,7 +66,7 @@ pub struct ErrorResponse {
 /// # Returns
 /// * `Ok(Json<Role>)` - Successfully created role
 /// * `Err(Status)` - Error during creation or authorization failure
-#[post("/1/roles", data = "<new_role>")]
+#[post("/1/Roles", data = "<new_role>")]
 pub async fn create_role(
     db: DbConn,
     new_role: LoggedJson<NewRole>,
@@ -129,7 +129,7 @@ pub async fn create_role(
 /// # Returns
 /// * `Ok(Json<Vec<Role>>)` - List of all roles
 /// * `Err(Status)` - Error during retrieval (typically InternalServerError)
-#[get("/1/roles")]
+#[get("/1/Roles")]
 pub async fn list_roles(
     db: DbConn,
     _auth_user: AuthenticatedUser,
@@ -208,7 +208,7 @@ where
 /// # Returns
 /// * `Ok(Json<Role>)` - The requested role
 /// * `Err(Status)` - Error during retrieval or role not found
-#[get("/1/roles/<role_id>")]
+#[get("/1/Roles/<role_id>")]
 pub async fn get_role_endpoint(
     db: DbConn,
     role_id: i32,
@@ -284,7 +284,7 @@ pub async fn get_role_endpoint(
 /// # Returns
 /// * `Ok(Json<Role>)` - Updated role object
 /// * `Err(Status)` - Error during update or role not found
-#[put("/1/roles/<role_id>", data = "<request>")]
+#[put("/1/Roles/<role_id>", data = "<request>")]
 pub async fn update_role_endpoint(
     db: DbConn,
     role_id: i32,
@@ -359,7 +359,7 @@ pub async fn update_role_endpoint(
 /// # Returns
 /// * `Ok(Status::NoContent)` - Role successfully deleted
 /// * `Err(Status)` - Error during deletion or role not found
-#[delete("/1/roles/<role_id>")]
+#[delete("/1/Roles/<role_id>")]
 pub async fn delete_role_endpoint(
     db: DbConn,
     role_id: i32,

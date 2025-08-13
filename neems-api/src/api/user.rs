@@ -15,6 +15,7 @@ use rocket::serde::json::{Json, json};
 
 use crate::logged_json::LoggedJson;
 use crate::models::{CompanyInput, Role, UserInput, UserWithRoles};
+use crate::odata_query::{ODataQuery, ODataCollectionResponse, build_context_url, apply_select};
 use crate::orm::DbConn;
 use crate::orm::company::get_company_by_name;
 use crate::orm::role::get_role_by_name;
@@ -417,7 +418,7 @@ pub async fn create_user_with_roles_by_api(
 /// # Returns
 /// * `Ok(status::Created<Json<UserWithRoles>>)` - Successfully created user with roles
 /// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during creation with JSON error details
-#[post("/1/users", data = "<new_user>")]
+#[post("/1/Users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
     new_user: LoggedJson<CreateUserWithRolesRequest>,
@@ -648,37 +649,149 @@ pub async fn create_user(
 /// # Returns
 /// * `Ok(Json<Vec<User>>)` - List of all users
 /// * `Err(Status)` - Error during retrieval (typically InternalServerError)
-#[get("/1/users")]
+#[get("/1/Users?<query..>")]
 pub async fn list_users(
     db: DbConn,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Vec<UserWithRoles>>, Status> {
+    query: ODataQuery,
+) -> Result<Json<serde_json::Value>, Status> {
+    // Validate query options
+    query.validate().map_err(|_| Status::BadRequest)?;
+    
     // Authorization: determine which users this user can see
-    if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+    let users = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
         // newtown-admin and newtown-staff can see all users
         db.run(|conn| {
-            list_all_users_with_roles(conn).map(Json).map_err(|e| {
+            list_all_users_with_roles(conn).map_err(|e| {
                 eprintln!("Error listing all users: {:?}", e);
                 Status::InternalServerError
             })
         })
-        .await
+        .await?
     } else if auth_user.has_role("admin") {
         // admin can only see users from their own company
         let company_id = auth_user.user.company_id;
         db.run(move |conn| {
-            get_users_by_company_with_roles(conn, company_id)
-                .map(Json)
-                .map_err(|e| {
-                    eprintln!("Error listing company users: {:?}", e);
-                    Status::InternalServerError
-                })
+            get_users_by_company_with_roles(conn, company_id).map_err(|e| {
+                eprintln!("Error listing company users: {:?}", e);
+                Status::InternalServerError
+            })
         })
-        .await
+        .await?
     } else {
         // Regular users cannot list users
-        Err(Status::Forbidden)
+        return Err(Status::Forbidden);
+    };
+
+    // Apply filtering if specified
+    let mut filtered_users = users;
+    if let Some(filter_expr) = query.parse_filter() {
+        // Basic filtering implementation - this could be expanded
+        filtered_users = filtered_users
+            .into_iter()
+            .filter(|user| {
+                // Simple implementation - could be much more sophisticated
+                match &filter_expr.property.as_str() {
+                    &"email" => match &filter_expr.value {
+                        crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
+                            crate::odata_query::FilterOperator::Eq => user.email == *s,
+                            crate::odata_query::FilterOperator::Ne => user.email != *s,
+                            crate::odata_query::FilterOperator::Contains => user.email.contains(s),
+                            _ => true,
+                        },
+                        _ => true,
+                    },
+                    _ => true, // Unknown property, don't filter
+                }
+            })
+            .collect();
     }
+
+    // Apply sorting if specified
+    if let Some(orderby) = query.parse_orderby() {
+        for (property, direction) in orderby.iter().rev() {
+            match property.as_str() {
+                "email" => {
+                    filtered_users.sort_by(|a, b| {
+                        let cmp = a.email.cmp(&b.email);
+                        match direction {
+                            crate::odata_query::OrderDirection::Asc => cmp,
+                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
+                        }
+                    });
+                }
+                "id" => {
+                    filtered_users.sort_by(|a, b| {
+                        let cmp = a.id.cmp(&b.id);
+                        match direction {
+                            crate::odata_query::OrderDirection::Asc => cmp,
+                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
+                        }
+                    });
+                }
+                _ => {} // Unknown property, don't sort
+            }
+        }
+    }
+
+    // Get count before applying top/skip
+    let total_count = filtered_users.len() as i64;
+
+    // Apply skip and top
+    if let Some(skip) = query.skip {
+        filtered_users = filtered_users.into_iter().skip(skip as usize).collect();
+    }
+    if let Some(top) = query.top {
+        filtered_users = filtered_users.into_iter().take(top as usize).collect();
+    }
+
+    // Handle $expand first, then $select
+    let expand_props = query.parse_expand();
+    let mut expanded_users: Vec<serde_json::Value> = Vec::new();
+    
+    for user in &filtered_users {
+        let mut user_json = serde_json::to_value(user).map_err(|_| Status::InternalServerError)?;
+        
+        // Handle $expand=company
+        if let Some(expansions) = &expand_props {
+            if expansions.iter().any(|e| e.eq_ignore_ascii_case("company")) {
+                // Load company data for this user
+                let company_id = user.company_id;
+                let company = db.run(move |conn| {
+                    use crate::orm::company::get_company_by_id;
+                    get_company_by_id(conn, company_id)
+                }).await.map_err(|_| Status::InternalServerError)?;
+                
+                if let Some(company) = company {
+                    user_json.as_object_mut()
+                        .unwrap()
+                        .insert("Company".to_string(), serde_json::to_value(company).map_err(|_| Status::InternalServerError)?);
+                }
+            }
+        }
+        
+        expanded_users.push(user_json);
+    }
+
+    // Apply $select to each expanded user if specified
+    let select_props = query.parse_select();
+    let selected_users: Result<Vec<serde_json::Value>, _> = expanded_users
+        .iter()
+        .map(|user| apply_select(user, select_props.as_deref()))
+        .collect();
+
+    let selected_users = selected_users.map_err(|_| Status::InternalServerError)?;
+
+    // Build OData response
+    let context = build_context_url("http://localhost/api/1", "Users", select_props.as_deref());
+    let mut response = ODataCollectionResponse::new(context, selected_users);
+
+    // Add count if requested
+    if query.count.unwrap_or(false) {
+        response = response.with_count(total_count);
+    }
+
+    Ok(Json(serde_json::to_value(response).map_err(|_| Status::InternalServerError)?))
 }
 
 #[derive(serde::Deserialize)]
@@ -766,7 +879,7 @@ pub struct UpdateUserRequest {
 /// # Returns
 /// * `Ok(Json<User>)` - The requested user data
 /// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error with JSON error details
-#[get("/1/users/<user_id>")]
+#[get("/1/Users/<user_id>")]
 pub async fn get_user_endpoint(
     db: DbConn,
     user_id: i32,
@@ -879,7 +992,7 @@ pub async fn get_user_endpoint(
 ///   credentials: 'include'
 /// });
 /// ```
-#[get("/1/users/<user_id>/roles")]
+#[get("/1/Users/<user_id>/Roles")]
 pub async fn get_user_roles_endpoint(
     db: DbConn,
     user_id: i32,
@@ -965,7 +1078,7 @@ pub async fn get_user_roles_endpoint(
 ///   credentials: 'include'
 /// });
 /// ```
-#[post("/1/users/<user_id>/roles", data = "<request>")]
+#[post("/1/Users/<user_id>/Roles", data = "<request>")]
 pub async fn add_user_role(
     db: DbConn,
     user_id: i32,
@@ -1101,7 +1214,7 @@ pub async fn add_user_role(
 ///   credentials: 'include'
 /// });
 /// ```
-#[delete("/1/users/<user_id>/roles", data = "<request>")]
+#[delete("/1/Users/<user_id>/Roles", data = "<request>")]
 pub async fn remove_user_role(
     db: DbConn,
     user_id: i32,
@@ -1219,7 +1332,7 @@ pub async fn remove_user_role(
 /// # Returns
 /// * `Ok(Json<User>)` - The updated user data
 /// * `Err(Status)` - Error status (Forbidden, NotFound, InternalServerError)
-#[put("/1/users/<user_id>", data = "<request>")]
+#[put("/1/Users/<user_id>", data = "<request>")]
 pub async fn update_user_endpoint(
     db: DbConn,
     user_id: i32,
@@ -1323,7 +1436,7 @@ pub async fn update_user_endpoint(
 /// # Returns
 /// * `Ok(Status::NoContent)` - User successfully deleted
 /// * `Err(Status)` - Error status (Forbidden, NotFound, InternalServerError)
-#[delete("/1/users/<user_id>")]
+#[delete("/1/Users/<user_id>")]
 pub async fn delete_user_endpoint(
     db: DbConn,
     user_id: i32,
@@ -1373,6 +1486,66 @@ pub async fn delete_user_endpoint(
     .await
 }
 
+/// Get User Company Navigation endpoint.
+///
+/// - **URL:** `/api/1/Users/<user_id>/Company`
+/// - **Method:** `GET`  
+/// - **Purpose:** Retrieves the company associated with a user (OData navigation property)
+/// - **Authentication:** Required
+///
+/// This is an OData navigation endpoint that returns the Company entity
+/// associated with the specified user.
+#[get("/1/Users/<user_id>/Company")]
+pub async fn get_user_company(
+    db: DbConn,
+    user_id: i32,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<crate::models::Company>, Status> {
+    // Authorization check: same as getting a user
+    let target_user = db.run(move |conn| {
+        get_user(conn, user_id)
+    }).await.map_err(|_| Status::InternalServerError)?;
+    
+    let target_user = target_user.ok_or(Status::NotFound)?;
+    
+    let can_view = if auth_user.user.id == user_id {
+        true
+    } else if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+        true
+    } else if auth_user.has_role("admin") {
+        auth_user.user.company_id == target_user.company_id
+    } else {
+        false
+    };
+
+    if !can_view {
+        return Err(Status::Forbidden);
+    }
+
+    // Get the company
+    let company_id = target_user.company_id;
+    db.run(move |conn| {
+        use crate::orm::company::get_company_by_id;
+        get_company_by_id(conn, company_id)
+    })
+    .await
+    .map_err(|_| Status::InternalServerError)?
+    .map(Json)
+    .ok_or(Status::NotFound)
+}
+
+/// Get User Roles Navigation endpoint.
+///
+/// - **URL:** `/api/1/Users/<user_id>/Roles`
+/// - **Method:** `GET`  
+/// - **Purpose:** Retrieves the roles associated with a user (OData navigation property)
+/// - **Authentication:** Required
+///
+/// This is an OData navigation endpoint that returns the Role entities
+/// associated with the specified user. This is the same as get_user_roles_endpoint
+/// but follows OData navigation conventions.
+// Note: This endpoint is already implemented as get_user_roles_endpoint above
+
 /// Returns a vector of all routes defined in this module.
 ///
 /// This function collects all the route handlers defined in this module
@@ -1389,6 +1562,7 @@ pub fn routes() -> Vec<Route> {
         delete_user_endpoint,
         get_user_roles_endpoint,
         add_user_role,
-        remove_user_role
+        remove_user_role,
+        get_user_company
     ]
 }

@@ -104,7 +104,7 @@ fn can_crud_site(user: &AuthenticatedUser, site_company_id: i32) -> bool {
 ///   "updated_at": "2023-01-01T00:00:00Z"
 /// }
 /// ```
-#[post("/1/sites", data = "<new_site>")]
+#[post("/1/Sites", data = "<new_site>")]
 pub async fn create_site(
     db: DbConn,
     new_site: LoggedJson<CreateSiteRequest>,
@@ -194,7 +194,7 @@ pub async fn create_site(
 /// - **Purpose:** Retrieves a specific site by ID
 /// - **Authentication:** Required
 /// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
-#[get("/1/sites/<site_id>")]
+#[get("/1/Sites/<site_id>")]
 pub async fn get_site(
     db: DbConn,
     site_id: i32,
@@ -229,7 +229,7 @@ pub async fn get_site(
 /// - **Authorization:** Returns sites based on user's access level
 ///   - newtown-admin/newtown-staff: all sites
 ///   - Company admin: sites from their company only
-#[get("/1/sites")]
+#[get("/1/Sites")]
 pub async fn list_sites(
     db: DbConn,
     auth_user: AuthenticatedUser,
@@ -272,7 +272,7 @@ pub async fn list_sites(
 ///   "company_id": 1
 /// }
 /// ```
-#[put("/1/sites/<site_id>", data = "<update_data>")]
+#[put("/1/Sites/<site_id>", data = "<update_data>")]
 pub async fn update_site_endpoint(
     db: DbConn,
     site_id: i32,
@@ -364,7 +364,7 @@ pub async fn update_site_endpoint(
 /// - **Purpose:** Deletes a specific site
 /// - **Authentication:** Required
 /// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
-#[delete("/1/sites/<site_id>")]
+#[delete("/1/Sites/<site_id>")]
 pub async fn delete_site_endpoint(
     db: DbConn,
     site_id: i32,

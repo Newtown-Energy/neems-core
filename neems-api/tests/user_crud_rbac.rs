@@ -37,7 +37,7 @@ async fn create_company(
     let new_comp = json!({"name": name});
 
     let response = client
-        .post("/api/1/companies")
+        .post("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .json(&new_comp)
         .dispatch()
@@ -50,12 +50,13 @@ async fn create_company(
 /// Helper to get a test company by name
 async fn get_company_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Company {
     let response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
-    let companies: Vec<Company> = response.into_json().await.expect("valid companies JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
     companies.into_iter()
         .find(|c| c.name == name)
         .expect(&format!("Company '{}' should exist", name))
@@ -80,7 +81,7 @@ async fn create_user_with_role(
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .cookie(admin_cookie.clone())
         .json(&new_user)
         .dispatch()
@@ -99,12 +100,13 @@ async fn create_user_with_role(
     } else {
         // User already exists, fetch the existing user by listing all users and finding the one we want
         let list_response = client
-            .get("/api/1/users")
+            .get("/api/1/Users")
             .cookie(admin_cookie.clone())
             .dispatch()
             .await;
         assert_eq!(list_response.status(), Status::Ok);
-        let users: Vec<UserWithRoles> = list_response.into_json().await.expect("valid users JSON");
+        let odata_response: serde_json::Value = list_response.into_json().await.expect("valid OData JSON");
+        let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
         users
             .into_iter()
             .find(|u| u.email == email)
@@ -155,7 +157,7 @@ async fn test_create_user_requires_authentication() {
         "role_names": ["staff"]
     });
 
-    let response = client.post("/api/1/users").json(&new_user).dispatch().await;
+    let response = client.post("/api/1/Users").json(&new_user).dispatch().await;
 
     assert_eq!(response.status(), Status::Unauthorized);
 }
@@ -188,7 +190,7 @@ async fn test_regular_users_cannot_create_users() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .cookie(user_session)
         .json(&new_user)
         .dispatch()
@@ -229,7 +231,7 @@ async fn test_admin_can_create_users_for_own_company_only() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .cookie(admin1_session.clone())
         .json(&new_user_own_company)
         .dispatch()
@@ -258,7 +260,7 @@ async fn test_admin_can_create_users_for_own_company_only() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .cookie(admin1_session)
         .json(&new_user_other_company)
         .dispatch()
@@ -276,16 +278,17 @@ async fn test_newtown_staff_can_create_users_for_any_company() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -306,7 +309,7 @@ async fn test_newtown_staff_can_create_users_for_any_company() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .cookie(staff_session)
         .json(&new_user)
         .dispatch()
@@ -347,7 +350,7 @@ async fn test_newtown_admin_can_create_users_for_any_company() {
     });
 
     let response = client
-        .post("/api/1/users")
+        .post("/api/1/Users")
         .cookie(admin_cookie)
         .json(&new_user)
         .dispatch()
@@ -376,7 +379,7 @@ async fn test_list_users_requires_authentication() {
         .await
         .expect("valid rocket instance");
 
-    let response = client.get("/api/1/users").dispatch().await;
+    let response = client.get("/api/1/Users").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -391,7 +394,7 @@ async fn test_regular_users_cannot_list_users() {
     let user_session = login_user(&client, "staff@testcompany.com", "admin").await;
 
     let response = client
-        .get("/api/1/users")
+        .get("/api/1/Users")
         .cookie(user_session)
         .dispatch()
         .await;
@@ -440,13 +443,14 @@ async fn test_admin_can_list_users_from_own_company_only() {
 
     // Admin should only see users from their own company
     let response = client
-        .get("/api/1/users")
+        .get("/api/1/Users")
         .cookie(admin1_session)
         .dispatch()
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
 
     // Admin should only see users from their own company (company1)
     for user in &users {
@@ -478,16 +482,17 @@ async fn test_newtown_staff_can_list_all_users() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -508,13 +513,14 @@ async fn test_newtown_staff_can_list_all_users() {
 
     // Should be able to see all users
     let response = client
-        .get("/api/1/users")
+        .get("/api/1/Users")
         .cookie(staff_session)
         .dispatch()
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
 
     // Should see users from multiple companies (at least 3: superadmin, staff, test_user)
     assert!(users.len() >= 3);
@@ -545,13 +551,14 @@ async fn test_newtown_admin_can_list_all_users() {
 
     // newtown-admin should be able to see all users
     let response = client
-        .get("/api/1/users")
+        .get("/api/1/Users")
         .cookie(admin_cookie)
         .dispatch()
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let users: Vec<UserWithRoles> = response.into_json().await.expect("valid users JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
 
     // Should see users from multiple companies (at least 2: superadmin, test_user)
     assert!(users.len() >= 2);
@@ -569,7 +576,7 @@ async fn test_get_user_requires_authentication() {
         .await
         .expect("valid rocket instance");
 
-    let response = client.get("/api/1/users/1").dispatch().await;
+    let response = client.get("/api/1/Users/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -593,7 +600,7 @@ async fn test_users_can_view_own_profile() {
     let user_session = login_user(&client, "user@testcompany.com", "admin").await;
 
     // User should be able to view their own profile
-    let url = format!("/api/1/users/{}", test_user.id);
+    let url = format!("/api/1/Users/{}", test_user.id);
     let response = client.get(&url).cookie(user_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
@@ -613,14 +620,15 @@ async fn test_users_cannot_view_other_users_profiles() {
     let user1_session = login_user(&client, "staff@testcompany.com", "admin").await;
     
     // Get testuser@example.com to try to view their profile
-    let users_response = client.get("/api/1/users").cookie(admin_cookie).dispatch().await;
+    let users_response = client.get("/api/1/Users").cookie(admin_cookie).dispatch().await;
     assert_eq!(users_response.status(), Status::Ok);
-    let users: Vec<UserWithRoles> = users_response.into_json().await.expect("valid users JSON");
+    let odata_response: serde_json::Value = users_response.into_json().await.expect("valid OData JSON");
+    let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
     let user2 = users.into_iter().find(|u| u.email == "testuser@example.com")
         .expect("testuser@example.com should exist in golden DB");
 
     // User1 should NOT be able to view user2's profile
-    let url = format!("/api/1/users/{}", user2.id);
+    let url = format!("/api/1/Users/{}", user2.id);
     let response = client.get(&url).cookie(user1_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
@@ -666,7 +674,7 @@ async fn test_admin_can_view_users_from_own_company_only() {
     let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
 
     // Admin should be able to view users from own company
-    let url = format!("/api/1/users/{}", company1_user.id);
+    let url = format!("/api/1/Users/{}", company1_user.id);
     let response = client
         .get(&url)
         .cookie(admin1_session.clone())
@@ -678,7 +686,7 @@ async fn test_admin_can_view_users_from_own_company_only() {
     assert_eq!(retrieved_user.id, company1_user.id);
 
     // Admin should NOT be able to view users from different company
-    let url = format!("/api/1/users/{}", company2_user.id);
+    let url = format!("/api/1/Users/{}", company2_user.id);
     let response = client.get(&url).cookie(admin1_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
@@ -693,16 +701,17 @@ async fn test_newtown_staff_can_view_any_user() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -722,7 +731,7 @@ async fn test_newtown_staff_can_view_any_user() {
     let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     // Should be able to view any user
-    let url = format!("/api/1/users/{}", test_user.id);
+    let url = format!("/api/1/Users/{}", test_user.id);
     let response = client.get(&url).cookie(staff_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
@@ -743,7 +752,7 @@ async fn test_update_user_requires_authentication() {
     });
 
     let response = client
-        .put("/api/1/users/1")
+        .put("/api/1/Users/1")
         .json(&update_request)
         .dispatch()
         .await;
@@ -775,7 +784,7 @@ async fn test_users_can_update_own_profile() {
         "email": "newuser@testcompany.com"
     });
 
-    let url = format!("/api/1/users/{}", test_user.id);
+    let url = format!("/api/1/Users/{}", test_user.id);
     let response = client
         .put(&url)
         .cookie(user_session)
@@ -799,9 +808,10 @@ async fn test_users_cannot_update_other_users() {
     let user1_session = login_user(&client, "staff@testcompany.com", "admin").await;
     
     // Get testuser@example.com to try to update their profile
-    let users_response = client.get("/api/1/users").cookie(admin_cookie).dispatch().await;
+    let users_response = client.get("/api/1/Users").cookie(admin_cookie).dispatch().await;
     assert_eq!(users_response.status(), Status::Ok);
-    let users: Vec<UserWithRoles> = users_response.into_json().await.expect("valid users JSON");
+    let odata_response: serde_json::Value = users_response.into_json().await.expect("valid OData JSON");
+    let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
     let user2 = users.into_iter().find(|u| u.email == "testuser@example.com")
         .expect("testuser@example.com should exist in golden DB");
 
@@ -810,7 +820,7 @@ async fn test_users_cannot_update_other_users() {
     });
 
     // User1 should NOT be able to update user2
-    let url = format!("/api/1/users/{}", user2.id);
+    let url = format!("/api/1/Users/{}", user2.id);
     let response = client
         .put(&url)
         .cookie(user1_session)
@@ -865,7 +875,7 @@ async fn test_admin_can_update_users_from_own_company_only() {
     });
 
     // Admin should be able to update users from own company
-    let url = format!("/api/1/users/{}", company1_user.id);
+    let url = format!("/api/1/Users/{}", company1_user.id);
     let response = client
         .put(&url)
         .cookie(admin1_session.clone())
@@ -878,7 +888,7 @@ async fn test_admin_can_update_users_from_own_company_only() {
     assert_eq!(updated_user.email, "updated@company.com");
 
     // Admin should NOT be able to update users from different company
-    let url = format!("/api/1/users/{}", company2_user.id);
+    let url = format!("/api/1/Users/{}", company2_user.id);
     let response = client
         .put(&url)
         .cookie(admin1_session)
@@ -897,7 +907,7 @@ async fn test_delete_user_requires_authentication() {
         .await
         .expect("valid rocket instance");
 
-    let response = client.delete("/api/1/users/1").dispatch().await;
+    let response = client.delete("/api/1/Users/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -912,14 +922,15 @@ async fn test_regular_users_cannot_delete_users() {
     let user1_session = login_user(&client, "staff@testcompany.com", "admin").await;
     
     // Find another user to try to delete - get testuser@example.com
-    let users_response = client.get("/api/1/users").cookie(admin_cookie).dispatch().await;
+    let users_response = client.get("/api/1/Users").cookie(admin_cookie).dispatch().await;
     assert_eq!(users_response.status(), Status::Ok);
-    let users: Vec<UserWithRoles> = users_response.into_json().await.expect("valid users JSON");
+    let odata_response: serde_json::Value = users_response.into_json().await.expect("valid OData JSON");
+    let users: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
     let target_user = users.into_iter().find(|u| u.email == "testuser@example.com")
         .expect("testuser@example.com should exist in golden DB");
 
     // Regular user should NOT be able to delete anyone
-    let url = format!("/api/1/users/{}", target_user.id);
+    let url = format!("/api/1/Users/{}", target_user.id);
     let response = client.delete(&url).cookie(user1_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
@@ -965,7 +976,7 @@ async fn test_admin_can_delete_users_from_own_company_only() {
     let admin1_session = login_user(&client, "admin@company1.com", "admin").await;
 
     // Admin should be able to delete users from own company
-    let url = format!("/api/1/users/{}", company1_user.id);
+    let url = format!("/api/1/Users/{}", company1_user.id);
     let response = client
         .delete(&url)
         .cookie(admin1_session.clone())
@@ -983,7 +994,7 @@ async fn test_admin_can_delete_users_from_own_company_only() {
     assert_eq!(get_response.status(), Status::NotFound);
 
     // Admin should NOT be able to delete users from different company
-    let url = format!("/api/1/users/{}", company2_user.id);
+    let url = format!("/api/1/Users/{}", company2_user.id);
     let response = client.delete(&url).cookie(admin1_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
@@ -998,16 +1009,17 @@ async fn test_newtown_staff_can_delete_any_user() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -1027,7 +1039,7 @@ async fn test_newtown_staff_can_delete_any_user() {
     let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     // Should be able to delete any user
-    let url = format!("/api/1/users/{}", test_user.id);
+    let url = format!("/api/1/Users/{}", test_user.id);
     let response = client.delete(&url).cookie(staff_session).dispatch().await;
 
     assert_eq!(response.status(), Status::NoContent);
@@ -1056,7 +1068,7 @@ async fn test_newtown_admin_can_delete_any_user() {
     .await;
 
     // newtown-admin should be able to delete any user
-    let url = format!("/api/1/users/{}", test_user.id);
+    let url = format!("/api/1/Users/{}", test_user.id);
     let response = client
         .delete(&url)
         .cookie(admin_cookie.clone())

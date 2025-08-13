@@ -2,7 +2,7 @@ use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
 use serde_json::json;
 
-use neems_api::models::{Company, Role, UserWithRoles};
+use neems_api::models::{Company, Role};
 use neems_api::orm::testing::fast_test_rocket;
 
 /// Helper to login as default admin and get session cookie
@@ -41,7 +41,7 @@ async fn create_test_role(
     });
 
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .cookie(admin_cookie.clone())
         .json(&new_role)
         .dispatch()
@@ -51,57 +51,6 @@ async fn create_test_role(
     response.into_json().await.expect("valid role JSON")
 }
 
-/// Helper to create a company
-async fn create_company(
-    client: &Client,
-    admin_cookie: &rocket::http::Cookie<'static>,
-    name: &str,
-) -> Company {
-    let new_comp = json!({"name": name});
-
-    let response = client
-        .post("/api/1/companies")
-        .cookie(admin_cookie.clone())
-        .json(&new_comp)
-        .dispatch()
-        .await;
-
-    assert_eq!(response.status(), Status::Created);
-    response.into_json().await.expect("valid company JSON")
-}
-
-/// Helper to create a user and assign role
-async fn create_user_with_role(
-    client: &Client,
-    admin_cookie: &rocket::http::Cookie<'static>,
-    email: &str,
-    company_id: i32,
-    role_name: &str,
-) -> UserWithRoles {
-    // Create user with properly hashed password
-    let password_hash = neems_api::orm::login::hash_password("admin");
-    let new_user = json!({
-        "email": email,
-        "password_hash": password_hash,
-        "company_id": company_id,
-        "totp_secret": "",
-        "role_names": [role_name]
-    });
-
-    let response = client
-        .post("/api/1/users")
-        .cookie(admin_cookie.clone())
-        .json(&new_user)
-        .dispatch()
-        .await;
-
-    assert_eq!(response.status(), Status::Created);
-    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
-
-    // Role is already assigned during user creation, no need for separate assignment
-
-    created_user
-}
 
 /// Helper to login with specific credentials and get session cookie
 async fn login_user(client: &Client, email: &str, password: &str) -> rocket::http::Cookie<'static> {
@@ -133,7 +82,7 @@ async fn test_get_role_endpoint_requires_authentication() {
         .expect("valid rocket instance");
 
     // Test unauthenticated request fails
-    let response = client.get("/api/1/roles/1").dispatch().await;
+    let response = client.get("/api/1/Roles/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -154,7 +103,7 @@ async fn test_get_role_endpoint_success() {
     .await;
 
     // Get the role by ID
-    let url = format!("/api/1/roles/{}", created_role.id);
+    let url = format!("/api/1/Roles/{}", created_role.id);
     let response = client.get(&url).cookie(admin_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
@@ -177,7 +126,7 @@ async fn test_get_role_endpoint_not_found() {
 
     // Try to get a role that doesn't exist
     let response = client
-        .get("/api/1/roles/99999")
+        .get("/api/1/Roles/99999")
         .cookie(admin_cookie)
         .dispatch()
         .await;
@@ -197,7 +146,7 @@ async fn test_update_role_endpoint_requires_authentication() {
 
     // Test unauthenticated request fails
     let response = client
-        .put("/api/1/roles/1")
+        .put("/api/1/Roles/1")
         .json(&update_request)
         .dispatch()
         .await;
@@ -225,7 +174,7 @@ async fn test_update_role_endpoint_success() {
         "name": "Updated Name"
     });
 
-    let url = format!("/api/1/roles/{}", created_role.id);
+    let url = format!("/api/1/Roles/{}", created_role.id);
     let response = client
         .put(&url)
         .cookie(admin_cookie.clone())
@@ -303,7 +252,7 @@ async fn test_update_role_endpoint_set_description_to_null() {
         "description": serde_json::Value::Null
     });
 
-    let url = format!("/api/1/roles/{}", created_role.id);
+    let url = format!("/api/1/Roles/{}", created_role.id);
     let response = client
         .put(&url)
         .cookie(admin_cookie)
@@ -331,7 +280,7 @@ async fn test_update_role_endpoint_not_found() {
 
     // Try to update a role that doesn't exist
     let response = client
-        .put("/api/1/roles/99999")
+        .put("/api/1/Roles/99999")
         .cookie(admin_cookie)
         .json(&update_request)
         .dispatch()
@@ -347,7 +296,7 @@ async fn test_delete_role_endpoint_requires_authentication() {
         .expect("valid rocket instance");
 
     // Test unauthenticated request fails
-    let response = client.delete("/api/1/roles/1").dispatch().await;
+    let response = client.delete("/api/1/Roles/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -368,7 +317,7 @@ async fn test_delete_role_endpoint_success() {
     .await;
 
     // Verify role exists by getting it
-    let get_url = format!("/api/1/roles/{}", created_role.id);
+    let get_url = format!("/api/1/Roles/{}", created_role.id);
     let get_response = client
         .get(&get_url)
         .cookie(admin_cookie.clone())
@@ -377,7 +326,7 @@ async fn test_delete_role_endpoint_success() {
     assert_eq!(get_response.status(), Status::Ok);
 
     // Delete the role
-    let delete_url = format!("/api/1/roles/{}", created_role.id);
+    let delete_url = format!("/api/1/Roles/{}", created_role.id);
     let response = client
         .delete(&delete_url)
         .cookie(admin_cookie.clone())
@@ -400,7 +349,7 @@ async fn test_delete_role_endpoint_not_found() {
 
     // Try to delete a role that doesn't exist
     let response = client
-        .delete("/api/1/roles/99999")
+        .delete("/api/1/Roles/99999")
         .cookie(admin_cookie)
         .dispatch()
         .await;
@@ -430,7 +379,7 @@ async fn test_role_crud_full_cycle_api() {
     );
 
     // Read the role by ID
-    let get_url = format!("/api/1/roles/{}", created_role.id);
+    let get_url = format!("/api/1/Roles/{}", created_role.id);
     let get_response = client
         .get(&get_url)
         .cookie(admin_cookie.clone())
@@ -508,7 +457,7 @@ async fn test_update_role_endpoint_empty_request() {
     // Send empty update request (no fields to update)
     let update_request = json!({});
 
-    let url = format!("/api/1/roles/{}", created_role.id);
+    let url = format!("/api/1/Roles/{}", created_role.id);
     let response = client
         .put(&url)
         .cookie(admin_cookie)
@@ -538,16 +487,17 @@ async fn test_create_role_requires_newtown_admin() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -562,7 +512,7 @@ async fn test_create_role_requires_newtown_admin() {
     });
 
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .cookie(admin_session)
         .json(&new_role)
         .dispatch()
@@ -575,7 +525,7 @@ async fn test_create_role_requires_newtown_admin() {
     let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .cookie(staff_session)
         .json(&new_role)
         .dispatch()
@@ -585,7 +535,7 @@ async fn test_create_role_requires_newtown_admin() {
 
     // Test with newtown-admin (should succeed)
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .cookie(admin_cookie)
         .json(&new_role)
         .dispatch()
@@ -614,16 +564,17 @@ async fn test_update_role_requires_newtown_admin() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -634,7 +585,7 @@ async fn test_update_role_requires_newtown_admin() {
         "name": "Updated Name"
     });
 
-    let url = format!("/api/1/roles/{}", created_role.id);
+    let url = format!("/api/1/Roles/{}", created_role.id);
 
     // Test with regular admin (should fail) - using existing user from golden database
     let admin_session = login_user(&client, "admin@company1.com", "admin").await;
@@ -706,16 +657,17 @@ async fn test_delete_role_requires_newtown_admin() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -724,7 +676,7 @@ async fn test_delete_role_requires_newtown_admin() {
     // Using existing user from golden database: admin@company1.com
     let admin_session = login_user(&client, "admin@company1.com", "admin").await;
 
-    let url = format!("/api/1/roles/{}", role_for_admin.id);
+    let url = format!("/api/1/Roles/{}", role_for_admin.id);
     let response = client.delete(&url).cookie(admin_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
@@ -733,13 +685,13 @@ async fn test_delete_role_requires_newtown_admin() {
     // Using existing newtown-staff user from golden database
     let staff_session = login_user(&client, "newtownstaff@newtown.com", "admin").await;
 
-    let url = format!("/api/1/roles/{}", role_for_staff.id);
+    let url = format!("/api/1/Roles/{}", role_for_staff.id);
     let response = client.delete(&url).cookie(staff_session).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
 
     // Test with newtown-admin (should succeed)
-    let url = format!("/api/1/roles/{}", role_for_newtown_admin.id);
+    let url = format!("/api/1/Roles/{}", role_for_newtown_admin.id);
     let response = client
         .delete(&url)
         .cookie(admin_cookie.clone())
@@ -771,16 +723,17 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
 
     // Get Newtown Energy company
     let companies_response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(companies_response.status(), Status::Ok);
-    let companies: Vec<Company> = companies_response
+    let odata_response: serde_json::Value = companies_response
         .into_json()
         .await
-        .expect("valid companies JSON");
-    let newtown_company = companies
+        .expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let _newtown_company = companies
         .iter()
         .find(|c| c.name == "Newtown Energy")
         .expect("Newtown Energy company should exist");
@@ -792,7 +745,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
 
     // Should be able to list roles
     let response = client
-        .get("/api/1/roles")
+        .get("/api/1/Roles")
         .cookie(admin_session.clone())
         .dispatch()
         .await;
@@ -801,7 +754,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
     assert!(roles.len() >= 4); // At least the 4 default roles + created test role
 
     // Should be able to get individual role
-    let url = format!("/api/1/roles/{}", created_role.id);
+    let url = format!("/api/1/Roles/{}", created_role.id);
     let response = client.get(&url).cookie(admin_session).dispatch().await;
     assert_eq!(response.status(), Status::Ok);
     let role: Role = response.into_json().await.expect("valid role JSON");
@@ -813,7 +766,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
 
     // Should be able to list roles
     let response = client
-        .get("/api/1/roles")
+        .get("/api/1/Roles")
         .cookie(staff_session.clone())
         .dispatch()
         .await;
@@ -830,7 +783,7 @@ async fn test_list_and_get_roles_allow_all_authenticated_users() {
 
     // Should be able to list roles
     let response = client
-        .get("/api/1/roles")
+        .get("/api/1/Roles")
         .cookie(user_session.clone())
         .dispatch()
         .await;
@@ -861,29 +814,29 @@ async fn test_unauthenticated_users_cannot_access_roles() {
 
     // Create role - should fail
     let response = client
-        .post("/api/1/roles")
+        .post("/api/1/Roles")
         .json(&test_role_data)
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     // List roles - should fail
-    let response = client.get("/api/1/roles").dispatch().await;
+    let response = client.get("/api/1/Roles").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     // Get role - should fail
-    let response = client.get("/api/1/roles/1").dispatch().await;
+    let response = client.get("/api/1/Roles/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     // Update role - should fail
     let response = client
-        .put("/api/1/roles/1")
+        .put("/api/1/Roles/1")
         .json(&update_data)
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     // Delete role - should fail
-    let response = client.delete("/api/1/roles/1").dispatch().await;
+    let response = client.delete("/api/1/Roles/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }

@@ -5,7 +5,7 @@
 //! pre-populated with test data. 
 //!
 //! The tests for /api/1/data endpoint are always available since that endpoint is not feature-gated.
-//! The tests for /api/1/data/schema endpoint require the `test-staging` feature.
+//! The tests for /api/1/$metadata/schema endpoint require the `test-staging` feature.
 
 use rocket::http::{ContentType, Status};
 use rocket::local::asynchronous::Client;
@@ -36,7 +36,7 @@ async fn test_list_data_sources_success() {
         .await
         .expect("valid rocket instance");
     
-    let response = client.get("/api/1/data").dispatch().await;
+    let response = client.get("/api/1/DataSources").dispatch().await;
     
     assert_eq!(response.status(), Status::Ok);
     
@@ -71,7 +71,7 @@ async fn test_list_data_sources_response_structure() {
         .await
         .expect("valid rocket instance");
     
-    let response = client.get("/api/1/data").dispatch().await;
+    let response = client.get("/api/1/DataSources").dispatch().await;
     
     assert_eq!(response.status(), Status::Ok);
     
@@ -121,7 +121,7 @@ async fn test_list_data_sources_response_structure() {
     }
 }
 
-/// Test the /api/1/data/schema endpoint returns valid schema information.
+/// Test the /api/1/$metadata/schema endpoint returns valid schema information.
 /// 
 /// This test is feature-gated to only run when test-staging is enabled.
 /// It verifies:
@@ -135,7 +135,7 @@ async fn test_get_schema_success() {
         .await
         .expect("valid rocket instance");
     
-    let response = client.get("/api/1/data/schema").dispatch().await;
+    let response = client.get("/api/1/$metadata/schema").dispatch().await;
     
     assert_eq!(response.status(), Status::Ok);
     
@@ -159,7 +159,7 @@ async fn test_get_schema_success() {
     assert!(schema.contains("readings"), "Schema should reference readings table");
 }
 
-/// Test the /api/1/data/schema endpoint contains expected database objects.
+/// Test the /api/1/$metadata/schema endpoint contains expected database objects.
 /// 
 /// This test validates that the schema dump includes the core tables and
 /// structures defined in the neems-data migrations.
@@ -170,7 +170,7 @@ async fn test_get_schema_contains_expected_tables() {
         .await
         .expect("valid rocket instance");
     
-    let response = client.get("/api/1/data/schema").dispatch().await;
+    let response = client.get("/api/1/$metadata/schema").dispatch().await;
     
     assert_eq!(response.status(), Status::Ok);
     
@@ -211,7 +211,7 @@ async fn test_get_source_readings_latest() {
         .expect("valid rocket instance");
     
     // First get available sources to find a valid source_id
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     assert_eq!(sources_response.status(), Status::Ok);
     
     let sources: DataSourcesResponse = sources_response
@@ -227,7 +227,7 @@ async fn test_get_source_readings_latest() {
     let test_source_id = sources.sources[0].id.expect("Source should have ID");
     
     // Test with latest=10 parameter
-    let url = format!("/api/1/data/{}?latest=10", test_source_id);
+    let url = format!("/api/1/DataSources/{}/Readings?latest=10", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -262,7 +262,7 @@ async fn test_get_source_readings_time_window() {
         .expect("valid rocket instance");
     
     // Get available sources
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     let sources: DataSourcesResponse = sources_response.into_json().await.unwrap();
     
     if sources.sources.is_empty() {
@@ -273,7 +273,7 @@ async fn test_get_source_readings_time_window() {
     let test_source_id = sources.sources[0].id.unwrap();
     
     // Test with time window
-    let url = format!("/api/1/data/{}?since=2024-01-01T00:00:00Z&until=2024-12-31T23:59:59Z", test_source_id);
+    let url = format!("/api/1/DataSources/{}/Readings?since=2024-01-01T00:00:00Z&until=2024-12-31T23:59:59Z", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -305,7 +305,7 @@ async fn test_get_source_readings_not_found() {
     
     // Use a source ID that definitely doesn't exist
     let response = client
-        .get("/api/1/data/99999?latest=1")
+        .get("/api/1/DataSources/99999/Readings?latest=1")
         .cookie(session_cookie)
         .dispatch()
         .await;
@@ -324,7 +324,7 @@ async fn test_get_source_readings_invalid_params() {
         .expect("valid rocket instance");
     
     // Get a valid source ID first
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     let sources: DataSourcesResponse = sources_response.into_json().await.unwrap();
     
     if sources.sources.is_empty() {
@@ -334,7 +334,7 @@ async fn test_get_source_readings_invalid_params() {
     let test_source_id = sources.sources[0].id.unwrap();
     
     // Test with conflicting parameters (both latest and since)
-    let url = format!("/api/1/data/{}?latest=10&since=2024-01-01T00:00:00Z", test_source_id);
+    let url = format!("/api/1/DataSources/{}/Readings?latest=10&since=2024-01-01T00:00:00Z", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -343,7 +343,7 @@ async fn test_get_source_readings_invalid_params() {
     assert_eq!(response.status(), Status::BadRequest);
 }
 
-/// Test the /api/1/data/readings endpoint for multiple sources.
+/// Test the /api/1/Readings endpoint for multiple sources.
 /// 
 /// This test verifies the multi-source readings endpoint with source_ids parameter.
 #[tokio::test]
@@ -354,7 +354,7 @@ async fn test_get_multi_source_readings() {
         .expect("valid rocket instance");
     
     // Get available sources
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     let sources: DataSourcesResponse = sources_response.into_json().await.unwrap();
     
     if sources.sources.len() < 2 {
@@ -366,7 +366,7 @@ async fn test_get_multi_source_readings() {
     let source_id_2 = sources.sources[1].id.unwrap();
     
     // Test with multiple source IDs
-    let url = format!("/api/1/data/readings?source_ids={},{}&latest=5", source_id_1, source_id_2);
+    let url = format!("/api/1/Readings?source_ids={},{}&latest=5", source_id_1, source_id_2);
     let response = client
         .get(&url)
         .dispatch()
@@ -390,7 +390,7 @@ async fn test_get_multi_source_readings() {
     }
 }
 
-/// Test the /api/1/data/readings endpoint without required source_ids parameter.
+/// Test the /api/1/Readings endpoint without required source_ids parameter.
 /// 
 /// This test verifies that the multi-source endpoint returns 400 without source_ids.
 #[tokio::test]
@@ -402,14 +402,14 @@ async fn test_get_multi_source_readings_missing_source_ids() {
     
     // Test without source_ids parameter
     let response = client
-        .get("/api/1/data/readings?latest=5")
+        .get("/api/1/Readings?latest=5")
         .dispatch()
         .await;
     
     assert_eq!(response.status(), Status::BadRequest);
 }
 
-/// Test the /api/1/data/readings endpoint with invalid source IDs in the list.
+/// Test the /api/1/Readings endpoint with invalid source IDs in the list.
 /// 
 /// This test verifies that the endpoint returns 404 if any source doesn't exist.
 #[tokio::test]
@@ -420,7 +420,7 @@ async fn test_get_multi_source_readings_invalid_source() {
         .expect("valid rocket instance");
     
     // Get one valid source
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     let sources: DataSourcesResponse = sources_response.into_json().await.unwrap();
     
     if sources.sources.is_empty() {
@@ -430,7 +430,7 @@ async fn test_get_multi_source_readings_invalid_source() {
     let valid_source_id = sources.sources[0].id.unwrap();
     
     // Test with one valid and one invalid source ID
-    let url = format!("/api/1/data/readings?source_ids={},99999&latest=5", valid_source_id);
+    let url = format!("/api/1/Readings?source_ids={},99999&latest=5", valid_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -450,7 +450,7 @@ async fn test_readings_response_structure() {
         .expect("valid rocket instance");
     
     // Get available sources
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     let sources: DataSourcesResponse = sources_response.into_json().await.unwrap();
     
     if sources.sources.is_empty() {
@@ -459,7 +459,7 @@ async fn test_readings_response_structure() {
     
     let test_source_id = sources.sources[0].id.unwrap();
     
-    let url = format!("/api/1/data/{}?latest=1", test_source_id);
+    let url = format!("/api/1/DataSources/{}/Readings?latest=1", test_source_id);
     let response = client
         .get(&url)
         .dispatch()
@@ -614,7 +614,7 @@ async fn test_readings_endpoints_require_authentication() {
     
     // Test single source endpoint without authentication
     let response = client
-        .get("/api/1/data/1?latest=1")
+        .get("/api/1/DataSources/1/Readings?latest=1")
         .dispatch()
         .await;
     
@@ -622,7 +622,7 @@ async fn test_readings_endpoints_require_authentication() {
 
     // Test multi-source endpoint without authentication
     let response = client
-        .get("/api/1/data/readings?source_ids=1&latest=1")
+        .get("/api/1/Readings?source_ids=1&latest=1")
         .dispatch()
         .await;
     
@@ -639,7 +639,7 @@ async fn test_company_based_access_control() {
     setup_test_users_for_data_access(&client).await;
 
     // Get available sources first
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     if sources_response.status() != Status::Ok {
         println!("No sources available for access control test, skipping");
         return;
@@ -657,7 +657,7 @@ async fn test_company_based_access_control() {
     let session_cookie = login_as_user(&client, "testuser@testcompany.com", "testpass").await;
     
     // Try to access a source (this might fail if the test source belongs to a different company)
-    let url = format!("/api/1/data/{}?latest=1", test_source_id);
+    let url = format!("/api/1/DataSources/{}/Readings?latest=1", test_source_id);
     let response = client
         .get(&url)
         .cookie(session_cookie)
@@ -683,7 +683,7 @@ async fn test_newtown_staff_access() {
     setup_test_users_for_data_access(&client).await;
 
     // Get available sources first
-    let sources_response = client.get("/api/1/data").dispatch().await;
+    let sources_response = client.get("/api/1/DataSources").dispatch().await;
     if sources_response.status() != Status::Ok {
         println!("No sources available for newtown-staff test, skipping");
         return;
@@ -701,7 +701,7 @@ async fn test_newtown_staff_access() {
     let session_cookie = login_as_user(&client, "staff@newtown.energy", "staffpass").await;
     
     // Try to access any source - should succeed due to newtown-staff role
-    let url = format!("/api/1/data/{}?latest=1", test_source_id);
+    let url = format!("/api/1/DataSources/{}/Readings?latest=1", test_source_id);
     let response = client
         .get(&url)
         .cookie(session_cookie)

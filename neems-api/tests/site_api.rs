@@ -31,13 +31,14 @@ async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
 /// Helper to get a test company by name
 async fn get_company_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Company {
     let response = client
-        .get("/api/1/companies")
+        .get("/api/1/Companies")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let companies: Vec<Company> = response.into_json().await.expect("valid companies JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
     companies.into_iter()
         .find(|c| c.name == name)
         .expect(&format!("Company '{}' should exist from test data initialization", name))
@@ -73,10 +74,10 @@ async fn test_site_endpoints_require_authentication() {
         .expect("valid rocket instance");
 
     // Test all endpoints require authentication
-    let response = client.get("/api/1/sites").dispatch().await;
+    let response = client.get("/api/1/Sites").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
-    let response = client.get("/api/1/sites/1").dispatch().await;
+    let response = client.get("/api/1/Sites/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     let new_site = json!({
@@ -87,7 +88,7 @@ async fn test_site_endpoints_require_authentication() {
         "company_id": 1
     });
 
-    let response = client.post("/api/1/sites").json(&new_site).dispatch().await;
+    let response = client.post("/api/1/Sites").json(&new_site).dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     let update_site = json!({
@@ -95,13 +96,13 @@ async fn test_site_endpoints_require_authentication() {
     });
 
     let response = client
-        .put("/api/1/sites/1")
+        .put("/api/1/Sites/1")
         .json(&update_site)
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Unauthorized);
 
-    let response = client.delete("/api/1/sites/1").dispatch().await;
+    let response = client.delete("/api/1/Sites/1").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 }
 
@@ -128,7 +129,7 @@ async fn test_company_admin_can_crud_own_company_sites() {
     });
 
     let response = client
-        .post("/api/1/sites")
+        .post("/api/1/Sites")
         .cookie(admin_session.clone())
         .json(&new_site)
         .dispatch()
@@ -141,7 +142,7 @@ async fn test_company_admin_can_crud_own_company_sites() {
     assert_eq!(created_site.company_id, company.id);
 
     // Read the site
-    let url = format!("/api/1/sites/{}", created_site.id);
+    let url = format!("/api/1/Sites/{}", created_site.id);
     let response = client
         .get(&url)
         .cookie(admin_session.clone())
@@ -172,7 +173,7 @@ async fn test_company_admin_can_crud_own_company_sites() {
 
     // List sites (should see their company's site)
     let response = client
-        .get("/api/1/sites")
+        .get("/api/1/Sites")
         .cookie(admin_session.clone())
         .dispatch()
         .await;
@@ -217,7 +218,7 @@ async fn test_company_admin_cannot_access_different_company_sites() {
     });
 
     let response = client
-        .post("/api/1/sites")
+        .post("/api/1/Sites")
         .cookie(admin1_session.clone())
         .json(&new_site)
         .dispatch()
@@ -227,7 +228,7 @@ async fn test_company_admin_cannot_access_different_company_sites() {
 
     // Create a site for company2 using super admin
     let response = client
-        .post("/api/1/sites")
+        .post("/api/1/Sites")
         .cookie(admin_cookie.clone())
         .json(&new_site)
         .dispatch()
@@ -237,7 +238,7 @@ async fn test_company_admin_cannot_access_different_company_sites() {
     let company2_site: Site = response.into_json().await.expect("valid site JSON");
 
     // Company1 admin should not be able to read company2's site
-    let url = format!("/api/1/sites/{}", company2_site.id);
+    let url = format!("/api/1/Sites/{}", company2_site.id);
     let response = client
         .get(&url)
         .cookie(admin1_session.clone())
@@ -286,7 +287,7 @@ async fn test_newtown_admin_can_crud_any_site() {
     });
 
     let response = client
-        .post("/api/1/sites")
+        .post("/api/1/Sites")
         .cookie(admin_cookie.clone())
         .json(&new_site)
         .dispatch()
@@ -296,7 +297,7 @@ async fn test_newtown_admin_can_crud_any_site() {
     let created_site: Site = response.into_json().await.expect("valid site JSON");
 
     // Newtown admin can read any site
-    let url = format!("/api/1/sites/{}", created_site.id);
+    let url = format!("/api/1/Sites/{}", created_site.id);
     let response = client
         .get(&url)
         .cookie(admin_cookie.clone())
@@ -321,7 +322,7 @@ async fn test_newtown_admin_can_crud_any_site() {
 
     // Newtown admin can see all sites
     let response = client
-        .get("/api/1/sites")
+        .get("/api/1/Sites")
         .cookie(admin_cookie.clone())
         .dispatch()
         .await;
@@ -351,7 +352,7 @@ async fn test_regular_user_cannot_crud_sites() {
 
     // Regular user cannot list sites
     let response = client
-        .get("/api/1/sites")
+        .get("/api/1/Sites")
         .cookie(user_session.clone())
         .dispatch()
         .await;
@@ -368,7 +369,7 @@ async fn test_regular_user_cannot_crud_sites() {
     });
 
     let response = client
-        .post("/api/1/sites")
+        .post("/api/1/Sites")
         .cookie(user_session)
         .json(&new_site)
         .dispatch()

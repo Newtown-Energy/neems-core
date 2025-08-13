@@ -14,6 +14,7 @@ pub mod api;
 pub mod company;
 pub mod logged_json;
 pub mod models;
+pub mod odata_query;
 pub mod orm;
 pub use orm::{DbConn, SiteDbConn};
 pub mod schema;
