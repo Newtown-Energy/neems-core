@@ -70,7 +70,8 @@ There is a test suite for the backend.  Run it with `cargo test`, which points
 at `dosh` and wraps the real cargo.  It is a drop-in replacement for `cargo
 test`, which is to say test selectors will work.  What won't work is stderr
 redirection, mostly because we're already doing that in the wrapper to put the
-contents of the run in a temp file and on the clipboard.
+contents of the run in a temp file and on the clipboard.  If you want to run
+unwrapped cargo, you can use `~/.cargo/bin/cargo`.
 
 ## Planned Features
 
