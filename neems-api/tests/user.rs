@@ -275,3 +275,52 @@ async fn test_user_crud_endpoints() {
 
     assert_eq!(response.status(), rocket::http::Status::NoContent); // Should work as we're logged in as newtown-admin
 }
+
+#[rocket::async_test]
+async fn test_create_user_with_nonexistent_email_should_succeed() {
+    let client = Client::tracked(fast_test_rocket())
+        .await
+        .expect("valid rocket instance");
+    let session_cookie = login_and_get_session(&client).await;
+    let (comp_id, _) = setup_authenticated_user(&client).await;
+
+    // Use a unique email that definitely doesn't exist
+    use uuid::Uuid;
+    let unique_email = format!("absolutely-unique-{}@test.com", Uuid::new_v4());
+    
+    // First verify the email doesn't exist in the database
+    let conn = neems_api::orm::DbConn::get_one(client.rocket())
+        .await
+        .expect("get db connection");
+    
+    let email_for_check = unique_email.clone();
+    let existing_user = conn.run(move |c| {
+        neems_api::orm::user::get_user_by_email(c, &email_for_check)
+    }).await.expect("database query should work");
+    
+    assert!(existing_user.is_none(), "Email should not exist in database");
+
+    // Now try to create a user with this email - it should succeed
+    let new_user = json!({
+        "email": unique_email.clone(),
+        "password_hash": "hashed_pw",
+        "company_id": comp_id,
+        "totp_secret": "testsecret",
+        "role_names": ["staff"]
+    });
+
+    let response = client
+        .post("/api/1/Users")
+        .header(ContentType::JSON)
+        .cookie(session_cookie)
+        .body(new_user.to_string())
+        .dispatch()
+        .await;
+
+    // This should succeed (Created), not fail with Conflict
+    assert_eq!(response.status(), rocket::http::Status::Created, 
+               "Creating user with unique email should succeed, not return 'User with this email already exists'");
+    
+    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
+    assert_eq!(created_user.email, unique_email);
+}

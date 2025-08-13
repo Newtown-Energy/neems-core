@@ -535,14 +535,14 @@ pub async fn create_user(
 
         // SECOND: Check if user with this email already exists
         match get_user_by_email(conn, &user_request.email) {
-            Ok(_existing_user) => {
+            Ok(Some(_existing_user)) => {
                 // User with this email already exists
                 let err = Json(ErrorResponse {
                     error: "User with this email already exists".to_string(),
                 });
                 return Err(response::status::Custom(Status::Conflict, err));
             }
-            Err(diesel::result::Error::NotFound) => {
+            Ok(None) => {
                 // User doesn't exist, we can proceed
             }
             Err(e) => {
