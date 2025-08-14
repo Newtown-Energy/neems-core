@@ -2,7 +2,7 @@ use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
 use neems_api::orm::company::get_company_by_id;
 use neems_api::orm::site::{
-    delete_site, get_all_sites, get_site_by_id, get_sites_by_company, insert_site, update_site,
+    delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id, get_sites_by_company, insert_site, update_site,
 };
 use regex::Regex;
 use std::io::{self, Write};
@@ -72,6 +72,7 @@ pub enum SiteAction {
 pub fn handle_site_command_with_conn(
     conn: &mut SqliteConnection,
     action: SiteAction,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         SiteAction::Ls {
@@ -88,7 +89,7 @@ pub fn handle_site_command_with_conn(
             longitude,
             company_id,
         } => {
-            site_add_impl(conn, name, address, latitude, longitude, company_id)?;
+            site_add_impl(conn, name, address, latitude, longitude, company_id, admin_user_id)?;
         }
         SiteAction::Rm {
             search_term,
@@ -96,7 +97,7 @@ pub fn handle_site_command_with_conn(
             yes,
             company_id,
         } => {
-            site_rm_impl(conn, search_term, fixed_string, yes, company_id)?;
+            site_rm_impl(conn, search_term, fixed_string, yes, company_id, admin_user_id)?;
         }
         SiteAction::Edit {
             id,
@@ -106,7 +107,7 @@ pub fn handle_site_command_with_conn(
             longitude,
             company_id,
         } => {
-            site_edit_impl(conn, id, name, address, latitude, longitude, company_id)?;
+            site_edit_impl(conn, id, name, address, latitude, longitude, company_id, admin_user_id)?;
         }
     }
     Ok(())
@@ -164,8 +165,23 @@ pub fn site_add_impl(
     latitude: f64,
     longitude: f64,
     company_id: i32,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let created_site = insert_site(conn, name, address, latitude, longitude, company_id)?;
+    // Check if site already exists for this company
+    if let Some(existing_site) = get_site_by_company_and_name(conn, company_id, &name)? {
+        println!("Site already exists!");
+        println!("ID: {}", existing_site.id);
+        println!("Name: {}", existing_site.name);
+        println!("Address: {}", existing_site.address);
+        println!("Company ID: {}", existing_site.company_id);
+        println!(
+            "Coordinates: ({}, {})",
+            existing_site.latitude, existing_site.longitude
+        );
+        return Ok(());
+    }
+
+    let created_site = insert_site(conn, name, address, latitude, longitude, company_id, Some(admin_user_id))?;
 
     println!("Site created successfully!");
     println!("ID: {}", created_site.id);
@@ -186,6 +202,7 @@ pub fn site_rm_impl(
     fixed_string: bool,
     yes: bool,
     company_id: Option<i32>,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let sites = if let Some(comp_id) = company_id {
         get_sites_by_company(conn, comp_id)?
@@ -244,7 +261,7 @@ pub fn site_rm_impl(
     let mut errors = Vec::new();
 
     for site in matching_sites {
-        match delete_site(conn, site.id) {
+        match delete_site(conn, site.id, Some(admin_user_id)) {
             Ok(rows_affected) => {
                 if rows_affected > 0 {
                     deleted_count += 1;
@@ -281,6 +298,7 @@ pub fn site_edit_impl(
     new_latitude: Option<f64>,
     new_longitude: Option<f64>,
     new_company_id: Option<i32>,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if site exists
     let site = get_site_by_id(conn, site_id)?;
@@ -316,6 +334,7 @@ pub fn site_edit_impl(
         new_latitude,
         new_longitude,
         new_company_id,
+        Some(admin_user_id),
     )?;
 
     println!("Site updated successfully!");

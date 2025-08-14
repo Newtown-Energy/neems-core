@@ -107,6 +107,7 @@ pub enum UserAction {
 pub fn handle_user_command_with_conn(
     conn: &mut SqliteConnection,
     action: UserAction,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         UserAction::Add {
@@ -115,10 +116,10 @@ pub fn handle_user_command_with_conn(
             company_id,
             totp_secret,
         } => {
-            add_user_impl(conn, &email, password, company_id, totp_secret)?;
+            add_user_impl(conn, &email, password, company_id, totp_secret, admin_user_id)?;
         }
         UserAction::ChangePassword { email, password } => {
-            change_password_impl(conn, &email, password)?;
+            change_password_impl(conn, &email, password, admin_user_id)?;
         }
         UserAction::Ls {
             search_term,
@@ -131,7 +132,7 @@ pub fn handle_user_command_with_conn(
             fixed_string,
             yes,
         } => {
-            remove_users_impl(conn, search_term, fixed_string, yes)?;
+            remove_users_impl(conn, search_term, fixed_string, yes, admin_user_id)?;
         }
         UserAction::Edit {
             id,
@@ -139,7 +140,7 @@ pub fn handle_user_command_with_conn(
             company_id,
             totp_secret,
         } => {
-            user_edit_impl(conn, id, email, company_id, totp_secret)?;
+            user_edit_impl(conn, id, email, company_id, totp_secret, admin_user_id)?;
         }
         UserAction::AddRole { email, role } => {
             user_add_role_impl(conn, &email, &role)?;
@@ -160,7 +161,17 @@ pub fn add_user_impl(
     password: Option<String>,
     company_id: i32,
     totp_secret: Option<String>,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if user already exists
+    if let Some(existing_user) = get_user_by_email(conn, email)? {
+        println!("User already exists!");
+        println!("ID: {}", existing_user.id);
+        println!("Email: {}", existing_user.email);
+        println!("Company ID: {}", existing_user.company_id);
+        return Ok(());
+    }
+
     let password = match password {
         Some(p) => p,
         None => prompt_for_password()?,
@@ -176,7 +187,7 @@ pub fn add_user_impl(
         totp_secret,
     };
 
-    let created_user = insert_user(conn, new_user)?;
+    let created_user = insert_user(conn, new_user, Some(admin_user_id))?;
 
     println!("User created successfully!");
     println!("ID: {}", created_user.id);
@@ -190,6 +201,7 @@ pub fn change_password_impl(
     conn: &mut SqliteConnection,
     email: &str,
     password: Option<String>,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let password = match password {
         Some(p) => p,
@@ -200,7 +212,7 @@ pub fn change_password_impl(
         hash_password(&password).map_err(|e| format!("Failed to hash password: {}", e))?;
     let user = get_user_by_email(conn, email)?
         .ok_or_else(|| format!("User with email '{}' not found", email))?;
-    update_user(conn, user.id, None, Some(password_hash), None, None)?;
+    update_user(conn, user.id, None, Some(password_hash), None, None, Some(admin_user_id))?;
 
     println!("Password changed successfully for user: {}", email);
     Ok(())
@@ -254,6 +266,7 @@ pub fn remove_users_impl(
     search_term: String,
     fixed_string: bool,
     yes: bool,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let users = list_all_users(conn)?;
 
@@ -308,7 +321,7 @@ pub fn remove_users_impl(
     let mut errors = Vec::new();
 
     for user in matching_users {
-        match delete_user_with_cleanup(conn, user.id) {
+        match delete_user_with_cleanup(conn, user.id, Some(admin_user_id)) {
             Ok(rows_affected) => {
                 if rows_affected > 0 {
                     deleted_count += 1;
@@ -343,6 +356,7 @@ pub fn user_edit_impl(
     new_email: Option<String>,
     new_company_id: Option<i32>,
     new_totp_secret: Option<String>,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
     let _user = get_user(conn, user_id)?;
@@ -367,6 +381,7 @@ pub fn user_edit_impl(
         None,
         new_company_id,
         new_totp_secret,
+        Some(admin_user_id),
     )?;
 
     println!("User updated successfully!");

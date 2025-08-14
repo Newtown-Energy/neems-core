@@ -54,6 +54,7 @@ pub enum RoleAction {
 pub fn handle_role_command_with_conn(
     conn: &mut SqliteConnection,
     action: RoleAction,
+    _admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         RoleAction::Ls {

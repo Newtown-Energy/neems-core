@@ -55,6 +55,7 @@ pub enum CompanyAction {
 pub fn handle_company_command_with_conn(
     conn: &mut SqliteConnection,
     action: CompanyAction,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         CompanyAction::Ls {
@@ -64,14 +65,14 @@ pub fn handle_company_command_with_conn(
             company_ls_impl(conn, search_term, fixed_string)?;
         }
         CompanyAction::Add { name } => {
-            company_add_impl(conn, name)?;
+            company_add_impl(conn, name, admin_user_id)?;
         }
         CompanyAction::Rm {
             search_term,
             fixed_string,
             yes,
         } => {
-            company_rm_impl(conn, search_term, fixed_string, yes)?;
+            company_rm_impl(conn, search_term, fixed_string, yes, admin_user_id)?;
         }
         CompanyAction::Edit { id, name } => {
             company_edit_impl(conn, id, name)?;
@@ -126,8 +127,25 @@ pub fn company_ls_impl(
 pub fn company_add_impl(
     conn: &mut SqliteConnection,
     name: String,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let created_company = insert_company(conn, name)?;
+    use neems_api::models::CompanyInput;
+    use neems_api::orm::company::get_company_by_name;
+    
+    // Check if company already exists
+    let company_input = CompanyInput { name: name.clone() };
+    if let Some(existing_company) = get_company_by_name(conn, &company_input)? {
+        println!("Company already exists!");
+        println!("ID: {}", existing_company.id);
+        println!("Name: {}", existing_company.name);
+        let created_at = get_created_at(conn, "companies", existing_company.id)
+            .map(|dt| dt.to_string())
+            .unwrap_or_else(|_| "Unknown".to_string());
+        println!("Created: {}", created_at);
+        return Ok(());
+    }
+
+    let created_company = insert_company(conn, name, Some(admin_user_id))?;
 
     println!("Company created successfully!");
     println!("ID: {}", created_company.id);
@@ -145,6 +163,7 @@ pub fn company_rm_impl(
     search_term: String,
     fixed_string: bool,
     yes: bool,
+    admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let companies = get_all_companies(conn)?;
 
@@ -206,7 +225,7 @@ pub fn company_rm_impl(
     let mut errors = Vec::new();
 
     for company in matching_companies {
-        match delete_company_with_cascade(conn, company.id) {
+        match delete_company_with_cascade(conn, company.id, admin_user_id) {
             Ok(success) => {
                 if success {
                     deleted_count += 1;
@@ -238,21 +257,22 @@ pub fn company_rm_impl(
 fn delete_company_with_cascade(
     conn: &mut SqliteConnection,
     company_id: i32,
+    admin_user_id: i32,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // First delete all users in the company
     let users = get_users_by_company(conn, company_id)?;
     for user in users {
-        delete_user_with_cleanup(conn, user.id)?;
+        delete_user_with_cleanup(conn, user.id, Some(admin_user_id))?;
     }
 
     // Then delete all sites in the company
     let sites = get_sites_by_company(conn, company_id)?;
     for site in sites {
-        delete_site(conn, site.id)?;
+        delete_site(conn, site.id, Some(admin_user_id))?;
     }
 
     // Finally delete the company itself
-    let deleted = delete_company(conn, company_id)?;
+    let deleted = delete_company(conn, company_id, Some(admin_user_id))?;
     Ok(deleted)
 }
 
