@@ -11,13 +11,20 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASEDIR=$(dirname -- "$SCRIPT_DIR")
 cd ${BASEDIR}
 
+# Check for --force option
+FORCE_CREATE=false
+if [ "$1" = "--force" ]; then
+    FORCE_CREATE=true
+    echo "Force option detected - will create new golden database regardless of existing ones"
+fi
+
 echo "Creating golden database for NEEMS testing..."
 
 # Check if we have a recent golden database (within the last hour)
 TARGET_DIR="${BASEDIR}/target"
 RECENT_DB=""
 
-if [ -d "$TARGET_DIR" ]; then
+if [ "$FORCE_CREATE" = false ] && [ -d "$TARGET_DIR" ]; then
     # Find the most recent golden database (created within the last hour)
     # Use a simpler approach that works on all systems
     RECENT_DB=$(ls -t "$TARGET_DIR"/golden_test_*.db 2>/dev/null | head -1)

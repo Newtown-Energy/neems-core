@@ -222,19 +222,10 @@ push() {
 }
 
 release() {
-    # cd ${BASEDIR}
-    # export NEEMS_ADMIN_BIN=${BASEDIR}/bin/neems-admin
-    # set -x
-    # pushd neems-api > /dev/null
-    # pwd
-    # ../bin/setup-demo-data ${BASEDIR}/target/demo.db
-    # popd > /dev/null
-    # set +x
-    # exit
     # Build a release bin
     rustup update
     echo "🚀 Building release version..."
-    ${BASEDIR}/bin/create-golden-db.sh
+    ${BASEDIR}/bin/create-golden-db.sh --force
     local flags="--features fixphrase"
     ${CARGO} $NIGHTLY nextest run -p neems-api -p neems-admin -p neems-data --release $flags  --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
