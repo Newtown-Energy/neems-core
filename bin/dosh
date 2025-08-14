@@ -168,6 +168,7 @@ migrate() {
     echo Running migrations for $PROJ_NAME
 
     # Install diesel command line tool
+    which cargo-binstall > /dev/null || ${CARGO} install cargo-binstall
     which diesel > /dev/null || ${CARGO} binstall diesel_cli
 
     # Check database URL based on project
@@ -221,9 +222,19 @@ push() {
 }
 
 release() {
+    # cd ${BASEDIR}
+    # export NEEMS_ADMIN_BIN=${BASEDIR}/bin/neems-admin
+    # set -x
+    # pushd neems-api > /dev/null
+    # pwd
+    # ../bin/setup-demo-data ${BASEDIR}/target/demo.db
+    # popd > /dev/null
+    # set +x
+    # exit
     # Build a release bin
     rustup update
     echo "🚀 Building release version..."
+    ${BASEDIR}/bin/create-golden-db.sh
     local flags="--features fixphrase"
     ${CARGO} $NIGHTLY nextest run -p neems-api -p neems-admin -p neems-data --release $flags  --features test-staging "$@" || {
 	echo "❌ Tests failed. Please check the output above and junit.xml"
@@ -233,6 +244,10 @@ release() {
 	echo "❌ Build failed. Please check the output above."
 	exit 1
     }
+
+    # Make a db for demos and staging.  We can just overwrite the existing db
+    # with this whenever we want.
+    setup-demo-data ${BASEDIR}/target/demo.db
 }
 
 test() {

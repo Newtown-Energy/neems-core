@@ -14,18 +14,19 @@ if [ -z "$DB_PATH" ]; then
     exit 1
 fi
 
-diesel --database-url=${DB_PATH} setup
+diesel --database-url=${DB_PATH} migration run
+echo Setup ${DB_PATH}
 
 # Figure out where neems-admin is
 if [ -n "$NEEMS_ADMIN_BIN" ]; then
     if [ -x "$NEEMS_ADMIN_BIN" ]; then
-        echo "Using pre-set NEEMS_ADMIN_BIN: $NEEMS_ADMIN_BIN" >&2
+        echo "Using NEEMS_ADMIN_BIN envar: $NEEMS_ADMIN_BIN" >&2
     else
-        echo "Error: Pre-set NEEMS_ADMIN_BIN '$NEEMS_ADMIN_BIN' is not executable or does not exist" >&2
+        echo "Error: NEEMS_ADMIN_BIN envar '$NEEMS_ADMIN_BIN' is not executable or does not exist" >&2
         exit 1
     fi
 else
-    NEEMS_ADMIN_BIN=$(command -v neems-admin 2>/dev/null)
+    NEEMS_ADMIN_BIN=$(command -v neems-admin 2>/dev/null || true)
 
     if [ -z "$NEEMS_ADMIN_BIN" ]; then
         if [ -x "./bin/neems-admin" ]; then
@@ -48,8 +49,8 @@ export DATABASE_URL="$DB_PATH"
 
 # Add demo companies (idempotent - will skip if already exists)
 echo "Adding demo companies..."
-$NEEMS_ADMIN_BIN company add --name "Sunny Solar" 2>/dev/null || echo "Company 'Sunny Solar' already exists"
-$NEEMS_ADMIN_BIN company add --name "Best BESS" 2>/dev/null || echo "Company 'Best BESS' already exists"
+$NEEMS_ADMIN_BIN company add --name "Sunny Solar"
+$NEEMS_ADMIN_BIN company add --name "Best BESS" 
 
 # Get company IDs
 echo "Getting company IDs..."
