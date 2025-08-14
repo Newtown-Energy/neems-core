@@ -23,6 +23,7 @@ pub fn insert_site(
     site_latitude: f64,
     site_longitude: f64,
     site_company_id: i32,
+    acting_user_id: Option<i32>,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
 
@@ -37,7 +38,15 @@ pub fn insert_site(
     diesel::insert_into(sites).values(&new_site).execute(conn)?;
 
     // Return the inserted site
-    sites.order(id.desc()).select(Site::as_select()).first(conn)
+    let site = sites.order(id.desc()).select(Site::as_select()).first(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if let Some(user_id) = acting_user_id {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "sites", site.id, "create", user_id);
+    }
+    
+    Ok(site)
 }
 
 /// Gets a site by its ID.
@@ -78,6 +87,7 @@ pub fn update_site(
     new_latitude: Option<f64>,
     new_longitude: Option<f64>,
     new_company_id: Option<i32>,
+    acting_user_id: Option<i32>,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
 
@@ -96,16 +106,35 @@ pub fn update_site(
         .execute(conn)?;
 
     // Return the updated site
-    sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)
+    let site = sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if let Some(user_id) = acting_user_id {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "sites", site_id, "update", user_id);
+    }
+    
+    Ok(site)
 }
 
 /// Deletes a site from the database.
 pub fn delete_site(
     conn: &mut SqliteConnection,
     site_id: i32,
+    acting_user_id: Option<i32>,
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
-    diesel::delete(sites.filter(id.eq(site_id))).execute(conn)
+    let result = diesel::delete(sites.filter(id.eq(site_id))).execute(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if result > 0 {
+        if let Some(user_id) = acting_user_id {
+            use crate::orm::entity_activity::update_latest_activity_user;
+            let _ = update_latest_activity_user(conn, "sites", site_id, "delete", user_id);
+        }
+    }
+    
+    Ok(result)
 }
 
 /// Get a site with computed timestamps from activity log
@@ -146,7 +175,7 @@ mod tests {
     fn test_get_sites_by_company() {
         let mut conn = setup_test_db();
 
-        let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         // Use insert_site function instead of manual insertion
@@ -157,6 +186,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            None,
         )
         .expect("Failed to insert site 1");
 
@@ -167,6 +197,7 @@ mod tests {
             40.7589,
             -73.9851,
             company.id,
+            None,
         )
         .expect("Failed to insert site 2");
 
@@ -181,7 +212,7 @@ mod tests {
     fn test_insert_site() {
         let mut conn = setup_test_db();
 
-        let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         let site = insert_site(
@@ -191,6 +222,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            None,
         )
         .expect("Failed to insert site");
 
@@ -206,7 +238,7 @@ mod tests {
     fn test_get_site_by_id() {
         let mut conn = setup_test_db();
 
-        let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         let created_site = insert_site(
@@ -216,6 +248,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            None,
         )
         .expect("Failed to insert site");
 
@@ -237,9 +270,9 @@ mod tests {
     fn test_get_all_sites() {
         let mut conn = setup_test_db();
 
-        let company1 = crate::company::insert_company(&mut conn, "Company 1".to_string())
+        let company1 = crate::company::insert_company(&mut conn, "Company 1".to_string(), None)
             .expect("Failed to insert company 1");
-        let company2 = crate::company::insert_company(&mut conn, "Company 2".to_string())
+        let company2 = crate::company::insert_company(&mut conn, "Company 2".to_string(), None)
             .expect("Failed to insert company 2");
 
         // Insert sites for different companies
@@ -250,6 +283,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            None,
         )
         .expect("Failed to insert site 1");
         insert_site(
@@ -259,6 +293,7 @@ mod tests {
             41.0,
             -75.0,
             company2.id,
+            None,
         )
         .expect("Failed to insert site 2");
         insert_site(
@@ -268,6 +303,7 @@ mod tests {
             42.0,
             -76.0,
             company1.id,
+            None,
         )
         .expect("Failed to insert site 3");
 
@@ -284,9 +320,9 @@ mod tests {
     fn test_update_site() {
         let mut conn = setup_test_db();
 
-        let company1 = crate::company::insert_company(&mut conn, "Company 1".to_string())
+        let company1 = crate::company::insert_company(&mut conn, "Company 1".to_string(), None)
             .expect("Failed to insert company 1");
-        let company2 = crate::company::insert_company(&mut conn, "Company 2".to_string())
+        let company2 = crate::company::insert_company(&mut conn, "Company 2".to_string(), None)
             .expect("Failed to insert company 2");
 
         let created_site = insert_site(
@@ -296,6 +332,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            None,
         )
         .expect("Failed to insert site");
 
@@ -313,6 +350,7 @@ mod tests {
             &mut conn,
             created_site.id,
             Some("Updated Site".to_string()),
+            None,
             None,
             None,
             None,
@@ -344,6 +382,7 @@ mod tests {
             Some(41.0),
             Some(-75.0),
             Some(company2.id),
+            None,
         )
         .expect("Failed to fully update site");
 
@@ -366,6 +405,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(result.is_err());
@@ -375,7 +415,7 @@ mod tests {
     fn test_delete_site() {
         let mut conn = setup_test_db();
 
-        let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         let site1 = insert_site(
@@ -385,6 +425,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            None,
         )
         .expect("Failed to insert site 1");
         let site2 = insert_site(
@@ -394,6 +435,7 @@ mod tests {
             41.0,
             -75.0,
             company.id,
+            None,
         )
         .expect("Failed to insert site 2");
 
@@ -402,7 +444,7 @@ mod tests {
         assert_eq!(all_sites_before.len(), 2);
 
         // Delete one site
-        let deleted_count = delete_site(&mut conn, site1.id).expect("Failed to delete site");
+        let deleted_count = delete_site(&mut conn, site1.id, None).expect("Failed to delete site");
         assert_eq!(deleted_count, 1);
 
         // Verify only one site remains
@@ -419,7 +461,7 @@ mod tests {
     fn test_delete_nonexistent_site() {
         let mut conn = setup_test_db();
 
-        let deleted_count = delete_site(&mut conn, 99999).expect("Delete should succeed");
+        let deleted_count = delete_site(&mut conn, 99999, None).expect("Delete should succeed");
         assert_eq!(deleted_count, 0); // No rows affected
     }
 
@@ -427,7 +469,7 @@ mod tests {
     fn test_site_with_timestamps() {
         let mut conn = setup_test_db();
         
-        let company = crate::company::insert_company(&mut conn, "Timestamp Test Company".to_string())
+        let company = crate::company::insert_company(&mut conn, "Timestamp Test Company".to_string(), None)
             .expect("Failed to insert company");
         
         // Insert site
@@ -438,6 +480,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            None,
         ).unwrap();
         
         // Get site with timestamps
@@ -465,7 +508,7 @@ mod tests {
     fn test_get_site_by_company_and_name_case_insensitive() {
         let mut conn = setup_test_db();
 
-        let company = crate::company::insert_company(&mut conn, "Test Company".to_string())
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         // Insert a site with mixed case name
@@ -476,6 +519,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            None,
         )
         .expect("Failed to insert site");
 
@@ -501,7 +545,7 @@ mod tests {
         assert!(result.is_none());
 
         // Test with different company (should not find the site)
-        let other_company = crate::company::insert_company(&mut conn, "Other Company".to_string())
+        let other_company = crate::company::insert_company(&mut conn, "Other Company".to_string(), None)
             .expect("Failed to insert other company");
         let result = get_site_by_company_and_name(&mut conn, other_company.id, "Test Site Name")
             .expect("Query should succeed");

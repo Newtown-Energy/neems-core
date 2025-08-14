@@ -29,7 +29,7 @@ pub async fn add_dummy_data(
     db_conn
         .run(|conn| {
             // Create company directly using ORM
-            let comp = insert_company(conn, random_energy_company_names(1)[0].to_string())
+            let comp = insert_company(conn, random_energy_company_names(1)[0].to_string(), None)
                 .expect("Failed to insert company");
 
             // Create test user directly using ORM
@@ -41,6 +41,7 @@ pub async fn add_dummy_data(
                     company_id: comp.id,
                     totp_secret: Some("dummy_secret".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert user");
 
@@ -232,6 +233,7 @@ async fn create_test_user_with_roles(
                     company_id: 1, // Assumes company exists
                     totp_secret: Some("dummy_secret".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert test user");
 

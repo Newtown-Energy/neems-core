@@ -147,6 +147,7 @@ mod tests {
                 company_id: 1,
                 totp_secret: Some("secret".to_string()),
             },
+            None,
         )
         .unwrap();
 
@@ -176,6 +177,7 @@ mod tests {
                 company_id: 1,
                 totp_secret: Some("secret".to_string()),
             },
+            None,
         )
         .unwrap();
 
@@ -203,6 +205,7 @@ mod tests {
                 company_id: 1,
                 totp_secret: Some("secret".to_string()),
             },
+            None,
         )
         .unwrap();
 
@@ -231,6 +234,7 @@ mod tests {
                 company_id: 1,
                 totp_secret: Some("secret".to_string()),
             },
+            None,
         )
         .unwrap();
 

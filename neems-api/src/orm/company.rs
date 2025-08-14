@@ -41,6 +41,7 @@ pub fn get_company_by_name_case_insensitive(
 pub fn insert_company(
     conn: &mut SqliteConnection,
     comp_name: String,
+    acting_user_id: Option<i32>,
 ) -> Result<Company, diesel::result::Error> {
     use crate::schema::companies::dsl::*;
 
@@ -56,9 +57,17 @@ pub fn insert_company(
         .get_result::<LastInsertRowId>(conn)?
         .last_insert_rowid;
 
-    companies
+    let company = companies
         .filter(id.eq(last_id as i32))
-        .first::<Company>(conn)
+        .first::<Company>(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if let Some(user_id) = acting_user_id {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "companies", company.id, "create", user_id);
+    }
+    
+    Ok(company)
 }
 
 /// Get a company with computed timestamps from activity log
@@ -113,9 +122,19 @@ pub fn get_all_companies(
 pub fn delete_company(
     conn: &mut SqliteConnection,
     company_id: i32,
+    acting_user_id: Option<i32>,
 ) -> Result<bool, diesel::result::Error> {
     use crate::schema::companies::dsl::*;
     let rows_affected = diesel::delete(companies.filter(id.eq(company_id))).execute(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if rows_affected > 0 {
+        if let Some(user_id) = acting_user_id {
+            use crate::orm::entity_activity::update_latest_activity_user;
+            let _ = update_latest_activity_user(conn, "companies", company_id, "delete", user_id);
+        }
+    }
+    
     Ok(rows_affected > 0)
 }
 
@@ -127,7 +146,7 @@ mod tests {
     #[test]
     fn test_insert_company() {
         let mut conn = setup_test_db();
-        let result = insert_company(&mut conn, "Test Company".to_string());
+        let result = insert_company(&mut conn, "Test Company".to_string(), None);
         assert!(result.is_ok());
         let comp = result.unwrap();
         assert_eq!(comp.name, "Test Company");
@@ -139,7 +158,7 @@ mod tests {
         let mut conn = setup_test_db();
         
         // Insert company
-        let company = insert_company(&mut conn, "Timestamp Test Company".to_string()).unwrap();
+        let company = insert_company(&mut conn, "Timestamp Test Company".to_string(), None).unwrap();
         
         // Get company with timestamps
         let company_with_timestamps = get_company_with_timestamps(&mut conn, company.id)
@@ -163,7 +182,7 @@ mod tests {
         let mut conn = setup_test_db();
 
         // Insert a company with mixed case name
-        let created_company = insert_company(&mut conn, "Test Company Name".to_string())
+        let created_company = insert_company(&mut conn, "Test Company Name".to_string(), None)
             .expect("Failed to insert company");
 
         // Test case-insensitive lookup with different cases

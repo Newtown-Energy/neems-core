@@ -63,10 +63,10 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
             .expect("Failed to query Newtown Energy")
             .expect("Newtown Energy should exist");
 
-            let regular_company = insert_company(conn, "Regular Corp".to_string())
+            let regular_company = insert_company(conn, "Regular Corp".to_string(), None)
                 .expect("Failed to insert regular company");
 
-            let other_company = insert_company(conn, "Other Corp".to_string())
+            let other_company = insert_company(conn, "Other Corp".to_string(), None)
                 .expect("Failed to insert other company");
 
             // Create users with different roles
@@ -78,6 +78,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
                     company_id: newtown_energy.id,
                     totp_secret: Some("secret1".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert newtown admin");
             assign_user_role_by_name(conn, newtown_admin.id, "newtown-admin")
@@ -91,6 +92,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
                     company_id: newtown_energy.id,
                     totp_secret: Some("secret2".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert newtown staff");
             assign_user_role_by_name(conn, newtown_staff.id, "newtown-staff")
@@ -104,6 +106,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
                     company_id: regular_company.id,
                     totp_secret: Some("secret3".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert regular admin");
             assign_user_role_by_name(conn, regular_admin.id, "admin")
@@ -117,6 +120,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
                     company_id: regular_company.id,
                     totp_secret: Some("secret4".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert regular user");
             assign_user_role_by_name(conn, regular_user.id, "staff")
@@ -130,6 +134,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
                     company_id: other_company.id,
                     totp_secret: Some("secret5".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert other company admin");
             assign_user_role_by_name(conn, other_company_admin.id, "admin")
@@ -143,6 +148,7 @@ async fn setup_test_data(client: &Client) -> (TestUsers, TestCompanies) {
                     company_id: other_company.id,
                     totp_secret: Some("secret6".to_string()),
                 },
+                None,
             )
             .expect("Failed to insert other company user");
             assign_user_role_by_name(conn, other_company_user.id, "staff")

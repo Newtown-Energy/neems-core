@@ -155,6 +155,7 @@ pub async fn create_site(
                     new_site.latitude,
                     new_site.longitude,
                     new_site.company_id,
+                    Some(auth_user.user.id),
                 )
                 .map(|site| status::Created::new("/").body(Json(site)))
                 .map_err(|e| {
@@ -330,6 +331,7 @@ pub async fn update_site_endpoint(
                     update_data.latitude,
                     update_data.longitude,
                     update_data.company_id,
+                    Some(auth_user.user.id),
                 )
                 .map(Json)
                 .map_err(|e| {
@@ -380,7 +382,7 @@ pub async fn delete_site_endpoint(
                 }
 
                 // Perform the deletion
-                match delete_site(conn, site_id) {
+                match delete_site(conn, site_id, Some(auth_user.user.id)) {
                     Ok(rows_affected) => {
                         if rows_affected > 0 {
                             Ok(Status::NoContent)

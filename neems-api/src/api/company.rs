@@ -68,7 +68,7 @@ pub struct ErrorResponse {
 pub async fn create_company(
     db: DbConn,
     new_company: Json<CompanyInput>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<status::Created<Json<Company>>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         // First check if company with this name already exists (case-insensitive)
@@ -93,7 +93,7 @@ pub async fn create_company(
         }
 
         // Proceed with company creation
-        insert_company(conn, new_company.name.clone())
+        insert_company(conn, new_company.name.clone(), Some(auth_user.user.id))
             .map(|comp| status::Created::new("/").body(Json(comp)))
             .map_err(|e| {
                 eprintln!("Error creating company: {:?}", e);
@@ -441,10 +441,10 @@ pub async fn list_company_users(
 pub async fn delete_company_endpoint(
     db: DbConn,
     company_id: i32,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Status, Status> {
     db.run(move |conn| {
-        delete_company(conn, company_id)
+        delete_company(conn, company_id, Some(auth_user.user.id))
             .map(|found| {
                 if found {
                     Status::NoContent

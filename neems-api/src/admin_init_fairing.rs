@@ -82,7 +82,7 @@ fn find_or_create_company(
     }
 
     println!("[admin-init] No matching company found. Creating 'Newtown Energy'.");
-    match insert_company(c, "Newtown Energy".to_string()) {
+    match insert_company(c, "Newtown Energy".to_string(), None) {
         Ok(inst) => Ok(inst),
         Err(e) => {
             error!("[admin-init] ERROR creating company: {:?}", e);
@@ -152,7 +152,7 @@ fn create_admin_user(
         totp_secret: None,
     };
 
-    match insert_user(c, admin_user) {
+    match insert_user(c, admin_user, None) {
         Ok(user) => {
             info!("[admin-init] Created admin user: '{}'", admin_email);
             Ok(user)

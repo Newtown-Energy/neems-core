@@ -570,6 +570,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
                     insert_company(
                         conn,
                         "Newtown Energy".to_string(),
+                        None,
                     )
                     .expect("Failed to create Newtown Energy company")
                 },
@@ -580,6 +581,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
             let test_company = insert_company(
                 conn,
                 "Test Company".to_string(),
+                None,
             )
             .expect("Failed to create Test Company");
 
@@ -601,6 +603,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
                     company_id: test_company.id,
                     totp_secret: None,
                 },
+                None,
             )
             .expect("Failed to create test user");
 
@@ -617,6 +620,7 @@ async fn setup_test_users_for_data_access(client: &Client) {
                     company_id: newtown_energy.id,
                     totp_secret: None,
                 },
+                None,
             )
             .expect("Failed to create Newtown staff user");
 

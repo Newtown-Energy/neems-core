@@ -278,7 +278,7 @@ mod tests {
     /// Inserts a dummy company and a dummy user, returning the inserted user.
     fn insert_dummy_user(conn: &mut diesel::SqliteConnection) -> User {
         let company =
-            insert_company(conn, "Open Tech Strategies".to_string()).expect("insert dummy company");
+            insert_company(conn, "Open Tech Strategies".to_string(), None).expect("insert dummy company");
 
         let hash = hash_password("dummy password");
 
@@ -288,7 +288,7 @@ mod tests {
             company_id: company.id,
             totp_secret: Some("dummysecret".to_string()),
         };
-        insert_user(conn, dummy_user).expect("insert dummy user")
+        insert_user(conn, dummy_user, None).expect("insert dummy user")
     }
 
     #[tokio::test]

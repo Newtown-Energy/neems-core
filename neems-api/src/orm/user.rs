@@ -14,6 +14,7 @@ struct LastInsertRowId {
 pub fn insert_user(
     conn: &mut SqliteConnection,
     new_user: UserInput,
+    acting_user_id: Option<i32>,
 ) -> Result<User, diesel::result::Error> {
     use crate::schema::users::dsl::*;
 
@@ -32,7 +33,15 @@ pub fn insert_user(
         .get_result::<LastInsertRowId>(conn)?
         .last_insert_rowid;
 
-    users.filter(id.eq(last_id as i32)).first::<User>(conn)
+    let user = users.filter(id.eq(last_id as i32)).first::<User>(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if let Some(user_id) = acting_user_id {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "users", user.id, "create", user_id);
+    }
+    
+    Ok(user)
 }
 
 /// Get a user with computed timestamps from activity log
@@ -165,6 +174,7 @@ pub fn update_user(
     new_password_hash: Option<String>,
     new_company_id: Option<i32>,
     new_totp_secret: Option<String>,
+    acting_user_id: Option<i32>,
 ) -> Result<User, diesel::result::Error> {
     use crate::schema::users::dsl::*;
 
@@ -194,7 +204,15 @@ pub fn update_user(
     }
 
     // Return the updated user
-    users.filter(id.eq(user_id)).first::<User>(conn)
+    let user = users.filter(id.eq(user_id)).first::<User>(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if let Some(actor_id) = acting_user_id {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "users", user_id, "update", actor_id);
+    }
+    
+    Ok(user)
 }
 
 /// Deletes a user by ID.
@@ -238,6 +256,7 @@ pub fn delete_user(
 pub fn delete_user_with_cleanup(
     conn: &mut SqliteConnection,
     user_id: i32,
+    acting_user_id: Option<i32>,
 ) -> Result<usize, diesel::result::Error> {
     // Temporarily drop the trigger to allow deletion
     diesel::sql_query("DROP TRIGGER IF EXISTS prevent_user_without_roles").execute(conn)?;
@@ -249,7 +268,15 @@ pub fn delete_user_with_cleanup(
 
     // Delete the user
     use crate::schema::users::dsl::*;
-    let result = diesel::delete(users.filter(id.eq(user_id))).execute(conn);
+    let result = diesel::delete(users.filter(id.eq(user_id))).execute(conn)?;
+    
+    // Update the trigger-created activity entry with user information
+    if result > 0 {
+        if let Some(actor_id) = acting_user_id {
+            use crate::orm::entity_activity::update_latest_activity_user;
+            let _ = update_latest_activity_user(conn, "users", user_id, "delete", actor_id);
+        }
+    }
 
     // Recreate the trigger
     diesel::sql_query(r#"
@@ -265,7 +292,7 @@ pub fn delete_user_with_cleanup(
     "#)
         .execute(conn)?;
 
-    result
+    Ok(result)
 }
 
 /// Gets a single user by ID with their roles.
@@ -389,7 +416,7 @@ mod tests {
     fn test_insert_user() {
         let mut conn = setup_test_db();
 
-        let company = insert_company(&mut conn, "Test Company".to_string())
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         let new_user = UserInput {
@@ -399,7 +426,7 @@ mod tests {
             totp_secret: Some("secret".to_string()),
         };
 
-        let result = insert_user(&mut conn, new_user);
+        let result = insert_user(&mut conn, new_user, None);
         assert!(result.is_ok());
         let user = result.unwrap();
         assert_eq!(user.email, "test@example.com");
@@ -413,7 +440,7 @@ mod tests {
     fn test_user_with_timestamps() {
         let mut conn = setup_test_db();
 
-        let company = insert_company(&mut conn, "Timestamp Test Company".to_string())
+        let company = insert_company(&mut conn, "Timestamp Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         let new_user = UserInput {
@@ -424,7 +451,7 @@ mod tests {
         };
 
         // Insert user
-        let user = insert_user(&mut conn, new_user).unwrap();
+        let user = insert_user(&mut conn, new_user, None).unwrap();
         
         // Get user with timestamps
         let user_with_timestamps = get_user_with_timestamps(&mut conn, user.id)
@@ -448,7 +475,7 @@ mod tests {
     fn test_get_user_by_email_case_insensitive() {
         let mut conn = setup_test_db();
 
-        let company = insert_company(&mut conn, "Test Company".to_string())
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
             .expect("Failed to insert company");
 
         let new_user = UserInput {
@@ -458,7 +485,7 @@ mod tests {
             totp_secret: Some("secret".to_string()),
         };
 
-        let inserted_user = insert_user(&mut conn, new_user).unwrap();
+        let inserted_user = insert_user(&mut conn, new_user, None).unwrap();
 
         // Test case-insensitive lookup with different cases
         let test_cases = vec![

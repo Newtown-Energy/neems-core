@@ -562,7 +562,7 @@ pub async fn create_user(
             totp_secret: user_request.totp_secret,
         };
 
-        let created_user = match insert_user(conn, user_no_time) {
+        let created_user = match insert_user(conn, user_no_time, Some(auth_user.user.id)) {
             Ok(user) => user,
             Err(e) => {
                 eprintln!("Error creating user: {:?}", e);
@@ -1414,6 +1414,7 @@ pub async fn update_user_endpoint(
             request.password_hash.clone(),
             request.company_id,
             request.totp_secret.clone(),
+            Some(auth_user.user.id),
         ) {
             Ok(_user) => {
                 // Get the updated user with roles
@@ -1507,7 +1508,7 @@ pub async fn delete_user_endpoint(
             return Err(Status::Forbidden);
         }
 
-        match delete_user_with_cleanup(conn, user_id) {
+        match delete_user_with_cleanup(conn, user_id, Some(auth_user.user.id)) {
             Ok(rows_affected) => {
                 if rows_affected > 0 {
                     Ok(Status::NoContent)
