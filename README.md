@@ -73,6 +73,12 @@ redirection, mostly because we're already doing that in the wrapper to put the
 contents of the run in a temp file and on the clipboard.  If you want to run
 unwrapped cargo, you can use `~/.cargo/bin/cargo`.
 
+## API Access
+
+We are trying to stick to OData 4 patterns for entity API access.  We're not
+strictly compliant, though.  We do /api/1/foo/x and don't support /api/1/foo(x).
+This is mostly because it would be more work in rocket to support that form.
+
 ## Planned Features
 
 [ ] TOTP MFA
