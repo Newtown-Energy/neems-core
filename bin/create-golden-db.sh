@@ -6,10 +6,15 @@
 
 set -e  # Exit on any error
 
+SCRIPTNAME=`basename "$0"`
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+BASEDIR=$(dirname -- "$SCRIPT_DIR")
+cd ${BASEDIR}
+
 echo "Creating golden database for NEEMS testing..."
 
 # Check if we have a recent golden database (within the last hour)
-TARGET_DIR="$(pwd)/target"
+TARGET_DIR="${BASEDIR}/target"
 RECENT_DB=""
 
 if [ -d "$TARGET_DIR" ]; then
