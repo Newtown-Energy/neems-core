@@ -19,16 +19,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    readings (id) {
-        id -> Nullable<Integer>,
-        source_id -> Integer,
-        timestamp -> Timestamp,
-        data -> Text,
-        quality_flags -> Integer,
-    }
-}
-
-diesel::table! {
     roles (id) {
         id -> Integer,
         name -> Text,
@@ -58,21 +48,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    sources (id) {
-        id -> Nullable<Integer>,
-        name -> Text,
-        description -> Nullable<Text>,
-        active -> Bool,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        interval_seconds -> Integer,
-        last_run -> Nullable<Timestamp>,
-        test_type -> Nullable<Text>,
-        arguments -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
     user_roles (user_id, role_id) {
         user_id -> Integer,
         role_id -> Integer,
@@ -90,7 +65,6 @@ diesel::table! {
 }
 
 diesel::joinable!(entity_activity -> users (user_id));
-diesel::joinable!(readings -> sources (source_id));
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
@@ -100,11 +74,9 @@ diesel::joinable!(users -> companies (company_id));
 diesel::allow_tables_to_appear_in_same_query!(
     companies,
     entity_activity,
-    readings,
     roles,
     sessions,
     sites,
-    sources,
     user_roles,
     users,
 );
