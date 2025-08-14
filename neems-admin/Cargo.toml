@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 default = []
-test-staging = [] # This is an empty feature, but it helps not to have to think about it when passing feature flags.
+test-staging = ["neems-api/test-staging"] # Pass through test-staging feature to neems-api
 
 [dependencies]
 neems-api = { path = "../neems-api" }

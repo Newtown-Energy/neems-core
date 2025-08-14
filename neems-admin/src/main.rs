@@ -133,7 +133,7 @@ fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-staging"))]
 mod tests {
     use super::*;
     use admin_cli::company_commands::{
@@ -151,6 +151,7 @@ mod tests {
     use neems_api::orm::company::{get_all_companies, get_company_by_id, get_company_by_name};
     use neems_api::orm::role::get_all_roles;
     use neems_api::orm::site::{get_all_sites, get_site_by_id, get_sites_by_company, insert_site};
+    #[cfg(feature = "test-staging")]
     use neems_api::orm::testing::setup_test_db;
     use neems_api::orm::user::{get_user, get_user_by_email, list_all_users};
 

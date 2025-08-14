@@ -8,6 +8,27 @@ diesel::table! {
 }
 
 diesel::table! {
+    deleted_companies (id) {
+        id -> Integer,
+        name -> Text,
+        deleted_at -> Timestamp,
+        deleted_by -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
+    deleted_users (id) {
+        id -> Integer,
+        email -> Text,
+        password_hash -> Text,
+        company_id -> Integer,
+        totp_secret -> Nullable<Text>,
+        deleted_at -> Timestamp,
+        deleted_by -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
     entity_activity (id) {
         id -> Integer,
         table_name -> Text,
@@ -64,7 +85,6 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(entity_activity -> users (user_id));
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
@@ -73,6 +93,8 @@ diesel::joinable!(users -> companies (company_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     companies,
+    deleted_companies,
+    deleted_users,
     entity_activity,
     roles,
     sessions,

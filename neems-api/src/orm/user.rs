@@ -258,16 +258,37 @@ pub fn delete_user_with_cleanup(
     user_id: i32,
     acting_user_id: Option<i32>,
 ) -> Result<usize, diesel::result::Error> {
+    // First check if the user exists and get it for archiving
+    use crate::schema::users::dsl::*;
+    let user_to_delete = match users.filter(id.eq(user_id)).first::<crate::models::User>(conn) {
+        Ok(user) => user,
+        Err(diesel::result::Error::NotFound) => {
+            // User doesn't exist, return 0 (not found)
+            return Ok(0);
+        }
+        Err(e) => return Err(e), // Other database errors
+    };
+    
+    // Insert into deleted_users table
+    use crate::models::NewDeletedUser;
+    use crate::schema::deleted_users;
+    let archived_user = NewDeletedUser {
+        id: user_to_delete.id,
+        email: user_to_delete.email,
+        password_hash: user_to_delete.password_hash,
+        company_id: user_to_delete.company_id,
+        totp_secret: user_to_delete.totp_secret,
+        deleted_by: acting_user_id,
+    };
+    
+    diesel::insert_into(deleted_users::table)
+        .values(&archived_user)
+        .execute(conn)?;
+
     // Temporarily drop the trigger to allow deletion
     diesel::sql_query("DROP TRIGGER IF EXISTS prevent_user_without_roles").execute(conn)?;
 
-    // Delete user_roles first
-    diesel::sql_query("DELETE FROM user_roles WHERE user_id = ?1")
-        .bind::<diesel::sql_types::Integer, _>(user_id)
-        .execute(conn)?;
-
-    // Delete the user
-    use crate::schema::users::dsl::*;
+    // Delete the user (user_roles and sessions will cascade automatically due to foreign key constraints)
     let result = diesel::delete(users.filter(id.eq(user_id))).execute(conn)?;
     
     // Update the trigger-created activity entry with user information
@@ -294,6 +315,40 @@ pub fn delete_user_with_cleanup(
 
     Ok(result)
 }
+
+/// Gets user information for audit purposes, checking both active and deleted users.
+///
+/// This function first checks the active users table, and if not found, 
+/// checks the deleted_users table to provide information for audit trails.
+///
+/// # Arguments
+/// * `conn` - Database connection
+/// * `user_id` - ID of the user to look up
+///
+/// # Returns
+/// * `Ok(Some((email, is_deleted)))` - User found with email and deletion status
+/// * `Ok(None)` - User not found in either table
+/// * `Err(diesel::result::Error)` - Database error
+pub fn get_user_for_audit(
+    conn: &mut SqliteConnection,
+    user_id: i32,
+) -> Result<Option<(String, bool)>, diesel::result::Error> {
+    // First check active users
+    use crate::schema::users::dsl::{users, id as users_id};
+    if let Ok(user) = users.filter(users_id.eq(user_id)).first::<crate::models::User>(conn) {
+        return Ok(Some((user.email, false))); // Found active user
+    }
+    
+    // If not found in active users, check deleted users
+    use crate::schema::deleted_users::dsl::{deleted_users, id as deleted_users_id};
+    if let Ok(deleted_user) = deleted_users.filter(deleted_users_id.eq(user_id)).first::<crate::models::DeletedUser>(conn) {
+        return Ok(Some((deleted_user.email, true))); // Found deleted user
+    }
+    
+    // Not found in either table
+    Ok(None)
+}
+
 
 /// Gets a single user by ID with their roles.
 ///

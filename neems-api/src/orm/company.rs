@@ -124,7 +124,31 @@ pub fn delete_company(
     company_id: i32,
     acting_user_id: Option<i32>,
 ) -> Result<bool, diesel::result::Error> {
+    // First check if the company exists and get it for archiving
     use crate::schema::companies::dsl::*;
+    let company_to_delete = match companies.filter(id.eq(company_id)).first::<crate::models::Company>(conn) {
+        Ok(company) => company,
+        Err(diesel::result::Error::NotFound) => {
+            // Company doesn't exist, return false (not found)
+            return Ok(false);
+        }
+        Err(e) => return Err(e), // Other database errors
+    };
+    
+    // Insert into deleted_companies table
+    use crate::models::NewDeletedCompany;
+    use crate::schema::deleted_companies;
+    let archived_company = NewDeletedCompany {
+        id: company_to_delete.id,
+        name: company_to_delete.name,
+        deleted_by: acting_user_id,
+    };
+    
+    diesel::insert_into(deleted_companies::table)
+        .values(&archived_company)
+        .execute(conn)?;
+
+    // Delete the company
     let rows_affected = diesel::delete(companies.filter(id.eq(company_id))).execute(conn)?;
     
     // Update the trigger-created activity entry with user information
@@ -136,6 +160,39 @@ pub fn delete_company(
     }
     
     Ok(rows_affected > 0)
+}
+
+/// Gets company information for audit purposes, checking both active and deleted companies.
+///
+/// This function first checks the active companies table, and if not found, 
+/// checks the deleted_companies table to provide information for audit trails.
+///
+/// # Arguments
+/// * `conn` - Database connection
+/// * `company_id` - ID of the company to look up
+///
+/// # Returns
+/// * `Ok(Some((name, is_deleted)))` - Company found with name and deletion status
+/// * `Ok(None)` - Company not found in either table
+/// * `Err(diesel::result::Error)` - Database error
+pub fn get_company_for_audit(
+    conn: &mut SqliteConnection,
+    company_id: i32,
+) -> Result<Option<(String, bool)>, diesel::result::Error> {
+    // First check active companies
+    use crate::schema::companies::dsl::{companies, id as companies_id};
+    if let Ok(company) = companies.filter(companies_id.eq(company_id)).first::<crate::models::Company>(conn) {
+        return Ok(Some((company.name, false))); // Found active company
+    }
+    
+    // If not found in active companies, check deleted companies
+    use crate::schema::deleted_companies::dsl::{deleted_companies, id as deleted_companies_id};
+    if let Ok(deleted_company) = deleted_companies.filter(deleted_companies_id.eq(company_id)).first::<crate::models::DeletedCompany>(conn) {
+        return Ok(Some((deleted_company.name, true))); // Found deleted company
+    }
+    
+    // Not found in either table
+    Ok(None)
 }
 
 #[cfg(test)]

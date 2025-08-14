@@ -5,7 +5,7 @@ use neems_api::orm::company::{
     delete_company, get_all_companies, get_company_by_id, insert_company,
 };
 use neems_api::orm::entity_activity::{get_created_at};
-use neems_api::orm::site::{delete_site, get_sites_by_company};
+use neems_api::orm::site::get_sites_by_company;
 use neems_api::orm::user::{delete_user_with_cleanup, get_users_by_company};
 use regex::Regex;
 use std::io::{self, Write};
@@ -259,19 +259,14 @@ fn delete_company_with_cascade(
     company_id: i32,
     admin_user_id: i32,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    // First delete all users in the company
+    // Archive all users in the company before they get cascade deleted
     let users = get_users_by_company(conn, company_id)?;
     for user in users {
         delete_user_with_cleanup(conn, user.id, Some(admin_user_id))?;
     }
 
-    // Then delete all sites in the company
-    let sites = get_sites_by_company(conn, company_id)?;
-    for site in sites {
-        delete_site(conn, site.id, Some(admin_user_id))?;
-    }
-
-    // Finally delete the company itself
+    // Now delete the company - sites will cascade automatically
+    // (users were already manually archived and deleted above)
     let deleted = delete_company(conn, company_id, Some(admin_user_id))?;
     Ok(deleted)
 }
