@@ -238,7 +238,7 @@ release() {
 
     # Make a db for demos and staging.  We can just overwrite the existing db
     # with this whenever we want.
-    setup-demo-data ${BASEDIR}/target/demo.db
+    ${BASEDIR}/bin/setup-demo-data ${BASEDIR}/target/demo.db
 }
 
 test() {

@@ -5,6 +5,11 @@
 
 set -e  # Exit on any error
 
+SCRIPTNAME=`basename "$0"`
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+BASEDIR=$(dirname -- "$SCRIPT_DIR")
+cd ${BASEDIR}/neems-api
+
 # Default to DATABASE_URL if no parameter provided
 DB_PATH=${1:-${DATABASE_URL}}
 
