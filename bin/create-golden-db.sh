@@ -144,9 +144,18 @@ $NEEMS_ADMIN_BIN company add --name "Test Company 1" 2>/dev/null || echo "Compan
 $NEEMS_ADMIN_BIN company add --name "Test Company 2" 2>/dev/null || echo "Company 'Test Company 2' already exists"
 $NEEMS_ADMIN_BIN company add --name "Removable LLC" 2>/dev/null || echo "Company 'Removable LLC' already exists"
 
+# Create separate companies for Device API testing to avoid conflicts with existing tests
+echo "Creating Device API test companies..."
+$NEEMS_ADMIN_BIN company add --name "Device Test Company A" 2>/dev/null || echo "Company 'Device Test Company A' already exists"
+$NEEMS_ADMIN_BIN company add --name "Device Test Company B" 2>/dev/null || echo "Company 'Device Test Company B' already exists"
+
 # Get test company IDs
 TEST_COMPANY1_ID=$($NEEMS_ADMIN_BIN company ls | grep "Test Company 1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
 TEST_COMPANY2_ID=$($NEEMS_ADMIN_BIN company ls | grep "Test Company 2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+
+# Get Device API test company IDs
+DEVICE_COMPANY1_ID=$($NEEMS_ADMIN_BIN company ls | grep "Device Test Company A" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+DEVICE_COMPANY2_ID=$($NEEMS_ADMIN_BIN company ls | grep "Device Test Company B" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
 
 if [ -z "$TEST_COMPANY1_ID" ] || [ -z "$TEST_COMPANY2_ID" ]; then
     echo "Error: Could not find test company IDs"
@@ -182,6 +191,10 @@ create_test_user "staff@testcompany.com" "$TEST_COMPANY1_ID" "staff"
 create_test_user "newtownadmin@newtown.com" "$NEWTOWN_ENERGY_ID" "newtown-admin"
 create_test_user "newtownstaff@newtown.com" "$NEWTOWN_ENERGY_ID" "newtown-staff"
 
+# Create admin users for Device Test companies
+create_test_user "admin@devicetesta.com" "$DEVICE_COMPANY1_ID" "admin"
+create_test_user "admin@devicetestb.com" "$DEVICE_COMPANY2_ID" "admin"
+
 # Additional test users for login.rs tests
 create_test_user "testuser@example.com" "$TEST_COMPANY1_ID" "staff"
 
@@ -214,35 +227,33 @@ $NEEMS_ADMIN_BIN user add --email "admin_staff@example.com" --password "adminsta
 $NEEMS_ADMIN_BIN user add-role --email "admin_staff@example.com" --role "admin" 2>/dev/null || echo "Admin role already assigned to admin_staff@example.com"
 $NEEMS_ADMIN_BIN user add-role --email "admin_staff@example.com" --role "staff" 2>/dev/null || echo "Staff role already assigned to admin_staff@example.com"
 
-# Create test devices
-echo "Creating test devices..."
+# Create test devices for Device API testing
+echo "Creating test devices for Device API..."
 
-# Get site IDs for test companies
-TEST_SITE1_ID=$($NEEMS_ADMIN_BIN site ls | grep -m1 "Test Company 1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
-TEST_SITE2_ID=$($NEEMS_ADMIN_BIN site ls | grep -m1 "Test Company 2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+# Create sites for Device API companies
+echo "Creating Device API Site A..."
+$NEEMS_ADMIN_BIN site add --name "Device API Site A" --address "123 Device St" --latitude 40.0 --longitude=-74.0 --company-id "$DEVICE_COMPANY1_ID"
+DEVICE_SITE1_ID=$($NEEMS_ADMIN_BIN site ls | grep "Device API Site A" | grep "Company ID: $DEVICE_COMPANY1_ID" | sed 's/^  ID: \([0-9]*\).*/\1/' | head -1)
+echo "Created Device API Site A with ID: $DEVICE_SITE1_ID"
 
-# Create sites if they don't exist
-if [ -z "$TEST_SITE1_ID" ]; then
-    $NEEMS_ADMIN_BIN site add --name "Test Site 1" --address "123 Test St" --latitude 40.0 --longitude -74.0 --company-id "$TEST_COMPANY1_ID" 2>/dev/null || true
-    TEST_SITE1_ID=$($NEEMS_ADMIN_BIN site ls | grep "Test Site 1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+echo "Creating Device API Site B..."
+$NEEMS_ADMIN_BIN site add --name "Device API Site B" --address "456 Device Ave" --latitude 41.0 --longitude=-75.0 --company-id "$DEVICE_COMPANY2_ID"
+DEVICE_SITE2_ID=$($NEEMS_ADMIN_BIN site ls | grep "Device API Site B" | grep "Company ID: $DEVICE_COMPANY2_ID" | sed 's/^  ID: \([0-9]*\).*/\1/' | head -1)
+echo "Created Device API Site B with ID: $DEVICE_SITE2_ID"
+
+# Add test devices for Device API testing
+echo "DEVICE_SITE1_ID: $DEVICE_SITE1_ID, DEVICE_SITE2_ID: $DEVICE_SITE2_ID"
+if [ -n "$DEVICE_SITE1_ID" ]; then
+    echo "Creating devices for Device API site $DEVICE_SITE1_ID (company $DEVICE_COMPANY1_ID)..."
+    $NEEMS_ADMIN_BIN device add --name "SEL-451" --type "Protection" --model "SEL-451" --company "$DEVICE_COMPANY1_ID" --site "$DEVICE_SITE1_ID"
+    $NEEMS_ADMIN_BIN device add --name "SEL-735" --type "Meter" --model "SEL-735" --serial "TEST001" --company "$DEVICE_COMPANY1_ID" --site "$DEVICE_SITE1_ID"
 fi
 
-if [ -z "$TEST_SITE2_ID" ]; then
-    $NEEMS_ADMIN_BIN site add --name "Test Site 2" --address "456 Test Ave" --latitude 41.0 --longitude -75.0 --company-id "$TEST_COMPANY2_ID" 2>/dev/null || true
-    TEST_SITE2_ID=$($NEEMS_ADMIN_BIN site ls | grep "Test Site 2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
-fi
-
-# Add test devices if sites exist
-if [ -n "$TEST_SITE1_ID" ]; then
-    $NEEMS_ADMIN_BIN device add --name "SEL-451" --type "Protection" --model "SEL-451" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE1_ID" 2>/dev/null || true
-    $NEEMS_ADMIN_BIN device add --name "SEL-735" --type "Meter" --model "SEL-735" --serial "TEST001" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE1_ID" 2>/dev/null || true
-fi
-
-if [ -n "$TEST_SITE2_ID" ]; then
-    $NEEMS_ADMIN_BIN device add --name "SEL-451" --type "Protection" --model "SEL-451" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE2_ID" 2>/dev/null || true
-    $NEEMS_ADMIN_BIN device add --name "SEL-735A" --type "Meter" --model "SEL-735" --serial "TEST001" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE2_ID" 2>/dev/null || true
-    $NEEMS_ADMIN_BIN device add --name "SEL-735B" --type "Meter" --model "SEL-735" --serial "TEST002" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE2_ID" 2>/dev/null || true
-
+if [ -n "$DEVICE_SITE2_ID" ]; then
+    echo "Creating devices for Device API site $DEVICE_SITE2_ID (company $DEVICE_COMPANY2_ID)..."
+    $NEEMS_ADMIN_BIN device add --name "SEL-451B" --type "Protection" --model "SEL-451" --company "$DEVICE_COMPANY2_ID" --site "$DEVICE_SITE2_ID"
+    $NEEMS_ADMIN_BIN device add --name "SEL-735A" --type "Meter" --model "SEL-735" --serial "TEST002" --company "$DEVICE_COMPANY2_ID" --site "$DEVICE_SITE2_ID"
+    $NEEMS_ADMIN_BIN device add --name "SEL-735B" --type "Meter" --model "SEL-735" --serial "TEST003" --company "$DEVICE_COMPANY2_ID" --site "$DEVICE_SITE2_ID"
 fi
 
 echo "Golden database v$VERSION_TIMESTAMP created successfully at: $GOLDEN_DB_PATH"

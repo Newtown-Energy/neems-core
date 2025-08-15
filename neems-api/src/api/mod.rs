@@ -6,6 +6,7 @@
 
 pub mod company;
 pub mod data;
+pub mod device;
 #[cfg(feature = "fixphrase")]
 pub mod fixphrase;
 pub mod login;
@@ -33,6 +34,7 @@ pub fn routes() -> Vec<Route> {
     routes.extend(fixphrase::routes());
     routes.extend(company::routes());
     routes.extend(data::routes());
+    routes.extend(device::routes());
     routes.extend(login::routes());
     routes.extend(logout::routes());
     routes.extend(odata::routes());

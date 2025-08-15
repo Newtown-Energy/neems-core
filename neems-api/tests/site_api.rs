@@ -179,7 +179,8 @@ async fn test_company_admin_can_crud_own_company_sites() {
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let sites: Vec<Site> = response.into_json().await.expect("valid sites JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
     assert_eq!(sites.len(), 1);
     assert_eq!(sites[0].id, created_site.id);
 
@@ -328,7 +329,8 @@ async fn test_newtown_admin_can_crud_any_site() {
         .await;
 
     assert_eq!(response.status(), Status::Ok);
-    let sites: Vec<Site> = response.into_json().await.expect("valid sites JSON");
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
     assert!(!sites.is_empty());
 
     // Newtown admin can delete any site

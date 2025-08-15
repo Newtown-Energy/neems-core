@@ -234,22 +234,31 @@ pub async fn get_site(
 pub async fn list_sites(
     db: DbConn,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Vec<Site>>, Status> {
+) -> Result<Json<serde_json::Value>, Status> {
     db.run(move |conn| {
-        if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+        let sites = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
             // Newtown roles can see all sites
-            get_all_sites(conn)
-                .map(Json)
-                .map_err(|_| Status::InternalServerError)
+            match get_all_sites(conn) {
+                Ok(sites) => sites,
+                Err(_) => return Err(Status::InternalServerError),
+            }
         } else if auth_user.has_role("admin") {
             // Company admin can see sites from their company
-            get_sites_by_company(conn, auth_user.user.company_id)
-                .map(Json)
-                .map_err(|_| Status::InternalServerError)
+            match get_sites_by_company(conn, auth_user.user.company_id) {
+                Ok(sites) => sites,
+                Err(_) => return Err(Status::InternalServerError),
+            }
         } else {
             // Regular users cannot list sites
-            Err(Status::Forbidden)
-        }
+            return Err(Status::Forbidden);
+        };
+
+        let response = serde_json::json!({
+            "@odata.context": "http://localhost/api/1/$metadata#Sites",
+            "value": sites
+        });
+        
+        Ok(Json(response))
     })
     .await
 }

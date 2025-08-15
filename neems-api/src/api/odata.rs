@@ -57,6 +57,11 @@ pub fn service_document() -> Json<ServiceDocument> {
                 url: "Sites".to_string(),
             },
             EntitySet {
+                name: "Devices".to_string(),
+                kind: "EntitySet".to_string(),
+                url: "Devices".to_string(),
+            },
+            EntitySet {
                 name: "Roles".to_string(),
                 kind: "EntitySet".to_string(),
                 url: "Roles".to_string(),
@@ -175,6 +180,29 @@ pub fn metadata_document() -> RawXml<String> {
         </NavigationProperty>
       </EntityType>
 
+      <!-- Device Entity Type -->
+      <EntityType Name="Device">
+        <Key>
+          <PropertyRef Name="id"/>
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="name" Type="Edm.String" Nullable="false"/>
+        <Property Name="description" Type="Edm.String" Nullable="true"/>
+        <Property Name="type_" Type="Edm.String" Nullable="false"/>
+        <Property Name="model" Type="Edm.String" Nullable="false"/>
+        <Property Name="serial" Type="Edm.String" Nullable="true"/>
+        <Property Name="ip_address" Type="Edm.String" Nullable="true"/>
+        <Property Name="install_date" Type="Edm.DateTimeOffset" Nullable="true"/>
+        <Property Name="company_id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="site_id" Type="Edm.Int32" Nullable="false"/>
+        <NavigationProperty Name="Company" Type="NeemsAPI.Company" Nullable="false">
+          <ReferentialConstraint Property="company_id" ReferencedProperty="id"/>
+        </NavigationProperty>
+        <NavigationProperty Name="Site" Type="NeemsAPI.Site" Nullable="false">
+          <ReferentialConstraint Property="site_id" ReferencedProperty="id"/>
+        </NavigationProperty>
+      </EntityType>
+
       <!-- Reading Entity Type -->
       <EntityType Name="Reading">
         <Key>
@@ -202,6 +230,10 @@ pub fn metadata_document() -> RawXml<String> {
         </EntitySet>
         <EntitySet Name="Sites" EntityType="NeemsAPI.Site">
           <NavigationPropertyBinding Path="Company" Target="Companies"/>
+        </EntitySet>
+        <EntitySet Name="Devices" EntityType="NeemsAPI.Device">
+          <NavigationPropertyBinding Path="Company" Target="Companies"/>
+          <NavigationPropertyBinding Path="Site" Target="Sites"/>
         </EntitySet>
         <EntitySet Name="Roles" EntityType="NeemsAPI.Role">
           <NavigationPropertyBinding Path="Users" Target="Users"/>
