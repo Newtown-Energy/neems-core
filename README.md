@@ -20,7 +20,8 @@ site.
 ## Config
 
  * You'll want some way to set the values indicated in `env.example`.  I
-   do this by putting them in `.env` and then loading that.
+   do this by putting them in `.env` and then loading that.  Two ways to do that
+   are envrc and systemd, depending on what you're trying to accomplish.
 
  * We don't use the secret key, but in case we do in the future, prod use should
    definitely edit `rocket.toml` and change the `secret_key`.  The key that is
