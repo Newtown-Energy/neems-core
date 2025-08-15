@@ -64,6 +64,44 @@ diesel::table! {
 }
 
 diesel::table! {
+    scheduler_executions (id) {
+        id -> Integer,
+        site_id -> Integer,
+        script_id -> Nullable<Integer>,
+        override_id -> Nullable<Integer>,
+        execution_time -> Timestamp,
+        state_result -> Text,
+        execution_duration_ms -> Nullable<Integer>,
+        error_message -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    scheduler_overrides (id) {
+        id -> Integer,
+        site_id -> Integer,
+        state -> Text,
+        start_time -> Timestamp,
+        end_time -> Timestamp,
+        created_by -> Integer,
+        reason -> Nullable<Text>,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
+    scheduler_scripts (id) {
+        id -> Integer,
+        site_id -> Integer,
+        name -> Text,
+        script_content -> Text,
+        language -> Text,
+        is_active -> Bool,
+        version -> Integer,
+    }
+}
+
+diesel::table! {
     sessions (id) {
         id -> Text,
         user_id -> Integer,
@@ -103,6 +141,12 @@ diesel::table! {
 
 diesel::joinable!(devices -> companies (company_id));
 diesel::joinable!(devices -> sites (site_id));
+diesel::joinable!(scheduler_executions -> scheduler_overrides (override_id));
+diesel::joinable!(scheduler_executions -> scheduler_scripts (script_id));
+diesel::joinable!(scheduler_executions -> sites (site_id));
+diesel::joinable!(scheduler_overrides -> sites (site_id));
+diesel::joinable!(scheduler_overrides -> users (created_by));
+diesel::joinable!(scheduler_scripts -> sites (site_id));
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
@@ -116,6 +160,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     devices,
     entity_activity,
     roles,
+    scheduler_executions,
+    scheduler_overrides,
+    scheduler_scripts,
     sessions,
     sites,
     user_roles,

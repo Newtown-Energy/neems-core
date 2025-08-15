@@ -18,6 +18,7 @@ ctor = { workspace = true }
 diesel.workspace = true
 diesel_migrations.workspace = true
 dotenvy.workspace = true
+mlua.workspace = true
 rand = { workspace = true }
 rocket.workspace = true
 rocket_sync_db_pools = { workspace = true }

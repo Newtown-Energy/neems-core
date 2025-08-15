@@ -76,6 +76,16 @@ pub fn service_document() -> Json<ServiceDocument> {
                 kind: "EntitySet".to_string(),
                 url: "Readings".to_string(),
             },
+            EntitySet {
+                name: "SchedulerScripts".to_string(),
+                kind: "EntitySet".to_string(),
+                url: "SchedulerScripts".to_string(),
+            },
+            EntitySet {
+                name: "SchedulerOverrides".to_string(),
+                kind: "EntitySet".to_string(),
+                url: "SchedulerOverrides".to_string(),
+            },
         ],
     })
 }
@@ -145,6 +155,8 @@ pub fn metadata_document() -> RawXml<String> {
         <NavigationProperty Name="Company" Type="NeemsAPI.Company" Nullable="false">
           <ReferentialConstraint Property="company_id" ReferencedProperty="id"/>
         </NavigationProperty>
+        <NavigationProperty Name="SchedulerScripts" Type="Collection(NeemsAPI.SchedulerScript)"/>
+        <NavigationProperty Name="SchedulerOverrides" Type="Collection(NeemsAPI.SchedulerOverride)"/>
       </EntityType>
 
       <!-- Role Entity Type -->
@@ -218,6 +230,48 @@ pub fn metadata_document() -> RawXml<String> {
         </NavigationProperty>
       </EntityType>
 
+      <!-- SchedulerScript Entity Type -->
+      <EntityType Name="SchedulerScript">
+        <Key>
+          <PropertyRef Name="id"/>
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="site_id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="name" Type="Edm.String" Nullable="false"/>
+        <Property Name="script_content" Type="Edm.String" Nullable="false"/>
+        <Property Name="language" Type="Edm.String" Nullable="false"/>
+        <Property Name="is_active" Type="Edm.Boolean" Nullable="false"/>
+        <Property Name="version" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="created_at" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="updated_at" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <NavigationProperty Name="Site" Type="NeemsAPI.Site" Nullable="false">
+          <ReferentialConstraint Property="site_id" ReferencedProperty="id"/>
+        </NavigationProperty>
+      </EntityType>
+
+      <!-- SchedulerOverride Entity Type -->
+      <EntityType Name="SchedulerOverride">
+        <Key>
+          <PropertyRef Name="id"/>
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="site_id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="state" Type="Edm.String" Nullable="false"/>
+        <Property Name="start_time" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="end_time" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="created_by" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="reason" Type="Edm.String" Nullable="true"/>
+        <Property Name="is_active" Type="Edm.Boolean" Nullable="false"/>
+        <Property Name="created_at" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="updated_at" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <NavigationProperty Name="Site" Type="NeemsAPI.Site" Nullable="false">
+          <ReferentialConstraint Property="site_id" ReferencedProperty="id"/>
+        </NavigationProperty>
+        <NavigationProperty Name="CreatedBy" Type="NeemsAPI.User" Nullable="false">
+          <ReferentialConstraint Property="created_by" ReferencedProperty="id"/>
+        </NavigationProperty>
+      </EntityType>
+
       <!-- Entity Container -->
       <EntityContainer Name="DefaultContainer">
         <EntitySet Name="Users" EntityType="NeemsAPI.User">
@@ -230,6 +284,8 @@ pub fn metadata_document() -> RawXml<String> {
         </EntitySet>
         <EntitySet Name="Sites" EntityType="NeemsAPI.Site">
           <NavigationPropertyBinding Path="Company" Target="Companies"/>
+          <NavigationPropertyBinding Path="SchedulerScripts" Target="SchedulerScripts"/>
+          <NavigationPropertyBinding Path="SchedulerOverrides" Target="SchedulerOverrides"/>
         </EntitySet>
         <EntitySet Name="Devices" EntityType="NeemsAPI.Device">
           <NavigationPropertyBinding Path="Company" Target="Companies"/>
@@ -244,6 +300,13 @@ pub fn metadata_document() -> RawXml<String> {
         </EntitySet>
         <EntitySet Name="Readings" EntityType="NeemsAPI.Reading">
           <NavigationPropertyBinding Path="DataSource" Target="DataSources"/>
+        </EntitySet>
+        <EntitySet Name="SchedulerScripts" EntityType="NeemsAPI.SchedulerScript">
+          <NavigationPropertyBinding Path="Site" Target="Sites"/>
+        </EntitySet>
+        <EntitySet Name="SchedulerOverrides" EntityType="NeemsAPI.SchedulerOverride">
+          <NavigationPropertyBinding Path="Site" Target="Sites"/>
+          <NavigationPropertyBinding Path="CreatedBy" Target="Users"/>
         </EntitySet>
       </EntityContainer>
 

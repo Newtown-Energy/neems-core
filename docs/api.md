@@ -11,6 +11,7 @@ This is the master documentation index for all API endpoints in the neems-api sy
 - **[Company Management](api-companies.md)** - Company operations and listings
 - **[Site Management](api-sites.md)** - Physical location management
 - **[Device Management](api-devices.md)** - Device registration and management
+- **[Scheduler Management](api-scheduler.md)** - Automated site state management with Lua scripts and overrides
 - **[Data Access](api-data.md)** - Sensor readings and data sources
 - **[Utilities](api-utilities.md)** - Health checks and location services
 - **[Testing Endpoints](api-testing.md)** - Test-staging feature endpoints
@@ -49,6 +50,8 @@ Entity sets use capitalized plural naming:
 - **Sites** (previously `sites`)
 - **Devices** (device management)
 - **Roles** (previously `roles`)
+- **SchedulerScripts** (automated site state management)
+- **SchedulerOverrides** (manual state overrides)
 - **DataSources** (previously `data_sources`)
 
 ### OData Response Format
@@ -111,6 +114,16 @@ The service document provides a machine-readable list of all available entity se
       "url": "Roles"
     },
     {
+      "name": "SchedulerScripts",
+      "kind": "EntitySet",
+      "url": "SchedulerScripts"
+    },
+    {
+      "name": "SchedulerOverrides",
+      "kind": "EntitySet",
+      "url": "SchedulerOverrides"
+    },
+    {
       "name": "DataSources",
       "kind": "EntitySet",
       "url": "DataSources"
@@ -159,6 +172,18 @@ The metadata document provides complete schema information about the data model,
         <NavigationProperty Name="Sites" Type="Collection(neems.Site)"/>
       </EntityType>
       
+      <EntityType Name="Site">
+        <Key>
+          <PropertyRef Name="id"/>
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="name" Type="Edm.String" Nullable="false"/>
+        <Property Name="company_id" Type="Edm.Int32" Nullable="false"/>
+        <NavigationProperty Name="Company" Type="neems.Company"/>
+        <NavigationProperty Name="SchedulerScripts" Type="Collection(neems.SchedulerScript)"/>
+        <NavigationProperty Name="SchedulerOverrides" Type="Collection(neems.SchedulerOverride)"/>
+      </EntityType>
+      
       <EntityContainer Name="Container">
         <EntitySet Name="Users" EntityType="neems.User">
           <NavigationPropertyBinding Path="Company" Target="Companies"/>
@@ -190,6 +215,8 @@ Direct access to related entities via navigation paths:
 - `GET /api/1/Users/{id}/Roles` - Get user's roles
 - `GET /api/1/Companies/{id}/Users` - Get company's users
 - `GET /api/1/Companies/{id}/Sites` - Get company's sites
+- `GET /api/1/Sites/{id}/SchedulerScripts` - Get site's scheduler scripts
+- `GET /api/1/Sites/{id}/SchedulerOverrides` - Get site's scheduler overrides
 
 ## OData Query Options Reference
 
@@ -343,6 +370,9 @@ The generated types include:
 - `UpdateUserRequest` - Request structure for updating user information
 - `CreateSiteRequest` - Request structure for creating sites
 - `UpdateSiteRequest` - Request structure for updating sites
+- Scheduler types: `SchedulerScript`, `SchedulerScriptInput`, `UpdateSchedulerScriptRequest`
+- Override types: `SchedulerOverride`, `SchedulerOverrideInput`, `UpdateSchedulerOverrideRequest` 
+- State types: `SiteState`, `ValidateScriptResponse`, `ExecuteSchedulerResponse`, `SiteStateResponse`
 - All model types (`User`, `Role`, `Company`, `Site`, etc.)
 
 ### Using Generated Types

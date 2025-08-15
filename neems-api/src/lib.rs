@@ -17,6 +17,7 @@ pub mod models;
 pub mod odata_query;
 pub mod orm;
 pub use orm::{DbConn, SiteDbConn};
+pub mod scheduler_executor;
 pub mod schema;
 pub mod session_guards;
 

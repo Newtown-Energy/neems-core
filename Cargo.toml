@@ -19,6 +19,7 @@ ctor = "0.2"
 diesel = { version = "2.2.11", features = ["sqlite", "chrono", "r2d2"] }
 diesel_migrations = "2.2.0"
 dotenvy = "0.15"  # For loading .env files
+mlua = { version = "0.9", features = ["lua54", "vendored"] }
 rand = "0.9"
 rand_core = "0.6"
 regex = "1.10.3"
