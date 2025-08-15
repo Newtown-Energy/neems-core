@@ -7,6 +7,9 @@ edition = "2024"
 default = []
 test-staging = ["neems-api/test-staging"] # Pass through test-staging feature to neems-api
 
+[build-dependencies]
+built = { workspace = true }
+
 [dependencies]
 neems-api = { path = "../neems-api" }
 clap = { workspace = true, features = ["derive"] }
@@ -16,3 +19,6 @@ diesel = { workspace = true }
 argon2 = { workspace = true }
 dotenvy = { workspace = true }
 chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }

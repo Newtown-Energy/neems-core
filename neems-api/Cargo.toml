@@ -4,12 +4,16 @@ version = "0.1.4"
 edition = "2024"
 default-run = "neems-api"
 
+[build-dependencies]
+built = { workspace = true }
+
 [dependencies]
 fixphrase = { path = "../crates/fixphrase", optional = true }
 neems-data = { path = "../neems-data" }
 
 argon2 = { workspace = true }
 chrono = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 ctor = { workspace = true }
 diesel.workspace = true
 diesel_migrations.workspace = true

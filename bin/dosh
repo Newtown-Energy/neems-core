@@ -256,9 +256,13 @@ test-trad() {
 
 
 watch() {
+    # Run neems-api, then watch neems-api source code and restart as needed
+ 
     # cargo watch was not killing the old binary reliably, leading to "address
     # in use" errors on startup when rocket tried to bind port 8000.  So let's
     # use nodemon instead.
+    
+    cd ${BASEDIR}
 
     # Install nodemon if it's not here
     which nodemon > /dev/null || npm install -g nodemon

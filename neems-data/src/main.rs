@@ -4,12 +4,21 @@ use neems_data::{DataAggregator, NewSource, UpdateSource, create_source, list_so
 use std::env;
 use std::error::Error;
 
+pub mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 #[derive(Parser)]
 #[command(name = "neems-data")]
 #[command(about = "Data aggregation service and source management for NEEMS")]
+#[command(version)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+    
+    /// Show extended version information
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    version_info: bool,
 }
 
 #[derive(Subcommand)]
@@ -129,9 +138,23 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let cli = Cli::parse();
 
+    // Handle --version-info flag
+    if cli.version_info {
+        println!("neems-data {}", built_info::PKG_VERSION);
+        println!("Built: {}", built_info::BUILT_TIME_UTC);
+        if let Some(commit) = built_info::GIT_COMMIT_HASH {
+            println!("Git commit: {}", commit);
+        }
+        return Ok(());
+    }
+
     match cli.command {
-        Commands::Monitor { verbose } => {
-            println!("Starting neems-data aggregator...");
+        Some(Commands::Monitor { verbose }) => {
+            println!("Starting neems-data aggregator v{}", built_info::PKG_VERSION);
+            println!("Built: {}", built_info::BUILT_TIME_UTC);
+            if let Some(commit) = built_info::GIT_COMMIT_HASH {
+                println!("Git commit: {}", commit);
+            }
             println!("Database path: {}", database_path);
             if verbose {
                 println!("Verbose mode enabled - will show data source polling details");
@@ -140,7 +163,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             println!("Starting data aggregation process...");
             aggregator.start_aggregation(verbose).await?;
         }
-        Commands::List => {
+        Some(Commands::List) => {
             let sources = list_sources(&mut connection)?;
             if sources.is_empty() {
                 println!("No sources found.");
@@ -191,7 +214,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             }
         }
-        Commands::Show { name } => {
+        Some(Commands::Show { name }) => {
             match get_source_by_name(&mut connection, &name)? {
                 Some(source) => {
                     println!("Source Details:");
@@ -235,7 +258,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             }
         }
-        Commands::Add(args) => {
+        Some(Commands::Add(args)) => {
             // Check if source already exists
             if get_source_by_name(&mut connection, &args.name)?.is_some() {
                 eprintln!("Error: Source '{}' already exists.", args.name);
@@ -283,7 +306,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             }
         }
-        Commands::Edit(args) => {
+        Some(Commands::Edit(args)) => {
             // Check if source exists
             let existing = match get_source_by_name(&mut connection, &args.name)? {
                 Some(source) => source,
@@ -366,7 +389,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             let updated = update_source(&mut connection, source_id, updates)?;
             println!("Updated source '{}'", updated.name);
         }
-        Commands::Remove { name } => {
+        Some(Commands::Remove { name }) => {
             // Check if source exists
             let existing = match get_source_by_name(&mut connection, &name)? {
                 Some(source) => source,
@@ -387,6 +410,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 eprintln!("Error: Failed to remove source '{}'", name);
                 std::process::exit(1);
             }
+        }
+        None => {
+            eprintln!("No command provided. Use --help for usage information.");
+            std::process::exit(1);
         }
     }
 

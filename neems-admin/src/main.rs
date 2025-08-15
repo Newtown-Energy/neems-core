@@ -38,6 +38,11 @@ use admin_cli::site_commands::{SiteAction, handle_site_command_with_conn};
 use admin_cli::user_commands::{UserAction, handle_user_command_with_conn};
 use admin_cli::utils::{establish_connection, get_or_create_admin_user};
 use clap::{Parser, Subcommand};
+use serde::Deserialize;
+
+pub mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
 
 #[derive(Parser)]
 #[command(name = "neems-admin")]
@@ -46,7 +51,11 @@ use clap::{Parser, Subcommand};
 #[command(disable_help_subcommand = true)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+    
+    /// Show extended version information
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    version_info: bool,
 }
 
 #[derive(Subcommand)]
@@ -86,16 +95,39 @@ enum SystemAction {
     Maintenance,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Deserialize)]
+struct ApiStatus {
+    status: String,
+    version: String,
+    built: String,
+    git_commit: Option<String>,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    // Handle --version-info flag
+    if cli.version_info {
+        println!("neems-admin {}", built_info::PKG_VERSION);
+        println!("Built: {}", built_info::BUILT_TIME_UTC);
+        if let Some(commit) = built_info::GIT_COMMIT_HASH {
+            println!("Git commit: {}", commit);
+        }
+        return Ok(());
+    }
+
     match cli.command {
-        Commands::User { action } => handle_user_command(action)?,
-        Commands::Company { action } => handle_company_command(action)?,
-        Commands::Site { action } => handle_site_command(action)?,
-        Commands::Device { action } => handle_device_command(action)?,
-        Commands::Role { action } => handle_role_command(action)?,
-        Commands::System { action } => handle_system_command(action)?,
+        Some(Commands::User { action }) => handle_user_command(action)?,
+        Some(Commands::Company { action }) => handle_company_command(action)?,
+        Some(Commands::Site { action }) => handle_site_command(action)?,
+        Some(Commands::Device { action }) => handle_device_command(action)?,
+        Some(Commands::Role { action }) => handle_role_command(action)?,
+        Some(Commands::System { action }) => handle_system_command(action).await?,
+        None => {
+            eprintln!("No command provided. Use --help for usage information.");
+            std::process::exit(1);
+        }
     }
 
     Ok(())
@@ -131,12 +163,26 @@ fn handle_role_command(action: RoleAction) -> Result<(), Box<dyn std::error::Err
     handle_role_command_with_conn(&mut conn, action, admin_user_id)
 }
 
-fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         SystemAction::Status => {
             println!("System Status: OK");
             println!("Database: Connected");
-            // TODO: Add more system status checks
+            
+            // Try to get API server status
+            match get_api_status().await {
+                Ok(api_status) => {
+                    println!("API Server Status: {}", api_status.status);
+                    println!("API Version: {}", api_status.version);
+                    println!("API Built: {}", api_status.built);
+                    if let Some(commit) = api_status.git_commit {
+                        println!("API Git commit: {}", commit);
+                    }
+                }
+                Err(e) => {
+                    println!("API Server: Not reachable ({})", e);
+                }
+            }
         }
         SystemAction::Maintenance => {
             println!("Running maintenance tasks...");
@@ -145,6 +191,15 @@ fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::error:
     }
 
     Ok(())
+}
+
+async fn get_api_status() -> Result<ApiStatus, Box<dyn std::error::Error>> {
+    // Default to localhost:8000, could be made configurable
+    let url = "http://localhost:8000/api/1/status";
+    let client = reqwest::Client::new();
+    let response = client.get(url).send().await?;
+    let api_status: ApiStatus = response.json().await?;
+    Ok(api_status)
 }
 
 #[cfg(all(test, feature = "test-staging"))]

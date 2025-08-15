@@ -12,6 +12,7 @@ default-features = false
 
 [workspace.dependencies]
 argon2 = "0.5"
+built = { version = "0.7", features = ["chrono", "git2"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive"] }
 ctor = "0.2"

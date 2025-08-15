@@ -7,6 +7,8 @@ edition = "2024"
 name = "neems-data"
 path = "src/main.rs"
 
+[build-dependencies]
+built = { workspace = true }
 
 [lib]
 name = "neems_data"
