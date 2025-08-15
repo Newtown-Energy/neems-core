@@ -251,9 +251,20 @@ pub fn list_users_impl(
             let created_at = get_created_at(conn, "users", user.id)
                 .map(|dt| dt.to_string())
                 .unwrap_or_else(|_| "Unknown".to_string());
+
+            let roles = get_user_roles(conn, user.id)
+                .map(|roles| {
+                    if roles.is_empty() {
+                        "None".to_string()
+                    } else {
+                        roles.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", ")
+                    }
+                })
+                .unwrap_or_else(|_| "Error loading roles".to_string());
+
             println!(
-                "  ID: {}, Email: {}, Company ID: {}, Created: {}",
-                user.id, user.email, user.company_id, created_at
+                "  ID: {}, Email: {}, Company ID: {}, Created: {}, Roles: {}",
+                user.id, user.email, user.company_id, created_at, roles
             );
         }
     }
