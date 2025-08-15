@@ -10,6 +10,7 @@ This is the master documentation index for all API endpoints in the neems-api sy
 - **[Role Management](api-roles.md)** - Role creation and management
 - **[Company Management](api-companies.md)** - Company operations and listings
 - **[Site Management](api-sites.md)** - Physical location management
+- **[Device Management](api-devices.md)** - Device registration and management
 - **[Data Access](api-data.md)** - Sensor readings and data sources
 - **[Utilities](api-utilities.md)** - Health checks and location services
 - **[Testing Endpoints](api-testing.md)** - Test-staging feature endpoints
@@ -46,6 +47,7 @@ Entity sets use capitalized plural naming:
 - **Users** (previously `users`)
 - **Companies** (previously `companies`) 
 - **Sites** (previously `sites`)
+- **Devices** (device management)
 - **Roles** (previously `roles`)
 - **DataSources** (previously `data_sources`)
 
@@ -97,6 +99,11 @@ The service document provides a machine-readable list of all available entity se
       "name": "Sites",
       "kind": "EntitySet", 
       "url": "Sites"
+    },
+    {
+      "name": "Devices",
+      "kind": "EntitySet",
+      "url": "Devices"
     },
     {
       "name": "Roles",
