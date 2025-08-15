@@ -2,7 +2,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use dotenvy::dotenv;
 use neems_api::models::{CompanyInput, UserInput};
-use neems_api::orm::company::get_company_by_name;
+use neems_api::orm::company::{get_company_by_id, get_company_by_name, get_company_by_name_case_insensitive};
 use neems_api::orm::user::{get_user_by_email, insert_user};
 use neems_api::orm::user_role::assign_user_role_by_name;
 use argon2::password_hash::{SaltString, rand_core::OsRng};
@@ -58,4 +58,27 @@ pub fn get_or_create_admin_user(conn: &mut SqliteConnection) -> Result<i32, Box<
     println!("Created admin user: {} (ID: {})", email, created_user.id);
     
     Ok(created_user.id)
+}
+
+/// Resolve a company identifier (either ID as string/number or name) to a company ID.
+/// If the input is a valid number, treat it as an ID and verify it exists.
+/// If it's not a number, treat it as a name and look it up (case-insensitive).
+pub fn resolve_company_id(
+    conn: &mut SqliteConnection,
+    company_identifier: &str,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    // Try to parse as a number first
+    if let Ok(id) = company_identifier.parse::<i32>() {
+        // It's a number, verify the company exists
+        match get_company_by_id(conn, id)? {
+            Some(_company) => Ok(id),
+            None => Err(format!("Company with ID {} does not exist", id).into()),
+        }
+    } else {
+        // It's not a number, treat as name
+        match get_company_by_name_case_insensitive(conn, company_identifier)? {
+            Some(company) => Ok(company.id),
+            None => Err(format!("Company with name '{}' does not exist", company_identifier).into()),
+        }
+    }
 }

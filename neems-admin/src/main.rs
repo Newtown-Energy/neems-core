@@ -238,7 +238,7 @@ mod tests {
         let action = UserAction::Add {
             email: "cli_test@example.com".to_string(),
             password: Some("cli_password".to_string()),
-            company_id: company.id,
+            company_id: company.id.to_string(),
             totp_secret: Some("cli_totp".to_string()),
         };
 
@@ -264,7 +264,7 @@ mod tests {
         let create_action = UserAction::Add {
             email: "change_test@example.com".to_string(),
             password: Some("original".to_string()),
-            company_id: company.id,
+            company_id: company.id.to_string(),
             totp_secret: None,
         };
         handle_user_command_with_conn(&mut conn, create_action, 1).expect("Failed to create user");
@@ -313,7 +313,7 @@ mod tests {
         let create_action = UserAction::Add {
             email: "delete_me@example.com".to_string(),
             password: Some("password1".to_string()),
-            company_id: company.id,
+            company_id: company.id.to_string(),
             totp_secret: None,
         };
         handle_user_command_with_conn(&mut conn, create_action, 1).expect("Failed to create user");
@@ -321,7 +321,7 @@ mod tests {
         let create_action2 = UserAction::Add {
             email: "keep_me@test.com".to_string(),
             password: Some("password2".to_string()),
-            company_id: company.id,
+            company_id: company.id.to_string(),
             totp_secret: None,
         };
         handle_user_command_with_conn(&mut conn, create_action2, 1).expect("Failed to create user");
@@ -411,7 +411,7 @@ mod tests {
             address: "CLI Test Address".to_string(),
             latitude: 40.7128,
             longitude: -74.0060,
-            company_id: company.id,
+            company_id: company.id.to_string(),
         };
         let result = handle_site_command_with_conn(&mut conn, action, 1);
         assert!(result.is_ok());
@@ -1667,7 +1667,7 @@ mod tests {
             serial: Some("SN123".to_string()),
             ip_address: Some("192.168.1.1".to_string()),
             install_date: Some("2024-01-15 10:30:00".to_string()),
-            company_id: company.id,
+            company_id: company.id.to_string(),
             site_id: site.id,
         };
         let result = handle_device_command_with_conn(&mut conn, action, 1);

@@ -2,6 +2,7 @@ use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
 use neems_api::models::DeviceInput;
 use neems_api::orm::company::get_company_by_id;
+use crate::admin_cli::utils::resolve_company_id;
 use neems_api::orm::device::{
     delete_device, get_all_devices, get_device_by_id, get_device_by_site_and_name, 
     get_devices_by_company, get_devices_by_site, insert_device, update_device,
@@ -22,8 +23,8 @@ pub enum DeviceAction {
             help = "Treat search term as fixed string instead of regex"
         )]
         fixed_string: bool,
-        #[arg(short = 'c', long = "company", help = "Filter by company ID")]
-        company_id: Option<i32>,
+        #[arg(short = 'c', long = "company", help = "Filter by company ID or name")]
+        company_id: Option<String>,
         #[arg(short = 's', long = "site", help = "Filter by site ID")]
         site_id: Option<i32>,
     },
@@ -43,8 +44,8 @@ pub enum DeviceAction {
         ip_address: Option<String>,
         #[arg(long, help = "Install date (YYYY-MM-DD HH:MM:SS)")]
         install_date: Option<String>,
-        #[arg(short = 'c', long = "company", help = "Company ID")]
-        company_id: i32,
+        #[arg(short = 'c', long = "company", help = "Company ID or name")]
+        company_id: String,
         #[arg(short = 's', long = "site", help = "Site ID")]
         site_id: i32,
     },
@@ -62,8 +63,8 @@ pub enum DeviceAction {
         fixed_string: bool,
         #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
         yes: bool,
-        #[arg(short = 'c', long = "company", help = "Filter by company ID")]
-        company_id: Option<i32>,
+        #[arg(short = 'c', long = "company", help = "Filter by company ID or name")]
+        company_id: Option<String>,
         #[arg(short = 's', long = "site", help = "Filter by site ID")]
         site_id: Option<i32>,
     },
@@ -85,8 +86,8 @@ pub enum DeviceAction {
         ip_address: Option<String>,
         #[arg(long, help = "New install date (YYYY-MM-DD HH:MM:SS or empty to clear)")]
         install_date: Option<String>,
-        #[arg(long = "company", help = "New company ID")]
-        company_id: Option<i32>,
+        #[arg(long = "company", help = "New company ID or name")]
+        company_id: Option<String>,
         #[arg(long = "site", help = "New site ID")]
         site_id: Option<i32>,
     },
@@ -104,7 +105,12 @@ pub fn handle_device_command_with_conn(
             company_id,
             site_id,
         } => {
-            device_ls_impl(conn, search_term, fixed_string, company_id, site_id)?;
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
+            device_ls_impl(conn, search_term, fixed_string, resolved_company_id, site_id)?;
         }
         DeviceAction::Add {
             name,
@@ -128,6 +134,7 @@ pub fn handle_device_command_with_conn(
                 None
             };
 
+            let resolved_company_id = resolve_company_id(conn, &company_id)?;
             let device_input = DeviceInput {
                 name,
                 description,
@@ -136,7 +143,7 @@ pub fn handle_device_command_with_conn(
                 serial,
                 ip_address,
                 install_date: install_date_parsed,
-                company_id,
+                company_id: resolved_company_id,
                 site_id,
             };
             device_add_impl(conn, device_input, admin_user_id)?;
@@ -148,7 +155,12 @@ pub fn handle_device_command_with_conn(
             company_id,
             site_id,
         } => {
-            device_rm_impl(conn, search_term, fixed_string, yes, company_id, site_id, admin_user_id)?;
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
+            device_rm_impl(conn, search_term, fixed_string, yes, resolved_company_id, site_id, admin_user_id)?;
         }
         DeviceAction::Edit {
             id,
@@ -162,6 +174,11 @@ pub fn handle_device_command_with_conn(
             company_id,
             site_id,
         } => {
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
             device_edit_impl(
                 conn,
                 id,
@@ -172,7 +189,7 @@ pub fn handle_device_command_with_conn(
                 serial,
                 ip_address,
                 install_date,
-                company_id,
+                resolved_company_id,
                 site_id,
                 admin_user_id,
             )?;

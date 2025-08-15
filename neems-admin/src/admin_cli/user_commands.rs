@@ -2,6 +2,7 @@ use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHasher};
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
+use crate::admin_cli::utils::resolve_company_id;
 use neems_api::models::UserInput;
 use neems_api::orm::company::get_company_by_id;
 use neems_api::orm::entity_activity::{get_created_at};
@@ -28,8 +29,8 @@ pub enum UserAction {
             help = "Password (will be prompted securely if not provided)"
         )]
         password: Option<String>,
-        #[arg(short, long, help = "Company ID")]
-        company_id: i32,
+        #[arg(short, long, help = "Company ID or name")]
+        company_id: String,
         #[arg(long, help = "TOTP secret (optional)")]
         totp_secret: Option<String>,
     },
@@ -76,8 +77,8 @@ pub enum UserAction {
         id: i32,
         #[arg(long, help = "New email address")]
         email: Option<String>,
-        #[arg(long, help = "New company ID")]
-        company_id: Option<i32>,
+        #[arg(long, help = "New company ID or name")]
+        company_id: Option<String>,
         #[arg(long, help = "New TOTP secret")]
         totp_secret: Option<String>,
     },
@@ -116,7 +117,8 @@ pub fn handle_user_command_with_conn(
             company_id,
             totp_secret,
         } => {
-            add_user_impl(conn, &email, password, company_id, totp_secret, admin_user_id)?;
+            let resolved_company_id = resolve_company_id(conn, &company_id)?;
+            add_user_impl(conn, &email, password, resolved_company_id, totp_secret, admin_user_id)?;
         }
         UserAction::ChangePassword { email, password } => {
             change_password_impl(conn, &email, password, admin_user_id)?;
@@ -140,7 +142,12 @@ pub fn handle_user_command_with_conn(
             company_id,
             totp_secret,
         } => {
-            user_edit_impl(conn, id, email, company_id, totp_secret, admin_user_id)?;
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
+            user_edit_impl(conn, id, email, resolved_company_id, totp_secret, admin_user_id)?;
         }
         UserAction::AddRole { email, role } => {
             user_add_role_impl(conn, &email, &role)?;

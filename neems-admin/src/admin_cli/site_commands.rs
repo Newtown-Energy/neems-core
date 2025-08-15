@@ -1,6 +1,7 @@
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
 use neems_api::orm::company::get_company_by_id;
+use crate::admin_cli::utils::resolve_company_id;
 use neems_api::orm::site::{
     delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id, get_sites_by_company, insert_site, update_site,
 };
@@ -19,8 +20,8 @@ pub enum SiteAction {
             help = "Treat search term as fixed string instead of regex"
         )]
         fixed_string: bool,
-        #[arg(short = 'c', long = "company", help = "Filter by company ID")]
-        company_id: Option<i32>,
+        #[arg(short = 'c', long = "company", help = "Filter by company ID or name")]
+        company_id: Option<String>,
     },
     #[command(about = "Add a new site")]
     Add {
@@ -32,8 +33,8 @@ pub enum SiteAction {
         latitude: f64,
         #[arg(long, help = "Longitude coordinate")]
         longitude: f64,
-        #[arg(short, long, help = "Company ID")]
-        company_id: i32,
+        #[arg(short, long, help = "Company ID or name")]
+        company_id: String,
     },
     #[command(about = "Remove sites matching search term")]
     Rm {
@@ -49,8 +50,8 @@ pub enum SiteAction {
         fixed_string: bool,
         #[arg(short = 'y', long = "yes", help = "Skip confirmation prompt")]
         yes: bool,
-        #[arg(short = 'c', long = "company", help = "Filter by company ID")]
-        company_id: Option<i32>,
+        #[arg(short = 'c', long = "company", help = "Filter by company ID or name")]
+        company_id: Option<String>,
     },
     #[command(about = "Edit site fields")]
     Edit {
@@ -64,8 +65,8 @@ pub enum SiteAction {
         latitude: Option<f64>,
         #[arg(long, help = "New longitude coordinate")]
         longitude: Option<f64>,
-        #[arg(long, help = "New company ID")]
-        company_id: Option<i32>,
+        #[arg(long, help = "New company ID or name")]
+        company_id: Option<String>,
     },
 }
 
@@ -80,7 +81,12 @@ pub fn handle_site_command_with_conn(
             fixed_string,
             company_id,
         } => {
-            site_ls_impl(conn, search_term, fixed_string, company_id)?;
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
+            site_ls_impl(conn, search_term, fixed_string, resolved_company_id)?;
         }
         SiteAction::Add {
             name,
@@ -89,7 +95,8 @@ pub fn handle_site_command_with_conn(
             longitude,
             company_id,
         } => {
-            site_add_impl(conn, name, address, latitude, longitude, company_id, admin_user_id)?;
+            let resolved_company_id = resolve_company_id(conn, &company_id)?;
+            site_add_impl(conn, name, address, latitude, longitude, resolved_company_id, admin_user_id)?;
         }
         SiteAction::Rm {
             search_term,
@@ -97,7 +104,12 @@ pub fn handle_site_command_with_conn(
             yes,
             company_id,
         } => {
-            site_rm_impl(conn, search_term, fixed_string, yes, company_id, admin_user_id)?;
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
+            site_rm_impl(conn, search_term, fixed_string, yes, resolved_company_id, admin_user_id)?;
         }
         SiteAction::Edit {
             id,
@@ -107,7 +119,12 @@ pub fn handle_site_command_with_conn(
             longitude,
             company_id,
         } => {
-            site_edit_impl(conn, id, name, address, latitude, longitude, company_id, admin_user_id)?;
+            let resolved_company_id = if let Some(company_str) = company_id {
+                Some(resolve_company_id(conn, &company_str)?)
+            } else {
+                None
+            };
+            site_edit_impl(conn, id, name, address, latitude, longitude, resolved_company_id, admin_user_id)?;
         }
     }
     Ok(())
