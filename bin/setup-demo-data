@@ -105,6 +105,39 @@ $NEEMS_ADMIN_BIN user add-role --email "user@bestbess.com" --role-id 4 2>/dev/nu
 echo "Assigning newtown-admin role..."
 $NEEMS_ADMIN_BIN user add-role --email "james@newtown.energy" --role-id 1 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
 
+# Add demo devices for Sunny Solar sites
+echo "Adding devices for Sunny Solar sites..."
+BATFARM1_ID=$($NEEMS_ADMIN_BIN site ls | grep "Bat Farm 1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+BATFARM2_ID=$($NEEMS_ADMIN_BIN site ls | grep "Bat Farm 2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+
+if [ -n "$BATFARM1_ID" ]; then
+    $NEEMS_ADMIN_BIN device add --name "Solar Inverter 1" --type "Inverter" --model "SUN2000-100KTL" --serial "INV001" --ip "192.168.1.10" --install-date "2023-01-15 10:00:00" --company "$SUNNY_SOLAR_ID" --site "$BATFARM1_ID" 2>/dev/null || echo "Device 'Solar Inverter 1' already exists"
+    $NEEMS_ADMIN_BIN device add --name "Solar Inverter 2" --type "Inverter" --model "SUN2000-100KTL" --serial "INV002" --ip "192.168.1.11" --company "$SUNNY_SOLAR_ID" --site "$BATFARM1_ID" 2>/dev/null || echo "Device 'Solar Inverter 2' already exists"
+    $NEEMS_ADMIN_BIN device add --name "Weather Station" --type "Sensor" --model "WS-3000" --ip "192.168.1.20" --company "$SUNNY_SOLAR_ID" --site "$BATFARM1_ID" 2>/dev/null || echo "Device 'Weather Station' already exists"
+fi
+
+if [ -n "$BATFARM2_ID" ]; then
+    $NEEMS_ADMIN_BIN device add --name "Solar Inverter 1" --type "Inverter" --model "SUN2000-150KTL" --serial "INV003" --ip "192.168.2.10" --install-date "2023-03-20 14:30:00" --company "$SUNNY_SOLAR_ID" --site "$BATFARM2_ID" 2>/dev/null || echo "Device 'Solar Inverter 1' at Bat Farm 2 already exists"
+    $NEEMS_ADMIN_BIN device add --name "Power Meter" --type "Meter" --model "PM-5000" --serial "PM001" --ip "192.168.2.30" --company "$SUNNY_SOLAR_ID" --site "$BATFARM2_ID" 2>/dev/null || echo "Device 'Power Meter' already exists"
+fi
+
+# Add demo devices for Best BESS sites
+echo "Adding devices for Best BESS sites..."
+B1_ID=$($NEEMS_ADMIN_BIN site ls | grep "B1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+B2_ID=$($NEEMS_ADMIN_BIN site ls | grep "B2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+
+if [ -n "$B1_ID" ]; then
+    $NEEMS_ADMIN_BIN device add --name "Battery System 1" --type "Battery" --model "PowerWall 2" --serial "BAT001" --ip "192.168.3.10" --install-date "2023-05-10 09:00:00" --company "$BEST_BESS_ID" --site "$B1_ID" 2>/dev/null || echo "Device 'Battery System 1' already exists"
+    $NEEMS_ADMIN_BIN device add --name "Battery System 2" --type "Battery" --model "PowerWall 2" --serial "BAT002" --ip "192.168.3.11" --company "$BEST_BESS_ID" --site "$B1_ID" 2>/dev/null || echo "Device 'Battery System 2' already exists"
+    $NEEMS_ADMIN_BIN device add --name "BMS Controller" --type "Controller" --model "BMS-5000" --ip "192.168.3.100" --company "$BEST_BESS_ID" --site "$B1_ID" 2>/dev/null || echo "Device 'BMS Controller' already exists"
+fi
+
+if [ -n "$B2_ID" ]; then
+    $NEEMS_ADMIN_BIN device add --name "Battery System 1" --type "Battery" --model "MegaPack" --serial "MEGA001" --ip "192.168.4.10" --install-date "2023-07-01 11:00:00" --company "$BEST_BESS_ID" --site "$B2_ID" 2>/dev/null || echo "Device 'Battery System 1' at B2 already exists"
+    $NEEMS_ADMIN_BIN device add --name "Cooling System" --type "HVAC" --model "CoolTech-3000" --serial "COOL001" --company "$BEST_BESS_ID" --site "$B2_ID" 2>/dev/null || echo "Device 'Cooling System' already exists"
+    $NEEMS_ADMIN_BIN device add --name "Fire Suppression" --type "Safety" --model "FireGuard-X" --company "$BEST_BESS_ID" --site "$B2_ID" 2>/dev/null || echo "Device 'Fire Suppression' already exists"
+fi
+
 echo "Demo data setup complete!"
 echo ""
 echo "Demo users created:"

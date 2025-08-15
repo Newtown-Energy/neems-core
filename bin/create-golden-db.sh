@@ -214,11 +214,44 @@ $NEEMS_ADMIN_BIN user add --email "admin_staff@example.com" --password "adminsta
 $NEEMS_ADMIN_BIN user add-role --email "admin_staff@example.com" --role "admin" 2>/dev/null || echo "Admin role already assigned to admin_staff@example.com"
 $NEEMS_ADMIN_BIN user add-role --email "admin_staff@example.com" --role "staff" 2>/dev/null || echo "Staff role already assigned to admin_staff@example.com"
 
+# Create test devices
+echo "Creating test devices..."
+
+# Get site IDs for test companies
+TEST_SITE1_ID=$($NEEMS_ADMIN_BIN site ls | grep -m1 "Test Company 1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+TEST_SITE2_ID=$($NEEMS_ADMIN_BIN site ls | grep -m1 "Test Company 2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+
+# Create sites if they don't exist
+if [ -z "$TEST_SITE1_ID" ]; then
+    $NEEMS_ADMIN_BIN site add --name "Test Site 1" --address "123 Test St" --latitude 40.0 --longitude -74.0 --company-id "$TEST_COMPANY1_ID" 2>/dev/null || true
+    TEST_SITE1_ID=$($NEEMS_ADMIN_BIN site ls | grep "Test Site 1" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+fi
+
+if [ -z "$TEST_SITE2_ID" ]; then
+    $NEEMS_ADMIN_BIN site add --name "Test Site 2" --address "456 Test Ave" --latitude 41.0 --longitude -75.0 --company-id "$TEST_COMPANY2_ID" 2>/dev/null || true
+    TEST_SITE2_ID=$($NEEMS_ADMIN_BIN site ls | grep "Test Site 2" | sed 's/.*ID: \([0-9]*\).*/\1/' | head -1)
+fi
+
+# Add test devices if sites exist
+if [ -n "$TEST_SITE1_ID" ]; then
+    $NEEMS_ADMIN_BIN device add --name "SEL-451" --type "Protection" --model "SEL-451" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE1_ID" 2>/dev/null || true
+    $NEEMS_ADMIN_BIN device add --name "SEL-735" --type "Meter" --model "SEL-735" --serial "TEST001" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE1_ID" 2>/dev/null || true
+fi
+
+if [ -n "$TEST_SITE2_ID" ]; then
+    $NEEMS_ADMIN_BIN device add --name "SEL-451" --type "Protection" --model "SEL-451" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE2_ID" 2>/dev/null || true
+    $NEEMS_ADMIN_BIN device add --name "SEL-735A" --type "Meter" --model "SEL-735" --serial "TEST001" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE2_ID" 2>/dev/null || true
+    $NEEMS_ADMIN_BIN device add --name "SEL-735B" --type "Meter" --model "SEL-735" --serial "TEST002" --company "$TEST_COMPANY1_ID" --site "$TEST_SITE2_ID" 2>/dev/null || true
+
+fi
+
 echo "Golden database v$VERSION_TIMESTAMP created successfully at: $GOLDEN_DB_PATH"
 echo "You can now run tests with: cargo test --features test-staging"
 echo ""
 echo "Golden database contains:"
 echo "  Companies: Newtown Energy, Test Company 1, Test Company 2, Removable LLC"
+echo "  Sites: Test Site 1, Test Site 2"
+echo "  Devices: Test devices for various test scenarios"
 echo "  Roles: newtown-admin, newtown-staff, admin, staff"
 echo "  Admin user: superadmin@example.com (password: admin)"
 echo "  Test users: Various users for different test scenarios"

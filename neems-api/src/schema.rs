@@ -29,6 +29,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    devices (id) {
+        id -> Integer,
+        name -> Text,
+        description -> Nullable<Text>,
+        #[sql_name = "type"]
+        type_ -> Text,
+        model -> Text,
+        serial -> Nullable<Text>,
+        ip_address -> Nullable<Text>,
+        install_date -> Nullable<Timestamp>,
+        company_id -> Integer,
+        site_id -> Integer,
+    }
+}
+
+diesel::table! {
     entity_activity (id) {
         id -> Integer,
         table_name -> Text,
@@ -85,6 +101,8 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(devices -> companies (company_id));
+diesel::joinable!(devices -> sites (site_id));
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
@@ -95,6 +113,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     companies,
     deleted_companies,
     deleted_users,
+    devices,
     entity_activity,
     roles,
     sessions,

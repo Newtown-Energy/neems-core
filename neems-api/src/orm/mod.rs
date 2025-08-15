@@ -1,5 +1,6 @@
 pub mod company;
 mod db;
+pub mod device;
 pub mod entity_activity;
 pub mod login;
 pub mod logout;
