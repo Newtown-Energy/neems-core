@@ -5,54 +5,8 @@ use rocket::http::Status;
 use rocket::tokio;
 use serde_json::json;
 
-use neems_api::models::UserInput;
-use neems_api::orm::DbConn;
-use neems_api::orm::company::insert_company;
-use neems_api::orm::login::hash_password;
 use neems_api::orm::testing::fast_test_rocket;
-use neems_api::orm::user::insert_user;
-use neems_api::orm::user_role::assign_user_role_by_name;
 // Role guards are tested through the authentication system
-mod company;
-use neems_api::company::random_energy_company_names;
-
-/// Creates dummy data for testing by directly inserting test company and user into the database.
-/// This function uses ORM functions directly instead of API endpoints.
-pub async fn add_dummy_data(
-    client: &rocket::local::asynchronous::Client,
-) -> &rocket::local::asynchronous::Client {
-    // Get database connection from the same pool that the client uses
-    let db_conn = DbConn::get_one(client.rocket())
-        .await
-        .expect("database connection for add_dummy_data");
-
-    db_conn
-        .run(|conn| {
-            // Create company directly using ORM
-            let comp = insert_company(conn, random_energy_company_names(1)[0].to_string(), None)
-                .expect("Failed to insert company");
-
-            // Create test user directly using ORM
-            let user = insert_user(
-                conn,
-                UserInput {
-                    email: "testuser@example.com".to_string(),
-                    password_hash: hash_password("admin"),
-                    company_id: comp.id,
-                    totp_secret: Some("dummy_secret".to_string()),
-                },
-                None,
-            )
-            .expect("Failed to insert user");
-
-            // Assign a default role to the test user
-            assign_user_role_by_name(conn, user.id, "staff")
-                .expect("Failed to assign role to test user");
-        })
-        .await;
-
-    client
-}
 
 #[tokio::test]
 async fn test_login_success() {
@@ -79,7 +33,7 @@ async fn test_login_success() {
     assert!(body["user_id"].is_number());
     assert!(body["company_name"].is_string());
     assert!(body["roles"].is_array());
-    // Verify the test user has the "staff" role that was assigned in add_dummy_data
+    // Verify the test user has the "staff" role from golden database
     let roles = body["roles"].as_array().unwrap();
     assert!(roles.iter().any(|r| r.as_str() == Some("staff")));
 }
@@ -175,10 +129,10 @@ async fn test_secure_hello_requires_auth() {
     let response = client.get("/api/1/hello").dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
-    // 2. Login with correct credentials (using the test user created by add_dummy_data)
+    // 2. Login with correct credentials (using the test user from golden database)
     let login_body = json!({
         "email": "testuser@example.com",
-        "password": "admin"  // Test user password from add_dummy_data
+        "password": "admin"  // Test user password from golden database
     });
     let response = client
         .post("/api/1/login")
@@ -207,45 +161,9 @@ async fn test_secure_hello_requires_auth() {
     assert!(body["user_id"].is_number());
     assert!(body["company_name"].is_string());
     assert!(body["roles"].is_array());
-    // Verify the test user has the "staff" role that was assigned in add_dummy_data
+    // Verify the test user has the "staff" role from golden database
     let roles = body["roles"].as_array().unwrap();
     assert!(roles.iter().any(|r| r.as_str() == Some("staff")));
-}
-
-/// Helper function to create a test user with specific roles
-async fn create_test_user_with_roles(
-    client: &rocket::local::asynchronous::Client,
-    email: String,
-    roles: Vec<String>,
-) -> i32 {
-    let db_conn = DbConn::get_one(client.rocket())
-        .await
-        .expect("database connection for create_test_user_with_roles");
-
-    db_conn
-        .run(move |conn| {
-            // Create test user
-            let user = insert_user(
-                conn,
-                UserInput {
-                    email: email.clone(),
-                    password_hash: hash_password("admin"),
-                    company_id: 1, // Assumes company exists
-                    totp_secret: Some("dummy_secret".to_string()),
-                },
-                None,
-            )
-            .expect("Failed to insert test user");
-
-            // Assign specified roles
-            for role in roles {
-                assign_user_role_by_name(conn, user.id, &role)
-                    .expect(&format!("Failed to assign role {} to user", role));
-            }
-
-            user.id
-        })
-        .await
 }
 
 #[tokio::test]
@@ -255,18 +173,10 @@ async fn test_authenticated_user_has_roles() {
         .unwrap();
     time_test!("test_authenticated_user_has_roles");
 
-    // Create a user with multiple roles
-    let _user_id = create_test_user_with_roles(
-        &client,
-        "multirole@example.com".to_string(),
-        vec!["admin".to_string(), "newtown-staff".to_string()],
-    )
-    .await;
-
-    // Login with the multi-role user
+    // Use golden DB user with multiple roles (admin_staff@example.com has admin + staff)
     let login_body = json!({
-        "email": "multirole@example.com",
-        "password": "admin"
+        "email": "admin_staff@example.com",
+        "password": "adminstaff"
     });
     let response = client
         .post("/api/1/login")
@@ -284,13 +194,13 @@ async fn test_authenticated_user_has_roles() {
 
     // Verify login response contains user info including multiple roles
     let login_body: serde_json::Value = response.into_json().await.unwrap();
-    assert_eq!(login_body["email"], "multirole@example.com");
+    assert_eq!(login_body["email"], "admin_staff@example.com");
     let login_roles = login_body["roles"].as_array().unwrap();
     assert!(login_roles.iter().any(|r| r.as_str() == Some("admin")));
     assert!(
         login_roles
             .iter()
-            .any(|r| r.as_str() == Some("newtown-staff"))
+            .any(|r| r.as_str() == Some("staff"))
     );
 
     // Test that we can access protected routes
@@ -303,13 +213,13 @@ async fn test_authenticated_user_has_roles() {
 
     // Verify hello response also contains user info
     let hello_body: serde_json::Value = response.into_json().await.unwrap();
-    assert_eq!(hello_body["email"], "multirole@example.com");
+    assert_eq!(hello_body["email"], "admin_staff@example.com");
     let hello_roles = hello_body["roles"].as_array().unwrap();
     assert!(hello_roles.iter().any(|r| r.as_str() == Some("admin")));
     assert!(
         hello_roles
             .iter()
-            .any(|r| r.as_str() == Some("newtown-staff"))
+            .any(|r| r.as_str() == Some("staff"))
     );
 
     // Test role checking methods (we'll do this by examining the session guard directly)
@@ -324,17 +234,9 @@ async fn test_role_helper_methods() {
         .unwrap();
     time_test!("test_role_helper_methods");
 
-    // Create a user with specific roles for testing
-    let _user_id = create_test_user_with_roles(
-        &client,
-        "roletest@example.com".to_string(),
-        vec!["admin".to_string(), "newtown-staff".to_string()],
-    )
-    .await;
-
-    // Login
+    // Use golden DB user with admin role (admin@company1.com)
     let login_body = json!({
-        "email": "roletest@example.com",
+        "email": "admin@company1.com",
         "password": "admin"
     });
     let response = client
@@ -440,17 +342,9 @@ async fn test_user_role_assignment() {
         .unwrap();
     time_test!("test_user_role_assignment");
 
-    // Create a user with a specific role
-    let _user_id = create_test_user_with_roles(
-        &client,
-        "staffuser@example.com".to_string(),
-        vec!["newtown-staff".to_string()],
-    )
-    .await;
-
-    // Login with the staff user
+    // Use golden DB user with newtown-staff role
     let login_body = json!({
-        "email": "staffuser@example.com",
+        "email": "newtownstaff@newtown.com",
         "password": "admin"
     });
     let response = client

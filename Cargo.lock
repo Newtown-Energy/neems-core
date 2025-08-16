@@ -407,16 +407,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctor"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a2785755761f3ddc1492979ce1e48d2c00d09311c39e4466429188f3dd6501"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1547,7 +1537,6 @@ dependencies = [
  "built",
  "chrono",
  "clap",
- "ctor",
  "diesel",
  "diesel_migrations",
  "dotenvy",
@@ -1556,7 +1545,6 @@ dependencies = [
  "neems-data",
  "rand 0.9.1",
  "rand_core 0.6.4",
- "reqwest",
  "rocket",
  "rocket_sync_db_pools",
  "serde",
@@ -1579,16 +1567,13 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "nix",
- "rand 0.9.1",
  "serde",
  "serde_json",
- "sha1",
  "signal-hook",
  "signal-hook-tokio",
  "tempfile",
  "tokio",
  "ts-rs",
- "uuid",
 ]
 
 [[package]]
@@ -2368,17 +2353,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "sha1"
-version = "0.10.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
-dependencies = [
- "cfg-if",
- "cpufeatures",
- "digest",
 ]
 
 [[package]]

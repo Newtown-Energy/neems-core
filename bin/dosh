@@ -159,9 +159,21 @@ depends() {
   [ "$(id -u)" -eq 0 ] && { echo "Do NOT run as root. Script uses sudo as needed." >&2; exit 1; }
   sudo apt install -y colorized-logs jq libsqlite3-dev libxml2-utils
   rustup update
+
+  which cargo-binstall > /dev/null || ${CARGO} install cargo-binstall
+
+  # We use this for migrations
+  which diesel > /dev/null || ${CARGO} binstall --no-confirm diesel_cli
+
+  # We don't actually use machete in dosh, but it is useful generally
+  which cargo-machete > /dev/null || ${CARGO} binstall --no-confirm cargo-machete
+
+  # We should probably change this to a binstall
   ${CARGO} nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }
+
   _install-cranelift
   npm install -g junit-merge
+
 }
 
 migrate() {
@@ -169,7 +181,7 @@ migrate() {
 
     # Install diesel command line tool
     which cargo-binstall > /dev/null || ${CARGO} install cargo-binstall
-    which diesel > /dev/null || ${CARGO} binstall diesel_cli
+    which diesel > /dev/null || ${CARGO} binstall --no-confirm diesel_cli
 
     # Check database URL based on project
     local db_url=""

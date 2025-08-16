@@ -14,7 +14,6 @@ neems-data = { path = "../neems-data" }
 argon2 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-ctor = { workspace = true }
 diesel.workspace = true
 diesel_migrations.workspace = true
 dotenvy.workspace = true
@@ -33,12 +32,6 @@ fixphrase = ["dep:fixphrase"]
 test-staging = []
 
 [dev-dependencies]
-argon2 = { workspace = true }
-chrono = { workspace = true }
 rand_core = { workspace = true }
-reqwest = {workspace = true}
-rocket = { workspace = true }
-serde_json = { workspace = true }
 time-test = {workspace = true}
 tokio = {workspace = true}
-ts-rs = {workspace = true}

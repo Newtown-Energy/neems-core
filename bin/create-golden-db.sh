@@ -164,6 +164,11 @@ fi
 
 echo "Test Company IDs: Company1=$TEST_COMPANY1_ID, Company2=$TEST_COMPANY2_ID"
 
+# Create test sites for Test Company 1 and Test Company 2
+echo "Creating test sites for Test Company 1 and Test Company 2..."
+$NEEMS_ADMIN_BIN site add --name "Test Site 1" --address "111 Test Ave" --latitude 35.0 --longitude=-80.0 --company-id "$TEST_COMPANY1_ID"
+$NEEMS_ADMIN_BIN site add --name "Test Site 2" --address "222 Test Blvd" --latitude 36.0 --longitude=-81.0 --company-id "$TEST_COMPANY2_ID"
+
 # Create standard test users (matches create_test_data function)
 echo "Creating standard test users..."
 
@@ -260,9 +265,9 @@ echo "Golden database v$VERSION_TIMESTAMP created successfully at: $GOLDEN_DB_PA
 echo "You can now run tests with: cargo test --features test-staging"
 echo ""
 echo "Golden database contains:"
-echo "  Companies: Newtown Energy, Test Company 1, Test Company 2, Removable LLC"
-echo "  Sites: Test Site 1, Test Site 2"
-echo "  Devices: Test devices for various test scenarios"
+echo "  Companies: Newtown Energy, Test Company 1, Test Company 2, Removable LLC, Device Test Company A, Device Test Company B"
+echo "  Sites: Test Site 1 (Company 1), Test Site 2 (Company 2), Device API Site A, Device API Site B"
+echo "  Devices: Test devices for Device API testing"
 echo "  Roles: newtown-admin, newtown-staff, admin, staff"
 echo "  Admin user: superadmin@example.com (password: admin)"
 echo "  Test users: Various users for different test scenarios"

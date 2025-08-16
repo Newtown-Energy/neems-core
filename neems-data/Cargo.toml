@@ -31,9 +31,6 @@ serde_json = { workspace = true }
 signal-hook = { workspace = true }
 signal-hook-tokio = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-uuid = { workspace = true }
-sha1 = "0.10"
-rand = { workspace = true }
 ts-rs = { workspace = true }
 
 [dev-dependencies]

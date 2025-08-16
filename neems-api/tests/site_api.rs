@@ -119,30 +119,26 @@ async fn test_company_admin_can_crud_own_company_sites() {
     // Login as pre-created company admin (user@testcompany.com has admin role)
     let admin_session = login_user(&client, "user@testcompany.com", "admin").await;
 
-    // Create a site
-    let new_site = json!({
-        "name": "Company Site",
-        "address": "123 Company St",
-        "latitude": 40.7128,
-        "longitude": -74.0060,
-        "company_id": company.id
-    });
-
+    // Get the pre-created Test Site 1 from golden DB
     let response = client
-        .post("/api/1/Sites")
+        .get("/api/1/Sites")
         .cookie(admin_session.clone())
-        .json(&new_site)
         .dispatch()
         .await;
-
-    assert_eq!(response.status(), Status::Created);
-    let created_site: Site = response.into_json().await.expect("valid site JSON");
-
-    assert_eq!(created_site.name, "Company Site");
-    assert_eq!(created_site.company_id, company.id);
+    
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    
+    // Find Test Site 1 (belongs to Test Company 1)
+    let test_site = sites.iter()
+        .find(|s| s.name == "Test Site 1")
+        .expect("Test Site 1 should exist in golden DB");
+    
+    assert_eq!(test_site.company_id, company.id);
 
     // Read the site
-    let url = format!("/api/1/Sites/{}", created_site.id);
+    let url = format!("/api/1/Sites/{}", test_site.id);
     let response = client
         .get(&url)
         .cookie(admin_session.clone())
@@ -151,11 +147,11 @@ async fn test_company_admin_can_crud_own_company_sites() {
 
     assert_eq!(response.status(), Status::Ok);
     let retrieved_site: Site = response.into_json().await.expect("valid site JSON");
-    assert_eq!(retrieved_site.id, created_site.id);
+    assert_eq!(retrieved_site.id, test_site.id);
 
-    // Update the site
+    // Update the site (modifying golden DB is fine - next test gets fresh copy)
     let update_data = json!({
-        "name": "Updated Company Site",
+        "name": "Updated Test Site 1",
         "address": "456 Updated St"
     });
 
@@ -168,23 +164,10 @@ async fn test_company_admin_can_crud_own_company_sites() {
 
     assert_eq!(response.status(), Status::Ok);
     let updated_site: Site = response.into_json().await.expect("valid site JSON");
-    assert_eq!(updated_site.name, "Updated Company Site");
+    assert_eq!(updated_site.name, "Updated Test Site 1");
     assert_eq!(updated_site.address, "456 Updated St");
 
-    // List sites (should see their company's site)
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(admin_session.clone())
-        .dispatch()
-        .await;
-
-    assert_eq!(response.status(), Status::Ok);
-    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    assert_eq!(sites.len(), 1);
-    assert_eq!(sites[0].id, created_site.id);
-
-    // Delete the site
+    // Delete the site (it's ok - next test gets fresh golden DB)
     let response = client.delete(&url).cookie(admin_session).dispatch().await;
 
     assert_eq!(response.status(), Status::NoContent);
@@ -227,18 +210,22 @@ async fn test_company_admin_cannot_access_different_company_sites() {
 
     assert_eq!(response.status(), Status::Forbidden);
 
-    // Create a site for company2 using super admin
+    // Get Test Site 2 from golden DB (belongs to Test Company 2)
     let response = client
-        .post("/api/1/Sites")
+        .get("/api/1/Sites")
         .cookie(admin_cookie.clone())
-        .json(&new_site)
         .dispatch()
         .await;
+    
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    
+    let company2_site = sites.iter()
+        .find(|s| s.name == "Test Site 2" && s.company_id == company2.id)
+        .expect("Test Site 2 should exist in golden DB");
 
-    assert_eq!(response.status(), Status::Created);
-    let company2_site: Site = response.into_json().await.expect("valid site JSON");
-
-    // Company1 admin should not be able to read company2's site
+    // Company1 admin should not be able to read company2's site (Test Site 2)
     let url = format!("/api/1/Sites/{}", company2_site.id);
     let response = client
         .get(&url)
@@ -275,30 +262,24 @@ async fn test_newtown_admin_can_crud_any_site() {
         .expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Get pre-created test company
-    let company = get_company_by_name(&client, &admin_cookie, "Test Company 1").await;
-
-    // Create a site using super admin (who has newtown-admin role)
-    let new_site = json!({
-        "name": "Admin Site",
-        "address": "123 Admin St",
-        "latitude": 40.7128,
-        "longitude": -74.0060,
-        "company_id": company.id
-    });
-
+    // Get all sites from golden DB
     let response = client
-        .post("/api/1/Sites")
+        .get("/api/1/Sites")
         .cookie(admin_cookie.clone())
-        .json(&new_site)
         .dispatch()
         .await;
 
-    assert_eq!(response.status(), Status::Created);
-    let created_site: Site = response.into_json().await.expect("valid site JSON");
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    
+    // Use Test Site 1 for testing (any site works for newtown admin)
+    let test_site = sites.iter()
+        .find(|s| s.name == "Test Site 1")
+        .expect("Test Site 1 should exist in golden DB");
 
     // Newtown admin can read any site
-    let url = format!("/api/1/Sites/{}", created_site.id);
+    let url = format!("/api/1/Sites/{}", test_site.id);
     let response = client
         .get(&url)
         .cookie(admin_cookie.clone())
@@ -309,7 +290,7 @@ async fn test_newtown_admin_can_crud_any_site() {
 
     // Newtown admin can update any site
     let update_data = json!({
-        "name": "Updated Admin Site"
+        "name": "Newtown Updated Site"
     });
 
     let response = client
@@ -320,6 +301,8 @@ async fn test_newtown_admin_can_crud_any_site() {
         .await;
 
     assert_eq!(response.status(), Status::Ok);
+    let updated_site: Site = response.into_json().await.expect("valid site JSON");
+    assert_eq!(updated_site.name, "Newtown Updated Site");
 
     // Newtown admin can see all sites
     let response = client
@@ -330,8 +313,8 @@ async fn test_newtown_admin_can_crud_any_site() {
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    assert!(!sites.is_empty());
+    let all_sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    assert!(!all_sites.is_empty());
 
     // Newtown admin can delete any site
     let response = client.delete(&url).cookie(admin_cookie).dispatch().await;

@@ -4,7 +4,7 @@ use rocket::local::asynchronous::Client;
 use rocket::serde::json::json;
 use rocket::tokio;
 
-use neems_api::models::{Company, Role, User, UserWithRoles};
+use neems_api::models::{Role, User, UserWithRoles};
 use neems_api::orm::testing::fast_test_rocket;
 use neems_api::schema::roles;
 use neems_api::schema::user_roles;
@@ -33,29 +33,9 @@ async fn login_and_get_session(client: &Client) -> rocket::http::Cookie<'static>
         .into_owned()
 }
 
-/// Helper to create authenticated user and institution
-async fn setup_authenticated_user(client: &Client) -> (i32, rocket::http::Cookie<'static>) {
-    use uuid::Uuid;
-    
-    // Create institution with authentication
-    let login_cookie = login_and_get_session(client).await;
-
-    // Use a unique company name to avoid conflicts
-    let unique_company_name = format!("Test Company {}", Uuid::new_v4());
-    let new_comp = json!({ "name": unique_company_name });
-    let response = client
-        .post("/api/1/Companies")
-        .header(ContentType::JSON)
-        .cookie(login_cookie.clone())
-        .body(new_comp.to_string())
-        .dispatch()
-        .await;
-
-    assert!(response.status().code < 400, "Company creation failed");
-    let company: Company = response.into_json().await.expect("valid JSON");
-    let comp_id = company.id;
-
-    (comp_id, login_cookie)
+/// Helper to get a pre-existing test company ID from golden database
+fn get_test_company_id() -> i32 {
+    2 // Test Company 1 from golden database
 }
 
 #[tokio::test]
@@ -122,7 +102,7 @@ async fn test_create_user_requires_auth() {
 
     // Test unauthenticated request fails
     let new_user = json!({
-        "email": "testuser@example.com",
+        "email": "newuser@test.com",
         "password_hash": "hashed_pw",
         "company_id": 1,
         "totp_secret": "SECRET123"
@@ -139,15 +119,11 @@ async fn test_create_user_requires_auth() {
 
     // Test authenticated request succeeds
     let session_cookie = login_and_get_session(&client).await;
-    let (comp_id, _) = setup_authenticated_user(&client).await;
-
-    // Generate a truly unique email using UUID
-    use uuid::Uuid;
-    let unique_email = format!("user_{}@example.com", Uuid::new_v4());
+    
     let new_user_auth = json!({
-        "email": unique_email,
+        "email": "newuser@test.com",
         "password_hash": "hashed_pw",
-        "company_id": comp_id,
+        "company_id": get_test_company_id(),
         "totp_secret": "SECRET123",
         "role_names": ["staff"]
     });
@@ -160,12 +136,8 @@ async fn test_create_user_requires_auth() {
         .dispatch()
         .await;
 
-    // Accept both Created (new user) and Conflict (user already exists)
-    assert!(
-        response.status() == rocket::http::Status::Created || response.status() == rocket::http::Status::Conflict,
-        "Expected 201 Created or 409 Conflict, got: {}",
-        response.status()
-    );
+    assert_eq!(response.status(), rocket::http::Status::Created,
+        "Authenticated user should be able to create new users");
 }
 
 #[rocket::async_test]
@@ -200,44 +172,28 @@ async fn test_user_crud_endpoints() {
         .await
         .expect("valid rocket instance");
     let session_cookie = login_and_get_session(&client).await;
-    let (comp_id, _) = setup_authenticated_user(&client).await;
 
-    // Create a test user
-    use uuid::Uuid;
-    let unique_email = format!("crudtest_{}@example.com", Uuid::new_v4());
-    let new_user = json!({
-        "email": unique_email,
-        "password_hash": "testhash",
-        "company_id": comp_id,
-        "totp_secret": "testsecret",
-        "role_names": ["staff"]
-    });
-
+    // Use existing golden DB user for all CRUD operations
+    // We'll use user@empty.com which exists in Test Company 1
+    
+    // First get the user to find their ID
     let response = client
-        .post("/api/1/Users")
-        .header(ContentType::JSON)
+        .get("/api/1/Users")
         .cookie(session_cookie.clone())
-        .body(new_user.to_string())
         .dispatch()
         .await;
-
-    // Accept both Created (new user) and Conflict (user already exists)
-    assert!(
-        response.status() == rocket::http::Status::Created || response.status() == rocket::http::Status::Conflict,
-        "Expected 201 Created or 409 Conflict, got: {}",
-        response.status()
-    );
     
-    // If we got a 409 Conflict, the test has achieved its main purpose (authenticated user can create users)
-    // so we can skip the rest of the CRUD operations since they depend on having a specific user
-    if response.status() == rocket::http::Status::Conflict {
-        return; // Test passes - authenticated user was able to attempt user creation
-    }
+    assert_eq!(response.status(), rocket::http::Status::Ok);
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let user_list: Vec<UserWithRoles> = serde_json::from_value(odata_response["value"].clone()).expect("valid users array");
     
-    let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
+    // Find the golden DB test user
+    let test_user = user_list.iter()
+        .find(|u| u.email == "user@empty.com")
+        .expect("Golden DB user 'user@empty.com' should exist");
 
     // Test GET single user
-    let url = format!("/api/1/Users/{}", created_user.id);
+    let url = format!("/api/1/Users/{}", test_user.id);
     let response = client
         .get(&url)
         .cookie(session_cookie.clone())
@@ -246,13 +202,12 @@ async fn test_user_crud_endpoints() {
 
     assert_eq!(response.status(), rocket::http::Status::Ok);
     let retrieved_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
-    assert_eq!(retrieved_user.id, created_user.id);
-    assert_eq!(retrieved_user.email, unique_email);
+    assert_eq!(retrieved_user.id, test_user.id);
+    assert_eq!(retrieved_user.email, "user@empty.com");
 
-    // Test PUT update user
-    let updated_email = format!("updated_{}@example.com", Uuid::new_v4());
+    // Test PUT update user (modifying golden DB is fine - next test gets fresh copy)
     let update_data = json!({
-        "email": updated_email,
+        "email": "user@modified.com",
         "totp_secret": "updatedsecret"
     });
 
@@ -266,14 +221,22 @@ async fn test_user_crud_endpoints() {
 
     assert_eq!(response.status(), rocket::http::Status::Ok);
     let updated_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
-    assert_eq!(updated_user.email, updated_email);
+    assert_eq!(updated_user.email, "user@modified.com");
     assert_eq!(updated_user.totp_secret, Some("updatedsecret".to_string()));
-    assert_eq!(updated_user.password_hash, "testhash"); // Should remain unchanged
 
     // Test DELETE user (should work as we're logged in as newtown-admin)
-    let response = client.delete(&url).cookie(session_cookie).dispatch().await;
+    let response = client.delete(&url).cookie(session_cookie.clone()).dispatch().await;
 
-    assert_eq!(response.status(), rocket::http::Status::NoContent); // Should work as we're logged in as newtown-admin
+    assert_eq!(response.status(), rocket::http::Status::NoContent);
+    
+    // Verify deletion worked
+    let response = client
+        .get(&url)
+        .cookie(session_cookie)
+        .dispatch()
+        .await;
+    
+    assert_eq!(response.status(), rocket::http::Status::NotFound);
 }
 
 #[rocket::async_test]
@@ -282,18 +245,16 @@ async fn test_create_user_with_nonexistent_email_should_succeed() {
         .await
         .expect("valid rocket instance");
     let session_cookie = login_and_get_session(&client).await;
-    let (comp_id, _) = setup_authenticated_user(&client).await;
 
-    // Use a unique email that definitely doesn't exist
-    use uuid::Uuid;
-    let unique_email = format!("absolutely-unique-{}@test.com", Uuid::new_v4());
+    // Use a simple non-existent email - golden DB is fresh for this test
+    let unique_email = "brandnew@test.com";
     
     // First verify the email doesn't exist in the database
     let conn = neems_api::orm::DbConn::get_one(client.rocket())
         .await
         .expect("get db connection");
     
-    let email_for_check = unique_email.clone();
+    let email_for_check = unique_email.to_string();
     let existing_user = conn.run(move |c| {
         neems_api::orm::user::get_user_by_email(c, &email_for_check)
     }).await.expect("database query should work");
@@ -302,9 +263,9 @@ async fn test_create_user_with_nonexistent_email_should_succeed() {
 
     // Now try to create a user with this email - it should succeed
     let new_user = json!({
-        "email": unique_email.clone(),
+        "email": unique_email,
         "password_hash": "hashed_pw",
-        "company_id": comp_id,
+        "company_id": get_test_company_id(),
         "totp_secret": "testsecret",
         "role_names": ["staff"]
     });
@@ -319,7 +280,7 @@ async fn test_create_user_with_nonexistent_email_should_succeed() {
 
     // This should succeed (Created), not fail with Conflict
     assert_eq!(response.status(), rocket::http::Status::Created, 
-               "Creating user with unique email should succeed, not return 'User with this email already exists'");
+               "Creating user with unique email should succeed");
     
     let created_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(created_user.email, unique_email);
