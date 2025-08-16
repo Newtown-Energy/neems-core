@@ -29,7 +29,44 @@ use crate::orm::scheduler_override::{
     check_override_conflicts
 };
 use crate::orm::scheduler::{get_site_state_at_datetime, execute_scheduler_for_site, SchedulerService};
+use crate::orm::site::get_site_by_id;
 use crate::session_guards::AuthenticatedUser;
+
+// ========== AUTHORIZATION HELPERS ==========
+
+/// Check if a user can create/read/update/delete scheduler scripts for a specific site.
+/// - newtown-admin and newtown-staff can access any site's scripts
+/// - Company admins can only access scripts for sites in their own company
+fn can_crud_scheduler_script(user: &AuthenticatedUser, site_company_id: i32) -> bool {
+    // newtown-admin and newtown-staff can CRUD any scheduler script
+    if user.has_any_role(&["newtown-admin", "newtown-staff"]) {
+        return true;
+    }
+
+    // Company admins can CRUD scheduler scripts for sites in their own company
+    if user.has_role("admin") && user.user.company_id == site_company_id {
+        return true;
+    }
+
+    false
+}
+
+/// Check if a user can view scheduler scripts for a specific site.
+/// - newtown-admin and newtown-staff can view any site's scripts
+/// - Company admins can view scripts for sites in their own company
+fn can_view_scheduler_script(user: &AuthenticatedUser, site_company_id: i32) -> bool {
+    // Use the same logic as CRUD for now
+    can_crud_scheduler_script(user, site_company_id)
+}
+
+/// Get the company ID for a site, returning an error if the site doesn't exist.
+fn get_site_company_id(conn: &mut diesel::SqliteConnection, site_id: i32) -> Result<i32, String> {
+    match get_site_by_id(conn, site_id) {
+        Ok(Some(site)) => Ok(site.company_id),
+        Ok(None) => Err(format!("Site with ID {} not found", site_id)),
+        Err(e) => Err(format!("Database error while fetching site: {}", e)),
+    }
+}
 
 /// Error response structure for scheduler API failures.
 #[derive(Serialize, TS)]
@@ -102,16 +139,27 @@ pub async fn create_scheduler_script(
     new_script: LoggedJson<SchedulerScriptInput>,
     auth_user: AuthenticatedUser,
 ) -> Result<status::Created<Json<SchedulerScript>>, response::status::Custom<Json<ErrorResponse>>> {
-    // Check authorization
-    if !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
-        let err = Json(ErrorResponse {
-            error: "Insufficient permissions to create scheduler scripts".to_string(),
-        });
-        return Err(response::status::Custom(Status::Forbidden, err));
-    }
-
     db.run(move |conn| {
         let script_input = new_script.into_inner();
+        
+        // Check if the site exists and get its company_id
+        let site_company_id = match get_site_company_id(conn, script_input.site_id) {
+            Ok(company_id) => company_id,
+            Err(error_msg) => {
+                let err = Json(ErrorResponse {
+                    error: error_msg,
+                });
+                return Err(response::status::Custom(Status::BadRequest, err));
+            }
+        };
+
+        // Check authorization - user must be able to create scripts for this site's company
+        if !can_crud_scheduler_script(&auth_user, site_company_id) {
+            let err = Json(ErrorResponse {
+                error: "Insufficient permissions to create scheduler scripts for this site".to_string(),
+            });
+            return Err(response::status::Custom(Status::Forbidden, err));
+        }
 
         // Validate that the script name is unique for this site
         match is_script_name_unique_in_site(conn, script_input.site_id, &script_input.name, None) {
@@ -156,22 +204,42 @@ pub async fn create_scheduler_script(
 #[get("/1/SchedulerScripts?<query..>")]
 pub async fn list_scheduler_scripts(
     db: DbConn,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     query: ODataQuery,
 ) -> Result<Json<serde_json::Value>, Status> {
     // Validate query options
     query.validate().map_err(|_| Status::BadRequest)?;
 
-    let scripts = db.run(|conn| {
-        // For now, get all scripts. In production, you might want to filter by company access
-        get_all_scheduler_scripts(conn).map_err(|e| {
+    let scripts = db.run(move |conn| {
+        // Get all scripts first
+        let all_scripts = get_all_scheduler_scripts(conn).map_err(|e| {
             eprintln!("Error listing scheduler scripts: {:?}", e);
             Status::InternalServerError
-        })
+        })?;
+
+        // Filter scripts based on user permissions
+        let mut filtered_scripts = Vec::new();
+        for script in all_scripts {
+            // Get the company_id for this script's site
+            match get_site_company_id(conn, script.site_id) {
+                Ok(site_company_id) => {
+                    // Only include scripts the user can view
+                    if can_view_scheduler_script(&auth_user, site_company_id) {
+                        filtered_scripts.push(script);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Could not get company for site {} (script {}): {}", 
+                        script.site_id, script.id, e);
+                    // Skip this script if we can't verify company ownership
+                }
+            }
+        }
+
+        Ok(filtered_scripts)
     })
     .await?;
 
-    // TODO: Apply filtering based on user permissions (company-based access)
     let mut filtered_scripts = scripts;
 
     // Apply OData filtering if specified
@@ -271,25 +339,47 @@ pub async fn list_scheduler_scripts(
 pub async fn get_scheduler_script(
     db: DbConn,
     script_id: i32,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<SchedulerScript>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
-        match get_scheduler_script_by_id(conn, script_id) {
-            Ok(Some(script)) => Ok(Json(script)),
+        // First get the script
+        let script = match get_scheduler_script_by_id(conn, script_id) {
+            Ok(Some(script)) => script,
             Ok(None) => {
                 let err = Json(ErrorResponse {
                     error: "Scheduler script not found".to_string(),
                 });
-                Err(response::status::Custom(Status::NotFound, err))
+                return Err(response::status::Custom(Status::NotFound, err));
             }
             Err(e) => {
                 eprintln!("Error getting scheduler script: {:?}", e);
                 let err = Json(ErrorResponse {
                     error: "Database error while retrieving scheduler script".to_string(),
                 });
-                Err(response::status::Custom(Status::InternalServerError, err))
+                return Err(response::status::Custom(Status::InternalServerError, err));
             }
+        };
+
+        // Check authorization - get the company_id for this script's site
+        let site_company_id = match get_site_company_id(conn, script.site_id) {
+            Ok(company_id) => company_id,
+            Err(error_msg) => {
+                let err = Json(ErrorResponse {
+                    error: format!("Error validating site access: {}", error_msg),
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // Check if user can view this script
+        if !can_view_scheduler_script(&auth_user, site_company_id) {
+            let err = Json(ErrorResponse {
+                error: "Insufficient permissions to view this scheduler script".to_string(),
+            });
+            return Err(response::status::Custom(Status::Forbidden, err));
         }
+
+        Ok(Json(script))
     })
     .await
 }
@@ -308,15 +398,44 @@ pub async fn update_scheduler_script_endpoint(
     update_request: Json<UpdateSchedulerScriptRequest>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<SchedulerScript>, response::status::Custom<Json<ErrorResponse>>> {
-    // Check authorization
-    if !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
-        let err = Json(ErrorResponse {
-            error: "Insufficient permissions to update scheduler scripts".to_string(),
-        });
-        return Err(response::status::Custom(Status::Forbidden, err));
-    }
-
     db.run(move |conn| {
+        // First get the current script to check authorization
+        let current_script = match get_scheduler_script_by_id(conn, script_id) {
+            Ok(Some(script)) => script,
+            Ok(None) => {
+                let err = Json(ErrorResponse {
+                    error: "Scheduler script not found".to_string(),
+                });
+                return Err(response::status::Custom(Status::NotFound, err));
+            }
+            Err(e) => {
+                eprintln!("Error getting scheduler script for authorization: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Database error while checking permissions".to_string(),
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // Check authorization - get the company_id for this script's site
+        let site_company_id = match get_site_company_id(conn, current_script.site_id) {
+            Ok(company_id) => company_id,
+            Err(error_msg) => {
+                let err = Json(ErrorResponse {
+                    error: format!("Error validating site access: {}", error_msg),
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // Check if user can update this script
+        if !can_crud_scheduler_script(&auth_user, site_company_id) {
+            let err = Json(ErrorResponse {
+                error: "Insufficient permissions to update this scheduler script".to_string(),
+            });
+            return Err(response::status::Custom(Status::Forbidden, err));
+        }
+
         match update_scheduler_script(conn, script_id, update_request.into_inner(), Some(auth_user.user.id)) {
             Ok(script) => Ok(Json(script)),
             Err(diesel::result::Error::NotFound) => {
@@ -350,15 +469,44 @@ pub async fn delete_scheduler_script_endpoint(
     script_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Status, response::status::Custom<Json<ErrorResponse>>> {
-    // Check authorization
-    if !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
-        let err = Json(ErrorResponse {
-            error: "Insufficient permissions to delete scheduler scripts".to_string(),
-        });
-        return Err(response::status::Custom(Status::Forbidden, err));
-    }
-
     db.run(move |conn| {
+        // First get the current script to check authorization
+        let current_script = match get_scheduler_script_by_id(conn, script_id) {
+            Ok(Some(script)) => script,
+            Ok(None) => {
+                let err = Json(ErrorResponse {
+                    error: "Scheduler script not found".to_string(),
+                });
+                return Err(response::status::Custom(Status::NotFound, err));
+            }
+            Err(e) => {
+                eprintln!("Error getting scheduler script for authorization: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Database error while checking permissions".to_string(),
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // Check authorization - get the company_id for this script's site
+        let site_company_id = match get_site_company_id(conn, current_script.site_id) {
+            Ok(company_id) => company_id,
+            Err(error_msg) => {
+                let err = Json(ErrorResponse {
+                    error: format!("Error validating site access: {}", error_msg),
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // Check if user can delete this script
+        if !can_crud_scheduler_script(&auth_user, site_company_id) {
+            let err = Json(ErrorResponse {
+                error: "Insufficient permissions to delete this scheduler script".to_string(),
+            });
+            return Err(response::status::Custom(Status::Forbidden, err));
+        }
+
         match delete_scheduler_script(conn, script_id, Some(auth_user.user.id)) {
             Ok(true) => Ok(Status::NoContent),
             Ok(false) => {
@@ -534,9 +682,20 @@ pub async fn list_scheduler_overrides(
 pub async fn get_site_scheduler_scripts(
     db: DbConn,
     site_id: i32,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<SchedulerScript>>, Status> {
     db.run(move |conn| {
+        // Check authorization - get the company_id for this site
+        let site_company_id = match get_site_company_id(conn, site_id) {
+            Ok(company_id) => company_id,
+            Err(_) => return Err(Status::NotFound), // Site doesn't exist
+        };
+
+        // Check if user can view scripts for this site
+        if !can_view_scheduler_script(&auth_user, site_company_id) {
+            return Err(Status::Forbidden);
+        }
+
         get_scheduler_scripts_by_site(conn, site_id)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
@@ -554,9 +713,20 @@ pub async fn get_site_scheduler_scripts(
 pub async fn get_site_scheduler_overrides(
     db: DbConn,
     site_id: i32,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<SchedulerOverride>>, Status> {
     db.run(move |conn| {
+        // Check authorization - get the company_id for this site
+        let site_company_id = match get_site_company_id(conn, site_id) {
+            Ok(company_id) => company_id,
+            Err(_) => return Err(Status::NotFound), // Site doesn't exist
+        };
+
+        // Check if user can view scheduler data for this site
+        if !can_view_scheduler_script(&auth_user, site_company_id) {
+            return Err(Status::Forbidden);
+        }
+
         get_scheduler_overrides_by_site(conn, site_id)
             .map(Json)
             .map_err(|_| Status::InternalServerError)
@@ -576,7 +746,7 @@ pub async fn get_site_scheduler_overrides(
 pub async fn validate_scheduler_script(
     db: DbConn,
     script_id: i32,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
 ) -> Result<Json<ValidateScriptResponse>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         // Get the script
@@ -596,6 +766,25 @@ pub async fn validate_scheduler_script(
                 return Err(response::status::Custom(Status::InternalServerError, err));
             }
         };
+
+        // Check authorization - get the company_id for this script's site
+        let site_company_id = match get_site_company_id(conn, script.site_id) {
+            Ok(company_id) => company_id,
+            Err(error_msg) => {
+                let err = Json(ErrorResponse {
+                    error: format!("Error validating site access: {}", error_msg),
+                });
+                return Err(response::status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        // Check if user can view/validate this script
+        if !can_view_scheduler_script(&auth_user, site_company_id) {
+            let err = Json(ErrorResponse {
+                error: "Insufficient permissions to validate this scheduler script".to_string(),
+            });
+            return Err(response::status::Custom(Status::Forbidden, err));
+        }
 
         // Validate the script
         match SchedulerService::new() {

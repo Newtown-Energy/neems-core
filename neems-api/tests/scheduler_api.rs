@@ -603,3 +603,302 @@ async fn test_create_override_invalid_time_range() {
 
     assert_eq!(response.status(), Status::BadRequest);
 }
+
+// ========== RBAC TESTS ==========
+
+// Note: Removed unused imports Company and UserWithRoles since we're using existing golden DB entities
+
+/// Helper to login as default admin and get session cookie
+async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
+    login_and_get_session(client).await
+}
+
+/// Helper to login as a specific user
+async fn login_user(client: &Client, email: &str, password: &str) -> rocket::http::Cookie<'static> {
+    let login_body = json!({
+        "email": email,
+        "password": password
+    });
+
+    let response = client
+        .post("/api/1/login")
+        .header(ContentType::JSON)
+        .body(login_body.to_string())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    response
+        .cookies()
+        .get("session")
+        .expect("Session cookie should be set")
+        .clone()
+        .into_owned()
+}
+
+// Note: Using existing golden database entities instead of creating new ones
+// Golden database contains:
+// - Device Test Company A (ID 5) with admin@devicetesta.com and Device API Site A (ID 1)  
+// - Device Test Company B (ID 6) with admin@devicetestb.com and Device API Site B (ID 2)
+// - newtown_superadmin@example.com with newtown-admin role
+
+/// Test that company admins can only create scripts for their own company's sites
+#[rocket::async_test]
+async fn test_scheduler_script_rbac_create_cross_company() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+
+    // Use existing Device Test companies and sites from golden database
+    // Device Test Company A (ID 5) has Device API Site A (ID 1)  
+    // Device Test Company B (ID 6) has Device API Site B (ID 2)
+    let site_a_id = 1; // Device API Site A
+    let site_b_id = 2; // Device API Site B
+
+    // Use existing admin users from golden database
+    let user_a_cookie = login_user(&client, "admin@devicetesta.com", "admin").await;
+
+    // Company A admin should be able to create script for their site
+    let script_input = json!({
+        "site_id": site_a_id,
+        "name": "Company A Script",
+        "script_content": "return 'charge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    let response = client
+        .post("/api/1/SchedulerScripts")
+        .header(ContentType::JSON)
+        .cookie(user_a_cookie.clone())
+        .body(script_input.to_string())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+
+    // Company A admin should NOT be able to create script for Company B's site
+    let script_input_b = json!({
+        "site_id": site_b_id,
+        "name": "Cross Company Script",
+        "script_content": "return 'charge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    let response = client
+        .post("/api/1/SchedulerScripts")
+        .header(ContentType::JSON)
+        .cookie(user_a_cookie.clone())
+        .body(script_input_b.to_string())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Forbidden);
+}
+
+/// Test that company admins can only list scripts for their own company's sites
+#[rocket::async_test]
+async fn test_scheduler_script_rbac_list_filtering() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Use existing sites from golden database
+    let site_a_id = 1; // Device API Site A (belongs to Device Test Company A)
+    let site_b_id = 2; // Device API Site B (belongs to Device Test Company B)
+
+    // Create scripts for both sites as superadmin
+    let script_a = json!({
+        "site_id": site_a_id,
+        "name": "Script Alpha",
+        "script_content": "return 'charge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    let script_b = json!({
+        "site_id": site_b_id,
+        "name": "Script Beta",
+        "script_content": "return 'discharge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    // Create both scripts as superadmin
+    client.post("/api/1/SchedulerScripts").cookie(admin_cookie.clone()).json(&script_a).dispatch().await;
+    client.post("/api/1/SchedulerScripts").cookie(admin_cookie.clone()).json(&script_b).dispatch().await;
+
+    // Use existing admin user for Device Test Company A
+    let user_a_cookie = login_user(&client, "admin@devicetesta.com", "admin").await;
+
+    // Company A admin should only see scripts for their company's sites
+    let response = client
+        .get("/api/1/SchedulerScripts")
+        .cookie(user_a_cookie.clone())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    let scripts_response: serde_json::Value = response.into_json().await.expect("Valid JSON response");
+    let scripts = scripts_response["value"].as_array().expect("Scripts array");
+    
+    // Should only see Script Alpha, not Script Beta
+    assert_eq!(scripts.len(), 1);
+    assert_eq!(scripts[0]["name"], "Script Alpha");
+}
+
+/// Test that company admins cannot view scripts from other companies
+#[rocket::async_test]
+async fn test_scheduler_script_rbac_get_cross_company() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Use existing sites from golden database
+    let site_b_id = 2; // Device API Site B (belongs to Device Test Company B)
+
+    // Create script for Device Test Company B as superadmin
+    let script_b = json!({
+        "site_id": site_b_id,
+        "name": "Script Delta",
+        "script_content": "return 'idle'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    let create_response = client
+        .post("/api/1/SchedulerScripts")
+        .cookie(admin_cookie.clone())
+        .json(&script_b)
+        .dispatch()
+        .await;
+    
+    let created_script: serde_json::Value = create_response.into_json().await.expect("Valid JSON response");
+    let script_id = created_script["id"].as_i64().expect("Script ID");
+
+    // Use existing admin user for Device Test Company A (different company)
+    let user_a_cookie = login_user(&client, "admin@devicetesta.com", "admin").await;
+
+    // Company A admin should NOT be able to view Company B's script
+    let response = client
+        .get(format!("/api/1/SchedulerScripts/{}", script_id))
+        .cookie(user_a_cookie.clone())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Forbidden);
+}
+
+/// Test that newtown-admin can access all scripts regardless of company
+#[rocket::async_test]
+async fn test_scheduler_script_rbac_newtown_admin_access() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+
+    // Use existing sites from golden database  
+    let site_a_id = 1; // Device API Site A (belongs to Device Test Company A)
+    let site_b_id = 2; // Device API Site B (belongs to Device Test Company B)
+
+    // Use existing newtown-admin user from golden database
+    let newtown_cookie = login_user(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    // Newtown admin should be able to create scripts for any company's sites
+    let script_a = json!({
+        "site_id": site_a_id,
+        "name": "Newtown Script A",
+        "script_content": "return 'charge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    let script_b = json!({
+        "site_id": site_b_id,
+        "name": "Newtown Script B",
+        "script_content": "return 'discharge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    // Both should succeed
+    let response_a = client
+        .post("/api/1/SchedulerScripts")
+        .cookie(newtown_cookie.clone())
+        .json(&script_a)
+        .dispatch()
+        .await;
+    assert_eq!(response_a.status(), Status::Created);
+
+    let response_b = client
+        .post("/api/1/SchedulerScripts")
+        .cookie(newtown_cookie.clone())
+        .json(&script_b)
+        .dispatch()
+        .await;
+    assert_eq!(response_b.status(), Status::Created);
+
+    // Newtown admin should see all scripts
+    let response = client
+        .get("/api/1/SchedulerScripts")
+        .cookie(newtown_cookie.clone())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    let scripts_response: serde_json::Value = response.into_json().await.expect("Valid JSON response");
+    let scripts = scripts_response["value"].as_array().expect("Scripts array");
+    
+    // Should see both scripts
+    assert!(scripts.len() >= 2);
+    let script_names: Vec<&str> = scripts.iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert!(script_names.contains(&"Newtown Script A"));
+    assert!(script_names.contains(&"Newtown Script B"));
+}
+
+/// Test site navigation endpoints with RBAC
+#[rocket::async_test]
+async fn test_scheduler_script_rbac_site_navigation() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Use existing sites from golden database
+    let site_a_id = 1; // Device API Site A (belongs to Device Test Company A)
+    let site_b_id = 2; // Device API Site B (belongs to Device Test Company B)
+
+    // Create script for Site B as superadmin
+    let script_b = json!({
+        "site_id": site_b_id,
+        "name": "Site Lima Script",
+        "script_content": "return 'charge'",
+        "language": "lua",
+        "is_active": true,
+        "version": 1
+    });
+
+    client.post("/api/1/SchedulerScripts").cookie(admin_cookie.clone()).json(&script_b).dispatch().await;
+
+    // Use existing admin user for Device Test Company A
+    let user_a_cookie = login_user(&client, "admin@devicetesta.com", "admin").await;
+
+    // Company A admin should NOT be able to access Site B's scripts via navigation
+    let response = client
+        .get(format!("/api/1/Sites/{}/SchedulerScripts", site_b_id))
+        .cookie(user_a_cookie.clone())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Forbidden);
+
+    // But they should be able to access their own site's scripts (even if empty)
+    let response = client
+        .get(format!("/api/1/Sites/{}/SchedulerScripts", site_a_id))
+        .cookie(user_a_cookie.clone())
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+}
