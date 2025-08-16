@@ -211,13 +211,21 @@ migrate() {
 
 nextest() {
 
+    # If one of the parameters is 2>&1, remove it, because we add it later
+    local args=()
+    for arg in "$@"; do
+        if [[ "$arg" != "2>&1" ]]; then
+            args+=("$arg")
+        fi
+    done
+
     ${BASEDIR}/bin/create-golden-db.sh
     local cmd="${CARGO} $NIGHTLY nextest run $DEV_TEST_FLAGS $TARGET_PROJ"
-    echo "RUSTFLAGS=\"$-Zcodegen-backend=cranelift\" $cmd $@"
+    echo "RUSTFLAGS=\"$-Zcodegen-backend=cranelift\" $cmd ${args[@]}"
     if [ -z "$WAYLAND_DISPLAY" ]; then
-        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@"
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "${args[@]}" 2>&1
     else
-        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "$@" 2>&1 | tee >(ansi2txt | wl-copy)
+        RUSTFLAGS="-Zcodegen-backend=cranelift" $cmd "${args[@]}" 2>&1 | tee >(ansi2txt | wl-copy)
     fi
 
     # Merge test result data
