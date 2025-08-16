@@ -4,7 +4,7 @@ A command-line interface for administrative management of NEEMS database operati
 
 ## Overview
 
-`neems-admin` is a Rust-based CLI utility that interfaces directly with the NEEMS SQLite database through the `neems-api` ORM layer. It's designed for system administrators and developers who need to perform database operations outside of the main API interface.
+`neems-admin` is a Rust-based CLI utility that interfaces directly with the NEEMS SQLite database through the `neems-api` ORM layer. It's designed for system administrators and developers who need to perform database operations outside of the main API interface.  You do not need a running neems-api to use neems-admin.  This code should not act via the API.
 
 ## Key Features
 

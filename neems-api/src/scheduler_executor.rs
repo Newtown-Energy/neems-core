@@ -8,6 +8,23 @@ use std::time::{Duration, Instant};
 const SCRIPT_TIMEOUT_MS: u64 = 100;
 const SCRIPT_MAX_SIZE: usize = 10 * 1024; // 10KB
 
+/// Default NEEMS scheduler script that implements time-based charging logic:
+/// - Discharge: 4pm to 8pm (16:00-20:00)
+/// - Charge: 8pm to 1pm (20:00-13:00, crossing midnight)
+/// - Idle: 1pm to 4pm (13:00-16:00)
+const DEFAULT_SCHEDULER_SCRIPT: &str = r#"
+-- Default NEEMS Scheduler Script
+-- Discharge: 4pm-8pm, Charge: 8pm-1pm, Idle: otherwise
+
+if datetime.hour >= 16 and datetime.hour < 20 then
+    return 'discharge'  -- 4pm to 8pm
+elseif datetime.hour >= 20 or datetime.hour < 13 then  
+    return 'charge'     -- 8pm to 1pm (crosses midnight)
+else
+    return 'idle'       -- 1pm to 4pm
+end
+"#;
+
 #[derive(Debug)]
 pub struct ScriptExecutor {
     lua: Lua,
@@ -190,6 +207,11 @@ impl ScriptExecutor {
                 error: Some(format!("Failed to create script executor: {}", e)),
             }
         }
+    }
+
+    /// Returns the default NEEMS scheduler script
+    pub fn get_default_script() -> &'static str {
+        DEFAULT_SCHEDULER_SCRIPT
     }
 }
 

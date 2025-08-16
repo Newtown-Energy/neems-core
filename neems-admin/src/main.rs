@@ -26,6 +26,7 @@ mod admin_cli {
     pub mod company_commands;
     pub mod device_commands;
     pub mod role_commands;
+    pub mod scheduler_commands;
     pub mod site_commands;
     pub mod user_commands;
     pub mod utils;
@@ -34,6 +35,7 @@ mod admin_cli {
 use admin_cli::company_commands::{CompanyAction, handle_company_command_with_conn};
 use admin_cli::device_commands::{DeviceAction, handle_device_command_with_conn};
 use admin_cli::role_commands::{RoleAction, handle_role_command_with_conn};
+use admin_cli::scheduler_commands::{SchedulerCommand, handle_scheduler_command};
 use admin_cli::site_commands::{SiteAction, handle_site_command_with_conn};
 use admin_cli::user_commands::{UserAction, handle_user_command_with_conn};
 use admin_cli::utils::{establish_connection, get_or_create_admin_user};
@@ -80,6 +82,11 @@ enum Commands {
         #[command(subcommand)]
         action: RoleAction,
     },
+    #[command(about = "Scheduler script execution and testing")]
+    Scheduler {
+        #[command(subcommand)]
+        action: SchedulerCommand,
+    },
     #[command(about = "Future: Non-database administrative commands")]
     System {
         #[command(subcommand)]
@@ -123,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Site { action }) => handle_site_command(action)?,
         Some(Commands::Device { action }) => handle_device_command(action)?,
         Some(Commands::Role { action }) => handle_role_command(action)?,
+        Some(Commands::Scheduler { action }) => handle_scheduler_command(action)?,
         Some(Commands::System { action }) => handle_system_command(action).await?,
         None => {
             eprintln!("No command provided. Use --help for usage information.");
