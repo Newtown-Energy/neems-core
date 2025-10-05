@@ -1,36 +1,15 @@
-# Use the official Rust nightly image as the base
-FROM rustlang/rust:nightly-bookworm as builder
+# Development Dockerfile for neems-data with live reload
+FROM rustlang/rust:nightly-bookworm
 
-# Install sqlite3
+# Install sqlite3 and cargo-watch for live reload
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-watch
 
 # Set working directory
 WORKDIR /usr/src/app
-
-# Copy the entire workspace
-COPY . .
-
-# Build the neems-data binary using nightly toolchain
-RUN cargo +nightly build --release --bin neems-data
-
-# Create a runtime image
-FROM debian:bookworm-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    sqlite3 \
-    libsqlite3-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create app directory
-WORKDIR /app
-
-# Copy the binary from builder
-COPY --from=builder /usr/src/app/target/release/neems-data .
 
 # Create directory for shared data (SQLite database) with write permissions
 RUN mkdir -p /app/data && \
@@ -39,5 +18,5 @@ RUN mkdir -p /app/data && \
 # Set environment variables
 ENV SITE_DATABASE_URL=/app/data/site-data.sqlite
 
-# Run the application
-CMD ["./neems-data", "monitor", "--verbose"]
+# Use cargo watch to auto-reload on changes
+CMD ["cargo", "watch", "-w", "neems-data", "-w", "crates", "-x", "run --bin neems-data -- monitor --verbose"]

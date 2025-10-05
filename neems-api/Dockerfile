@@ -1,45 +1,21 @@
-# Use the official Rust nightly image as the base
-FROM rustlang/rust:nightly-bookworm as builder
+# Development Dockerfile for neems-api with live reload
+FROM rustlang/rust:nightly-bookworm
 
-# Install sqlite3
+# Install sqlite3 and cargo-watch for live reload
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-watch
 
 # Set working directory
 WORKDIR /usr/src/app
-
-# Copy the entire workspace
-COPY . .
-
-# Build the neems-api binary using nightly toolchain
-RUN cargo +nightly build --release --bin neems-api
-
-# Create a runtime image
-FROM debian:bookworm-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    sqlite3 \
-    libsqlite3-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create app directory
-WORKDIR /app
-
-# Copy the binary from builder
-COPY --from=builder /usr/src/app/target/release/neems-api .
-
-# Copy configuration files
-COPY --from=builder /usr/src/app/Rocket.toml .
 
 # Create directory for databases with write permissions
 RUN mkdir -p /app/data && \
     chmod 777 /app/data
 
-# Create directory for static files (if needed)
+# Create directory for static files
 RUN mkdir -p /app/static && \
     chmod 755 /app/static
 
@@ -47,9 +23,11 @@ RUN mkdir -p /app/static && \
 ENV DATABASE_URL=/app/data/neems-api.db
 ENV SITE_DATABASE_URL=/app/data/site-data.sqlite
 ENV NEEMS_STATIC_DIR=/app/static
+ENV ROCKET_ADDRESS=0.0.0.0
+ENV ROCKET_PORT=8000
 
 # Expose the default Rocket port
 EXPOSE 8000
 
-# Run the application
-CMD ["./neems-api"]
+# Use cargo watch to auto-reload on changes
+CMD ["cargo", "watch", "-w", "neems-api", "-w", "neems-data", "-w", "crates", "-x", "run --bin neems-api"]
