@@ -1,6 +1,40 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    command_set_commands (command_set_id, command_id) {
+        command_set_id -> Integer,
+        command_id -> Integer,
+        execution_order -> Integer,
+        delay_ms -> Nullable<Integer>,
+        condition -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    command_sets (id) {
+        id -> Integer,
+        site_id -> Integer,
+        name -> Text,
+        description -> Nullable<Text>,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
+    commands (id) {
+        id -> Integer,
+        site_id -> Integer,
+        name -> Text,
+        description -> Nullable<Text>,
+        equipment_type -> Text,
+        equipment_id -> Text,
+        action -> Text,
+        parameters -> Nullable<Text>,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
     companies (id) {
         id -> Integer,
         name -> Text,
@@ -64,6 +98,31 @@ diesel::table! {
 }
 
 diesel::table! {
+    schedule_entries (id) {
+        id -> Integer,
+        schedule_id -> Nullable<Integer>,
+        template_id -> Nullable<Integer>,
+        execution_time -> Time,
+        end_time -> Nullable<Time>,
+        command_id -> Nullable<Integer>,
+        command_set_id -> Nullable<Integer>,
+        condition -> Nullable<Text>,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
+    schedule_templates (id) {
+        id -> Integer,
+        site_id -> Integer,
+        name -> Text,
+        description -> Nullable<Text>,
+        is_default -> Bool,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
     scheduler_executions (id) {
         id -> Integer,
         site_id -> Integer,
@@ -98,6 +157,17 @@ diesel::table! {
         language -> Text,
         is_active -> Bool,
         version -> Integer,
+    }
+}
+
+diesel::table! {
+    schedules (id) {
+        id -> Integer,
+        site_id -> Integer,
+        template_id -> Nullable<Integer>,
+        schedule_date -> Date,
+        is_custom -> Bool,
+        is_active -> Bool,
     }
 }
 
@@ -139,14 +209,25 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(command_set_commands -> command_sets (command_set_id));
+diesel::joinable!(command_set_commands -> commands (command_id));
+diesel::joinable!(command_sets -> sites (site_id));
+diesel::joinable!(commands -> sites (site_id));
 diesel::joinable!(devices -> companies (company_id));
 diesel::joinable!(devices -> sites (site_id));
+diesel::joinable!(schedule_entries -> command_sets (command_set_id));
+diesel::joinable!(schedule_entries -> commands (command_id));
+diesel::joinable!(schedule_entries -> schedule_templates (template_id));
+diesel::joinable!(schedule_entries -> schedules (schedule_id));
+diesel::joinable!(schedule_templates -> sites (site_id));
 diesel::joinable!(scheduler_executions -> scheduler_overrides (override_id));
 diesel::joinable!(scheduler_executions -> scheduler_scripts (script_id));
 diesel::joinable!(scheduler_executions -> sites (site_id));
 diesel::joinable!(scheduler_overrides -> sites (site_id));
 diesel::joinable!(scheduler_overrides -> users (created_by));
 diesel::joinable!(scheduler_scripts -> sites (site_id));
+diesel::joinable!(schedules -> schedule_templates (template_id));
+diesel::joinable!(schedules -> sites (site_id));
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
@@ -154,17 +235,4 @@ diesel::joinable!(user_roles -> users (user_id));
 diesel::joinable!(users -> companies (company_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    companies,
-    deleted_companies,
-    deleted_users,
-    devices,
-    entity_activity,
-    roles,
-    scheduler_executions,
-    scheduler_overrides,
-    scheduler_scripts,
-    sessions,
-    sites,
-    user_roles,
-    users,
-);
+    command_set_commands,command_sets,commands,companies,deleted_companies,deleted_users,devices,entity_activity,roles,schedule_entries,schedule_templates,scheduler_executions,scheduler_overrides,scheduler_scripts,schedules,sessions,sites,user_roles,users,);
