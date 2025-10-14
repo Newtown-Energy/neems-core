@@ -1,9 +1,14 @@
+pub mod command;
+pub mod command_set;
 pub mod company;
 pub mod deleted_company;
 pub mod deleted_user;
 pub mod device;
 pub mod entity_activity;
 pub mod role;
+pub mod schedule;
+pub mod schedule_entry;
+pub mod schedule_template;
 pub mod scheduler_execution;
 pub mod scheduler_override;
 pub mod scheduler_script;
@@ -13,12 +18,17 @@ pub mod user;
 pub mod user_role;
 
 // Re-export models for easier access
+pub use command::*;
+pub use command_set::*;
 pub use company::*;
 pub use deleted_company::*;
 pub use deleted_user::*;
 pub use device::*;
 pub use entity_activity::*;
 pub use role::*;
+pub use schedule::*;
+pub use schedule_entry::*;
+pub use schedule_template::*;
 pub use scheduler_execution::*;
 pub use scheduler_override::*;
 pub use scheduler_script::*;
