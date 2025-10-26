@@ -457,11 +457,11 @@ async fn test_user_profile_access_permissions() {
     let updated_user: UserWithRoles = response.into_json().await.expect("valid user JSON");
     assert_eq!(updated_user.email, "staff_updated@testcompany.com");
 
-    // Users cannot view other users' profiles
-    // Use a different existing user from golden database
-    let user1_session = login_user(&client, "user@company1.com", "admin").await;
+    // Users cannot view other users' profiles from different companies
+    // Use user from company2 to try to access a user from company1
+    let user1_session = login_user(&client, "user@company2.com", "admin").await;
 
-    // Get testuser@example.com to try to view their profile
+    // Get testuser@example.com (from company1) to try to view their profile
     let users_response = client.get("/api/1/Users").cookie(admin_cookie).dispatch().await;
     assert_eq!(users_response.status(), rocket::http::Status::Ok);
     let odata_response: serde_json::Value =
@@ -473,7 +473,7 @@ async fn test_user_profile_access_permissions() {
         .find(|u| u.email == "testuser@example.com")
         .expect("testuser@example.com should exist in golden DB");
 
-    // User1 should NOT be able to view user2's profile
+    // User from company2 should NOT be able to view user from company1's profile
     let url = format!("/api/1/Users/{}", user2.id);
     let response = client.get(&url).cookie(user1_session).dispatch().await;
     assert_eq!(response.status(), rocket::http::Status::Forbidden);

@@ -66,6 +66,9 @@ jobs:
       - name: Install diesel_cli
         run: cargo install diesel_cli --no-default-features --features sqlite
 
+      - name: Build neems-admin
+        run: cargo build --bin neems-admin --features test-staging
+
       - name: Create golden database
         run: ./bin/create-golden-db.sh
 

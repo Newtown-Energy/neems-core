@@ -23,31 +23,38 @@ use crate::admin_init_fairing::admin_init_fairing;
 fn get_golden_db_path() -> PathBuf {
     use std::fs;
 
-    let target_dir = PathBuf::from("../target");
+    // Try multiple possible locations for the target directory
+    let possible_target_dirs = vec![
+        PathBuf::from("../target"),    // Running from neems-api/
+        PathBuf::from("target"),       // Running from workspace root
+        PathBuf::from("../../target"), // Running from nested test directory
+    ];
 
-    if let Ok(entries) = fs::read_dir(&target_dir) {
-        let mut golden_dbs: Vec<PathBuf> = entries
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with("golden_test_") && name.ends_with(".db"))
-                    .unwrap_or(false)
-            })
-            .collect();
+    for target_dir in possible_target_dirs {
+        if let Ok(entries) = fs::read_dir(&target_dir) {
+            let mut golden_dbs: Vec<PathBuf> = entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.starts_with("golden_test_") && name.ends_with(".db"))
+                        .unwrap_or(false)
+                })
+                .collect();
 
-        // Sort by filename (which includes timestamp) to get the most recent
-        golden_dbs.sort();
+            // Sort by filename (which includes timestamp) to get the most recent
+            golden_dbs.sort();
 
-        if let Some(latest) = golden_dbs.last() {
-            return latest.clone();
+            if let Some(latest) = golden_dbs.last() {
+                return latest.clone();
+            }
         }
     }
 
     // Fallback: return a path that won't exist to trigger the error in
     // fast_test_rocket
-    PathBuf::from("../target/golden_test_not_found.db")
+    PathBuf::from("target/golden_test_not_found.db")
 }
 
 /// Configures SQLite with performance-optimized settings for testing.
@@ -147,7 +154,8 @@ pub fn test_rocket() -> Rocket<Build> {
     {
         rocket = rocket
             .attach(super::neems_data::db::SiteDbConn::fairing())
-            .attach(super::neems_data::db::set_foreign_keys_fairing());
+            .attach(super::neems_data::db::set_foreign_keys_fairing())
+            .attach(super::neems_data::db::run_site_migrations_fairing());
     }
 
     crate::mount_api_routes(rocket)
@@ -172,8 +180,12 @@ pub fn fast_test_rocket() -> Rocket<Build> {
         );
     }
 
-    // Create a unique copy for this test in the workspace target directory
-    let test_db_path = PathBuf::from(format!("../target/test_db_{}.db", Uuid::new_v4()));
+    // Create a unique copy for this test in the same directory as the golden
+    // database
+    let test_db_path = golden_db_path
+        .parent()
+        .expect("Golden DB should have a parent directory")
+        .join(format!("test_db_{}.db", Uuid::new_v4()));
 
     // Copy the golden database - this creates a brand new file with no existing
     // connections
@@ -218,10 +230,13 @@ pub fn fast_test_rocket() -> Rocket<Build> {
 
     // Build the Rocket instance with minimal fairings (no initialization fairings
     // needed!) The golden database is already fully set up, so we only need
-    // basic database connections
+    // basic database connections. However, the site_db is in-memory, so we need
+    // to run migrations on it.
     let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
-        .attach(super::neems_data::db::SiteDbConn::fairing());
+        .attach(super::neems_data::db::SiteDbConn::fairing())
+        .attach(super::neems_data::db::set_foreign_keys_fairing())
+        .attach(super::neems_data::db::run_site_migrations_fairing());
 
     crate::mount_api_routes(rocket)
 }

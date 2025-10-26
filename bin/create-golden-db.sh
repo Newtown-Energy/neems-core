@@ -72,29 +72,24 @@ diesel --database-url="$DATABASE_URL" setup
 cd ..
 
 # Find neems-admin binary
-if [ -n "$NEEMS_ADMIN_BIN" ]; then
-    if [ -x "$NEEMS_ADMIN_BIN" ]; then
-        echo "Using pre-set NEEMS_ADMIN_BIN: $NEEMS_ADMIN_BIN" >&2
+if [ -z "$NEEMS_ADMIN_BIN" ]; then
+    # First try PATH
+    if command -v neems-admin >/dev/null 2>&1; then
+        NEEMS_ADMIN_BIN=$(command -v neems-admin)
+    # Then try ./bin/neems-admin
+    elif [ -x "./bin/neems-admin" ]; then
+        NEEMS_ADMIN_BIN="./bin/neems-admin"
+    # Then try ./target/debug/neems-admin directly
+    elif [ -x "./target/debug/neems-admin" ]; then
+        NEEMS_ADMIN_BIN="./target/debug/neems-admin"
     else
-        echo "Error: Pre-set NEEMS_ADMIN_BIN '$NEEMS_ADMIN_BIN' is not executable or does not exist" >&2
+        echo "ERROR: neems-admin binary not found!" >&2
+        echo "Tried: PATH, ./bin/neems-admin, ./target/debug/neems-admin" >&2
         exit 1
     fi
-else
-    NEEMS_ADMIN_BIN=$(command -v neems-admin 2>/dev/null)
-
-    if [ -z "$NEEMS_ADMIN_BIN" ]; then
-        if [ -x "./bin/neems-admin" ]; then
-            NEEMS_ADMIN_BIN="./bin/neems-admin"
-        elif [ -x "./neems-admin" ]; then
-            NEEMS_ADMIN_BIN="./neems-admin"
-        else
-            echo "Error: neems-admin not found in PATH, ./bin/neems-admin, or ./neems-admin" >&2
-            exit 1
-        fi
-    fi
-    echo "Found neems-admin at: $NEEMS_ADMIN_BIN" >&2
-    export NEEMS_ADMIN_BIN
 fi
+
+export NEEMS_ADMIN_BIN
 
 echo "Creating admin setup..."
 

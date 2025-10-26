@@ -1,8 +1,9 @@
 //! Tests for data API endpoints.
 //!
 //! This module tests the data API endpoints that provide access to neems-data
-//! sources and schema information. These tests use the existing test-data.db
-//! file which is pre-populated with test data.
+//! sources and schema information. These tests use the golden database
+//! (fast_test_rocket) which includes both the main API database and an
+//! in-memory site database.
 //!
 //! The tests for /api/1/data endpoint are always available since that endpoint
 //! is not feature-gated. The tests for /api/1/$metadata/schema endpoint require
@@ -15,8 +16,8 @@ use neems_api::{
         DbConn,
         company::{get_company_by_name, insert_company},
         login::hash_password,
-        neems_data::testing::test_rocket_with_site_db,
         role::insert_role,
+        testing::fast_test_rocket,
         user::insert_user,
         user_role::assign_user_role_by_name,
     },
@@ -60,12 +61,10 @@ where
 /// - Response is valid JSON matching DataSourcesResponse structure
 /// - Sources contain expected fields from neems_data::models::Source
 ///
-/// This test uses the existing test-data.db file for real data.
+/// This test uses the golden database with an in-memory site database.
 #[tokio::test]
 async fn test_list_data_sources_success() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let response = client.get("/api/1/DataSources").dispatch().await;
 
@@ -96,9 +95,7 @@ async fn test_list_data_sources_success() {
 /// without depending on specific data content.
 #[tokio::test]
 async fn test_list_data_sources_response_structure() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let response = client.get("/api/1/DataSources").dispatch().await;
 
@@ -159,9 +156,7 @@ async fn test_list_data_sources_response_structure() {
 #[cfg(feature = "test-staging")]
 #[tokio::test]
 async fn test_get_schema_success() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let response = client.get("/api/1/$metadata/schema").dispatch().await;
 
@@ -193,7 +188,7 @@ async fn test_get_schema_success() {
 #[tokio::test]
 async fn test_get_schema_contains_expected_tables() {
     let test_operation = || async {
-        let client = Client::tracked(test_rocket_with_site_db())
+        let client = Client::tracked(fast_test_rocket())
             .await
             .map_err(|e| format!("Failed to create client: {}", e))?;
 
@@ -250,9 +245,7 @@ async fn test_get_schema_contains_expected_tables() {
 #[tokio::test]
 #[ignore]
 async fn test_get_source_readings_latest() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // First get available sources to find a valid source_id
     let sources_response = client.get("/api/1/DataSources").dispatch().await;
@@ -294,9 +287,7 @@ async fn test_get_source_readings_latest() {
 #[tokio::test]
 #[ignore]
 async fn test_get_source_readings_time_window() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Get available sources
     let sources_response = client.get("/api/1/DataSources").dispatch().await;
@@ -330,7 +321,7 @@ async fn test_get_source_readings_time_window() {
 #[tokio::test]
 async fn test_get_source_readings_not_found() {
     let test_operation = || async {
-        let client = Client::tracked(test_rocket_with_site_db())
+        let client = Client::tracked(fast_test_rocket())
             .await
             .map_err(|e| format!("Failed to create client: {}", e))?;
 
@@ -364,9 +355,7 @@ async fn test_get_source_readings_not_found() {
 #[tokio::test]
 #[ignore]
 async fn test_get_source_readings_invalid_params() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Get a valid source ID first
     let sources_response = client.get("/api/1/DataSources").dispatch().await;
@@ -395,9 +384,7 @@ async fn test_get_source_readings_invalid_params() {
 #[tokio::test]
 #[ignore]
 async fn test_get_multi_source_readings() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Get available sources
     let sources_response = client.get("/api/1/DataSources").dispatch().await;
@@ -440,9 +427,7 @@ async fn test_get_multi_source_readings() {
 #[tokio::test]
 #[ignore]
 async fn test_get_multi_source_readings_missing_source_ids() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Test without source_ids parameter
     let response = client.get("/api/1/Readings?latest=5").dispatch().await;
@@ -457,9 +442,7 @@ async fn test_get_multi_source_readings_missing_source_ids() {
 #[tokio::test]
 #[ignore]
 async fn test_get_multi_source_readings_invalid_source() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Get one valid source
     let sources_response = client.get("/api/1/DataSources").dispatch().await;
@@ -485,9 +468,7 @@ async fn test_get_multi_source_readings_invalid_source() {
 #[tokio::test]
 #[ignore]
 async fn test_readings_response_structure() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Get available sources
     let sources_response = client.get("/api/1/DataSources").dispatch().await;
@@ -642,9 +623,7 @@ async fn login_as_user(
 /// Test that readings endpoints require authentication.
 #[tokio::test]
 async fn test_readings_endpoints_require_authentication() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Test single source endpoint without authentication
     let response = client.get("/api/1/DataSources/1/Readings?latest=1").dispatch().await;
@@ -660,9 +639,7 @@ async fn test_readings_endpoints_require_authentication() {
 /// Test that users can only access readings from sources in their company.
 #[tokio::test]
 async fn test_company_based_access_control() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     setup_test_users_for_data_access(&client).await;
 
@@ -701,9 +678,7 @@ async fn test_company_based_access_control() {
 /// Test that newtown-staff users can access readings from any company.
 #[tokio::test]
 async fn test_newtown_staff_access() {
-    let client = Client::tracked(test_rocket_with_site_db())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     setup_test_users_for_data_access(&client).await;
 
