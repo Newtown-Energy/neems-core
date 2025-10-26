@@ -159,11 +159,11 @@ pub fn delete_device(
     let result = diesel::delete(devices.filter(id.eq(device_id))).execute(conn)?;
 
     // Update the trigger-created activity entry with user information
-    if result > 0 {
-        if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ = update_latest_activity_user(conn, "devices", device_id, "delete", user_id);
-        }
+    if result > 0
+        && let Some(user_id) = acting_user_id
+    {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "devices", device_id, "delete", user_id);
     }
 
     Ok(result)

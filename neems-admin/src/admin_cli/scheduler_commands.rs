@@ -1,4 +1,6 @@
-use chrono::{Datelike, NaiveDateTime, Timelike, Utc};
+#[cfg(test)]
+use chrono::Datelike;
+use chrono::{NaiveDateTime, Timelike, Utc};
 use clap::{Args, Subcommand};
 use neems_api::scheduler_executor::{ScriptExecutor, SiteData};
 

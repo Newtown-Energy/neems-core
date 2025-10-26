@@ -52,7 +52,7 @@ async fn get_db_connection(rocket: &Rocket<rocket::Build>) -> Option<DbConn> {
 async fn setup_company(
     conn: &DbConn,
 ) -> Result<crate::models::Company, rocket::Rocket<rocket::Build>> {
-    conn.run(|c| find_or_create_company(c)).await.map_err(|_| rocket::build())
+    conn.run(find_or_create_company).await.map_err(|_| rocket::build())
 }
 
 fn find_or_create_company(

@@ -295,11 +295,11 @@ pub fn delete_user_with_cleanup(
     let result = diesel::delete(users.filter(id.eq(user_id))).execute(conn)?;
 
     // Update the trigger-created activity entry with user information
-    if result > 0 {
-        if let Some(actor_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ = update_latest_activity_user(conn, "users", user_id, "delete", actor_id);
-        }
+    if result > 0
+        && let Some(actor_id) = acting_user_id
+    {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "users", user_id, "delete", actor_id);
     }
 
     // Recreate the trigger

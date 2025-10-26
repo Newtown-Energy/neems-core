@@ -139,11 +139,11 @@ pub fn delete_company(
     let rows_affected = diesel::delete(companies.filter(id.eq(company_id))).execute(conn)?;
 
     // Update the trigger-created activity entry with user information
-    if rows_affected > 0 {
-        if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ = update_latest_activity_user(conn, "companies", company_id, "delete", user_id);
-        }
+    if rows_affected > 0
+        && let Some(user_id) = acting_user_id
+    {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "companies", company_id, "delete", user_id);
     }
 
     Ok(rows_affected > 0)

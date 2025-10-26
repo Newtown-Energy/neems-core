@@ -257,27 +257,24 @@ pub async fn list_scheduler_scripts(
 
     // Apply OData filtering if specified
     if let Some(filter_expr) = query.parse_filter() {
-        filtered_scripts = filtered_scripts
-            .into_iter()
-            .filter(|script| {
-                match &filter_expr.property.as_str() {
-                    &"name" => match &filter_expr.value {
-                        crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                            crate::odata_query::FilterOperator::Eq => script.name == *s,
-                            crate::odata_query::FilterOperator::Ne => script.name != *s,
-                            crate::odata_query::FilterOperator::Contains => script.name.contains(s),
-                            _ => true,
-                        },
+        filtered_scripts.retain(|script| {
+            match &filter_expr.property.as_str() {
+                &"name" => match &filter_expr.value {
+                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
+                        crate::odata_query::FilterOperator::Eq => script.name == *s,
+                        crate::odata_query::FilterOperator::Ne => script.name != *s,
+                        crate::odata_query::FilterOperator::Contains => script.name.contains(s),
                         _ => true,
                     },
-                    &"is_active" => match &filter_expr.value {
-                        crate::odata_query::FilterValue::Boolean(b) => script.is_active == *b,
-                        _ => true,
-                    },
-                    _ => true, // Unknown property, don't filter
-                }
-            })
-            .collect();
+                    _ => true,
+                },
+                &"is_active" => match &filter_expr.value {
+                    crate::odata_query::FilterValue::Boolean(b) => script.is_active == *b,
+                    _ => true,
+                },
+                _ => true, // Unknown property, don't filter
+            }
+        });
     }
 
     // Apply sorting if specified
@@ -576,7 +573,7 @@ pub async fn create_scheduler_override(
         let override_input = new_override.into_inner();
 
         // Validate state value
-        if let Err(e) = SiteState::from_str(&override_input.state) {
+        if let Err(e) = override_input.state.parse::<SiteState>() {
             let err = Json(ErrorResponse {
                 error: format!("Invalid state value: {}", e),
             });

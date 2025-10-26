@@ -175,16 +175,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 println!("No sources found.");
             } else {
                 println!(
-                    "{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
-                    "ID",
-                    "Name",
-                    "Test Type",
-                    "Arguments",
-                    "Active",
-                    "Site",
-                    "Company",
-                    "Last Run",
-                    "Description"
+                    "{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} Description",
+                    "ID", "Name", "Test Type", "Arguments", "Active", "Site", "Company", "Last Run"
                 );
                 println!("{}", "-".repeat(120));
                 for source in sources {
@@ -307,6 +299,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             }
 
             // Validate test type
+            use std::str::FromStr;
+
             use neems_data::collectors::TestType;
             let _test_type = TestType::from_str(&args.test_type)
                 .map_err(|e| format!("Invalid test type '{}': {}", args.test_type, e))?;
@@ -369,6 +363,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
             // Handle test_type validation if provided
             if let Some(ref test_type) = args.test_type {
+                use std::str::FromStr;
+
                 use neems_data::collectors::TestType;
                 TestType::from_str(test_type)
                     .map_err(|e| format!("Invalid test type '{}': {}", test_type, e))?;

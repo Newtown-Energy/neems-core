@@ -116,16 +116,16 @@ impl ReadingsQuery {
         }
 
         // Ensure count and latest are reasonable
-        if let Some(count) = self.count {
-            if count <= 0 || count > 10000 {
-                return Err("count must be between 1 and 10000".to_string());
-            }
+        if let Some(count) = self.count
+            && (count <= 0 || count > 10000)
+        {
+            return Err("count must be between 1 and 10000".to_string());
         }
 
-        if let Some(latest) = self.latest {
-            if latest <= 0 || latest > 10000 {
-                return Err("latest must be between 1 and 10000".to_string());
-            }
+        if let Some(latest) = self.latest
+            && (latest <= 0 || latest > 10000)
+        {
+            return Err("latest must be between 1 and 10000".to_string());
         }
 
         Ok(())

@@ -247,7 +247,8 @@ impl ScriptExecutor {
                     }
                 };
 
-                SiteState::from_str(&state_str)
+                state_str
+                    .parse::<SiteState>()
                     .map_err(|e| format!("Invalid state returned by script: {}", e))
             }
             Err(e) => Err(format!("Script execution error: {}", e)),

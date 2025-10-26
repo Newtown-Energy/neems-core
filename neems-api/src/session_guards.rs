@@ -364,8 +364,8 @@ impl RoleGuard {
         }
     }
 
-    pub async fn check_request<'r>(
-        request: &'r Request<'_>,
+    pub async fn check_request(
+        request: &Request<'_>,
         required_roles: &[String],
     ) -> request::Outcome<AuthenticatedUser, ()> {
         let auth_user = match AuthenticatedUser::from_request(request).await {

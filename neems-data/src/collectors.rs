@@ -23,7 +23,7 @@ pub mod data_sources {
         let attempts = 3;
 
         let output = tokio::process::Command::new("ping")
-            .args(&["-c", &attempts.to_string(), "-W", "500", target])
+            .args(["-c", &attempts.to_string(), "-W", "500", target])
             .output()
             .await?;
 
@@ -49,17 +49,16 @@ pub mod data_sources {
                 }
 
                 // Parse timing statistics: "rtt min/avg/max/mdev = 0.123/0.456/0.789/0.123 ms"
-                if line.contains("rtt min/avg/max/mdev") {
-                    if let Some(stats_part) = line.split(" = ").nth(1) {
-                        if let Some(numbers_part) = stats_part.split(" ms").nth(0) {
-                            let values: Vec<&str> = numbers_part.split('/').collect();
-                            if values.len() >= 4 {
-                                min_ms = values[0].parse().ok();
-                                avg_ms = values[1].parse().ok();
-                                max_ms = values[2].parse().ok();
-                                mdev_ms = values[3].parse().ok();
-                            }
-                        }
+                if line.contains("rtt min/avg/max/mdev")
+                    && let Some(stats_part) = line.split(" = ").nth(1)
+                    && let Some(numbers_part) = stats_part.split(" ms").next()
+                {
+                    let values: Vec<&str> = numbers_part.split('/').collect();
+                    if values.len() >= 4 {
+                        min_ms = values[0].parse().ok();
+                        avg_ms = values[1].parse().ok();
+                        max_ms = values[2].parse().ok();
+                        mdev_ms = values[3].parse().ok();
                     }
                 }
             }
@@ -129,7 +128,7 @@ pub mod data_sources {
         source_id: i32,
     ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let output = tokio::process::Command::new("df")
-            .args(&["-B1"]) // Show sizes in bytes
+            .args(["-B1"]) // Show sizes in bytes
             .output()
             .await?;
 
@@ -187,8 +186,7 @@ pub mod data_sources {
         // Discharging: M-F, 4 PM to 8 PM (16:00 - 19:59)
         if weekday.number_from_monday() >= 1
             && weekday.number_from_monday() <= 5
-            && hour >= 16
-            && hour < 20
+            && (16..20).contains(&hour)
         {
             // Linear discharge from 85% to 12% over 4 hours (240 minutes)
             let discharge_start = 16 * 60; // 4 PM in minutes
@@ -229,8 +227,10 @@ pub enum TestType {
     DiskSpace,
 }
 
-impl TestType {
-    pub fn from_str(s: &str) -> Result<Self, String> {
+impl std::str::FromStr for TestType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "ping" => Ok(TestType::Ping),
             "charging_state" => Ok(TestType::ChargingState),
@@ -238,7 +238,9 @@ impl TestType {
             _ => Err(format!("Unknown test type: {}", s)),
         }
     }
+}
 
+impl TestType {
     pub fn as_str(&self) -> &'static str {
         match self {
             TestType::Ping => "ping",

@@ -16,6 +16,7 @@ use ts_rs::TS;
 use crate::{
     company::{get_company_by_name_case_insensitive, insert_company},
     models::{Company, CompanyInput, Site, UserWithRoles},
+    odata_query::ODataQuery,
     orm::{
         DbConn,
         company::{delete_company, get_all_companies},
@@ -152,7 +153,7 @@ pub async fn create_company(
 pub async fn list_companies(
     db: DbConn,
     _auth_user: AuthenticatedUser,
-    query: crate::odata_query::ODataQuery,
+    query: ODataQuery,
 ) -> Result<Json<serde_json::Value>, Status> {
     // Validate query options
     query.validate().map_err(|_| Status::BadRequest)?;
@@ -165,25 +166,20 @@ pub async fn list_companies(
     let mut filtered_companies = companies;
     if let Some(filter_expr) = query.parse_filter() {
         // Basic filtering implementation
-        filtered_companies = filtered_companies
-            .into_iter()
-            .filter(|company| {
-                match &filter_expr.property.as_str() {
-                    &"name" => match &filter_expr.value {
-                        crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                            crate::odata_query::FilterOperator::Eq => company.name == *s,
-                            crate::odata_query::FilterOperator::Ne => company.name != *s,
-                            crate::odata_query::FilterOperator::Contains => {
-                                company.name.contains(s)
-                            }
-                            _ => true,
-                        },
+        filtered_companies.retain(|company| {
+            match &filter_expr.property.as_str() {
+                &"name" => match &filter_expr.value {
+                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
+                        crate::odata_query::FilterOperator::Eq => company.name == *s,
+                        crate::odata_query::FilterOperator::Ne => company.name != *s,
+                        crate::odata_query::FilterOperator::Contains => company.name.contains(s),
                         _ => true,
                     },
-                    _ => true, // Unknown property, don't filter
-                }
-            })
-            .collect();
+                    _ => true,
+                },
+                _ => true, // Unknown property, don't filter
+            }
+        });
     }
 
     // Apply ordering
@@ -499,18 +495,17 @@ pub async fn delete_company_endpoint(
 /// associated with the specified company. This is the same as
 /// list_company_users but follows OData navigation conventions.
 // Note: This endpoint is already implemented as list_company_users above
-
-/// Get Company Sites Navigation endpoint.
-///
-/// - **URL:** `/api/1/Companies/<company_id>/Sites`
-/// - **Method:** `GET`
-/// - **Purpose:** Retrieves sites associated with a company (OData navigation
-///   property)
-/// - **Authentication:** Required
-///
-/// This is an OData navigation endpoint that returns the Site entities
-/// associated with the specified company. This is the same as
-/// list_company_sites but follows OData navigation conventions.
+//
+// Get Company Sites Navigation endpoint.
+//
+// - **URL:** `/api/1/Companies/<company_id>/Sites`
+// - **Method:** `GET`
+// - **Purpose:** Retrieves sites associated with a company (OData navigation property)
+// - **Authentication:** Required
+//
+// This is an OData navigation endpoint that returns the Site entities
+// associated with the specified company. This is the same as
+// list_company_sites but follows OData navigation conventions.
 // Note: This endpoint is already implemented as list_company_sites above
 
 /// Returns a vector of all routes defined in this module.

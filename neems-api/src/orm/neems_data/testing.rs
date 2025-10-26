@@ -151,7 +151,7 @@ pub fn test_rocket_with_site_db() -> Rocket<Build> {
         "pool_size" => 5.into(),
         "timeout" => 5.into(),
     };
-    databases.insert("site_db", site_db_config.into());
+    databases.insert("site_db", site_db_config);
 
     // Merge DB config into Rocket's figment
     let figment = rocket::Config::figment().merge(("databases", databases));

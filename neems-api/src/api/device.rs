@@ -416,16 +416,15 @@ pub async fn update_device_endpoint(
             let target_site_id = request.site_id.unwrap_or(current_device.site_id);
             if let Ok(Some(existing_device)) =
                 get_device_by_site_and_name(conn, target_site_id, new_name)
+                && existing_device.id != device_id
             {
-                if existing_device.id != device_id {
-                    return Err(status::Custom(
-                        Status::BadRequest,
-                        Json(ErrorResponse {
-                            error: "Device with this name already exists at the target site"
-                                .to_string(),
-                        }),
-                    ));
-                }
+                return Err(status::Custom(
+                    Status::BadRequest,
+                    Json(ErrorResponse {
+                        error: "Device with this name already exists at the target site"
+                            .to_string(),
+                    }),
+                ));
             }
         }
 

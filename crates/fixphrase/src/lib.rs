@@ -62,7 +62,7 @@ impl FixPhrase {
             .map_err(|_| FixPhraseError::InvalidPhrase)?;
 
         // Add offsets to ensure unique words
-        let groups = [lat1dec + 0, lon1dec + 2000, latlon2dec + 5610, latlon4dec + 6610];
+        let groups = [lat1dec, lon1dec + 2000, latlon2dec + 5610, latlon4dec + 6610];
 
         // Get words from wordlist
         let words: Vec<&str> = groups.iter().filter_map(|&i| WORDLIST.get(i)).copied().collect();
@@ -90,7 +90,7 @@ impl FixPhrase {
     /// ```
     pub fn decode(phrase: &str) -> Result<(f64, f64, f64, String), FixPhraseError> {
         let mut indexes = [-1; 4];
-        let mut canonical_phrase = vec![""; 4];
+        let mut canonical_phrase = [""; 4];
 
         let words: Vec<&str> = phrase.split_whitespace().collect();
 
@@ -101,7 +101,7 @@ impl FixPhrase {
         for (_i, word) in words.iter().enumerate().take(4) {
             if let Some(pos) = WORDLIST.iter().position(|w| w.eq_ignore_ascii_case(word)) {
                 if pos < 2000 {
-                    indexes[0] = (pos - 0) as i32;
+                    indexes[0] = pos as i32;
                     canonical_phrase[0] = WORDLIST[pos];
                 } else if pos < 5610 {
                     indexes[1] = (pos - 2000) as i32;

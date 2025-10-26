@@ -35,7 +35,9 @@ impl SchedulerService {
         // Step 1: Check for active overrides
         match get_current_override_for_site(conn, site_id, datetime) {
             Ok(Some(override_record)) => {
-                let state = SiteState::from_str(&override_record.state)
+                let state = override_record
+                    .state
+                    .parse::<SiteState>()
                     .map_err(|e| format!("Invalid override state: {}", e))?;
                 return Ok(SiteStateResult {
                     state,

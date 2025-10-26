@@ -20,6 +20,11 @@ pub use models::*;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
+// Type aliases for complex return types
+pub type SourceReadings = Vec<(Source, Vec<Reading>)>;
+pub type SourceIdReadings = Vec<(i32, Vec<Reading>)>;
+pub type DataResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
 pub struct DataAggregator {
     database_url: String,
 }
@@ -71,7 +76,7 @@ impl DataAggregator {
         let (reload_tx, reload_rx) = mpsc::channel(1);
 
         // Set up the SIGHUP signal handler
-        let signals = Signals::new(&[SIGHUP])?;
+        let signals = Signals::new([SIGHUP])?;
         let handle = signals.handle();
         let signals_task = tokio::spawn(async move {
             let mut signals = signals.fuse();
@@ -400,7 +405,6 @@ pub fn insert_readings_batch(
 }
 
 /// Source Management Functions
-
 /// Create a new data source
 pub fn create_source(
     connection: &mut SqliteConnection,
@@ -483,9 +487,7 @@ pub fn get_recent_readings(
 }
 
 /// Read aggregated data - main interface for neems-api
-pub fn read_aggregated_data(
-    database_path: Option<&str>,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+pub fn read_aggregated_data(database_path: Option<&str>) -> DataResult<SourceReadings> {
     let aggregator = DataAggregator::new(database_path);
     let mut connection = aggregator.establish_connection()?;
 
@@ -516,7 +518,7 @@ pub fn get_readings_by_name_pattern(
     connection: &mut SqliteConnection,
     pattern: &str,
     limit: i64,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+) -> DataResult<SourceReadings> {
     use schema::sources::dsl::*;
 
     // Get all sources matching the pattern
@@ -542,7 +544,7 @@ pub fn get_readings_by_source_ids(
     connection: &mut SqliteConnection,
     source_ids: &[i32],
     limit: i64,
-) -> Result<Vec<(i32, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+) -> DataResult<SourceIdReadings> {
     let mut result = Vec::new();
 
     for &source_id in source_ids {

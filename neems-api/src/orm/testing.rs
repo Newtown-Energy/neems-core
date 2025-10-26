@@ -1,5 +1,3 @@
-#![cfg(feature = "test-staging")]
-
 use std::path::PathBuf;
 
 use diesel::{connection::SimpleConnection, sqlite::SqliteConnection};
@@ -19,7 +17,7 @@ use crate::admin_init_fairing::admin_init_fairing;
 /// Creates a golden database template with all test data pre-populated.
 /// This is created once and then copied for each test that needs it.
 /// The golden database is identified by timestamp and located automatically.
-
+///
 /// Gets the golden database path by finding the most recent timestamp-based
 /// golden database
 fn get_golden_db_path() -> PathBuf {
@@ -126,7 +124,7 @@ pub fn test_rocket() -> Rocket<Build> {
             "pool_size" => 5.into(),
             "timeout" => 5.into(),
         };
-        databases.insert("site_db", site_db_config.into());
+        databases.insert("site_db", site_db_config);
     }
 
     // Merge DB config into Rocket's figment

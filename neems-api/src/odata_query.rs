@@ -7,7 +7,7 @@ use rocket::form::FromForm;
 use serde::Serialize;
 
 /// OData system query options
-#[derive(FromForm, Debug, Clone)]
+#[derive(FromForm, Debug, Clone, Default)]
 pub struct ODataQuery {
     /// $select - comma-separated list of properties to include
     #[field(name = "$select")]
@@ -38,20 +38,6 @@ pub struct ODataQuery {
     pub expand: Option<String>,
 }
 
-impl Default for ODataQuery {
-    fn default() -> Self {
-        Self {
-            select: None,
-            filter: None,
-            orderby: None,
-            top: None,
-            skip: None,
-            count: None,
-            expand: None,
-        }
-    }
-}
-
 impl ODataQuery {
     /// Parse $select into a list of property names
     pub fn parse_select(&self) -> Option<Vec<String>> {
@@ -65,7 +51,7 @@ impl ODataQuery {
         self.orderby.as_ref().map(|s| {
             s.split(',')
                 .map(|item| {
-                    let parts: Vec<&str> = item.trim().split_whitespace().collect();
+                    let parts: Vec<&str> = item.split_whitespace().collect();
                     if parts.len() >= 2 && parts[1].eq_ignore_ascii_case("desc") {
                         (parts[0].to_string(), OrderDirection::Desc)
                     } else {
@@ -90,16 +76,16 @@ impl ODataQuery {
 
     /// Validate query options
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(top) = self.top {
-            if top < 0 || top > 1000 {
-                return Err("$top must be between 0 and 1000".to_string());
-            }
+        if let Some(top) = self.top
+            && !(0..=1000).contains(&top)
+        {
+            return Err("$top must be between 0 and 1000".to_string());
         }
 
-        if let Some(skip) = self.skip {
-            if skip < 0 {
-                return Err("$skip must be non-negative".to_string());
-            }
+        if let Some(skip) = self.skip
+            && skip < 0
+        {
+            return Err("$skip must be non-negative".to_string());
         }
 
         Ok(())
@@ -147,7 +133,7 @@ impl FilterExpression {
     /// Parse a simple filter expression
     /// Examples: "name eq 'John'", "age gt 18", "active eq true"
     pub fn parse(filter: &str) -> Option<Self> {
-        let parts: Vec<&str> = filter.trim().split_whitespace().collect();
+        let parts: Vec<&str> = filter.split_whitespace().collect();
         if parts.len() < 3 {
             return None;
         }
@@ -241,10 +227,11 @@ impl<T> ODataEntityResponse<T> {
 pub fn build_context_url(base_url: &str, entity_set: &str, select: Option<&[String]>) -> String {
     let mut context = format!("{base_url}/$metadata#{entity_set}");
 
-    if let Some(props) = select {
-        if !props.is_empty() && !props.contains(&"*".to_string()) {
-            context.push_str(&format!("({})", props.join(",")));
-        }
+    if let Some(props) = select
+        && !props.is_empty()
+        && !props.contains(&"*".to_string())
+    {
+        context.push_str(&format!("({})", props.join(",")));
     }
 
     context

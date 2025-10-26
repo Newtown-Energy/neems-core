@@ -700,24 +700,21 @@ pub async fn list_users(
     let mut filtered_users = users;
     if let Some(filter_expr) = query.parse_filter() {
         // Basic filtering implementation - this could be expanded
-        filtered_users = filtered_users
-            .into_iter()
-            .filter(|user| {
-                // Simple implementation - could be much more sophisticated
-                match &filter_expr.property.as_str() {
-                    &"email" => match &filter_expr.value {
-                        crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                            crate::odata_query::FilterOperator::Eq => user.email == *s,
-                            crate::odata_query::FilterOperator::Ne => user.email != *s,
-                            crate::odata_query::FilterOperator::Contains => user.email.contains(s),
-                            _ => true,
-                        },
+        filtered_users.retain(|user| {
+            // Simple implementation - could be much more sophisticated
+            match &filter_expr.property.as_str() {
+                &"email" => match &filter_expr.value {
+                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
+                        crate::odata_query::FilterOperator::Eq => user.email == *s,
+                        crate::odata_query::FilterOperator::Ne => user.email != *s,
+                        crate::odata_query::FilterOperator::Contains => user.email.contains(s),
                         _ => true,
                     },
-                    _ => true, // Unknown property, don't filter
-                }
-            })
-            .collect();
+                    _ => true,
+                },
+                _ => true, // Unknown property, don't filter
+            }
+        });
     }
 
     // Apply sorting if specified
@@ -776,24 +773,24 @@ pub async fn list_users(
         let mut user_json = serde_json::to_value(user).map_err(|_| Status::InternalServerError)?;
 
         // Handle $expand=company
-        if let Some(expansions) = &expand_props {
-            if expansions.iter().any(|e| e.eq_ignore_ascii_case("company")) {
-                // Load company data for this user
-                let company_id = user.company_id;
-                let company = db
-                    .run(move |conn| {
-                        use crate::orm::company::get_company_by_id;
-                        get_company_by_id(conn, company_id)
-                    })
-                    .await
-                    .map_err(|_| Status::InternalServerError)?;
+        if let Some(expansions) = &expand_props
+            && expansions.iter().any(|e| e.eq_ignore_ascii_case("company"))
+        {
+            // Load company data for this user
+            let company_id = user.company_id;
+            let company = db
+                .run(move |conn| {
+                    use crate::orm::company::get_company_by_id;
+                    get_company_by_id(conn, company_id)
+                })
+                .await
+                .map_err(|_| Status::InternalServerError)?;
 
-                if let Some(company) = company {
-                    user_json.as_object_mut().unwrap().insert(
-                        "Company".to_string(),
-                        serde_json::to_value(company).map_err(|_| Status::InternalServerError)?,
-                    );
-                }
+            if let Some(company) = company {
+                user_json.as_object_mut().unwrap().insert(
+                    "Company".to_string(),
+                    serde_json::to_value(company).map_err(|_| Status::InternalServerError)?,
+                );
             }
         }
 
@@ -1607,17 +1604,17 @@ pub async fn get_user_company(
     .ok_or(Status::NotFound)
 }
 
-/// Get User Roles Navigation endpoint.
-///
-/// - **URL:** `/api/1/Users/<user_id>/Roles`
-/// - **Method:** `GET`
-/// - **Purpose:** Retrieves the roles associated with a user (OData navigation
-///   property)
-/// - **Authentication:** Required
-///
-/// This is an OData navigation endpoint that returns the Role entities
-/// associated with the specified user. This is the same as
-/// get_user_roles_endpoint but follows OData navigation conventions.
+// Get User Roles Navigation endpoint.
+//
+// - **URL:** `/api/1/Users/<user_id>/Roles`
+// - **Method:** `GET`
+// - **Purpose:** Retrieves the roles associated with a user (OData navigation
+//   property)
+// - **Authentication:** Required
+//
+// This is an OData navigation endpoint that returns the Role entities
+// associated with the specified user. This is the same as
+// get_user_roles_endpoint but follows OData navigation conventions.
 // Note: This endpoint is already implemented as get_user_roles_endpoint above
 
 /// Returns a vector of all routes defined in this module.
