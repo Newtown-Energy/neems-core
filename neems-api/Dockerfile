@@ -19,6 +19,10 @@ RUN mkdir -p /app/data && \
 RUN mkdir -p /app/static && \
     chmod 755 /app/static
 
+# Create directory for TypeScript types
+RUN mkdir -p /app/ts-types && \
+    chmod 777 /app/ts-types
+
 # Set environment variables
 ENV DATABASE_URL=/app/data/neems-api.db
 ENV SITE_DATABASE_URL=/app/data/site-data.sqlite
@@ -29,5 +33,9 @@ ENV ROCKET_PORT=8000
 # Expose the default Rocket port
 EXPOSE 8000
 
-# Use cargo watch to auto-reload on changes
-CMD ["cargo", "watch", "-w", "neems-api", "-w", "neems-data", "-w", "crates", "-x", "run --bin neems-api"]
+# Copy entrypoint script
+COPY neems-api/docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Use entrypoint script for auto-reload and TypeScript generation
+CMD ["docker-entrypoint.sh"]
