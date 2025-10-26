@@ -47,6 +47,19 @@ mod tests {
             std::fs::create_dir_all(output_dir).expect("Failed to create output directory");
         }
 
+        // Clean up old TypeScript files to prevent orphaned definitions
+        // This ensures that if a Rust type is removed or renamed, its .ts file is also removed
+        if output_dir.exists() {
+            println!("Cleaning old TypeScript files from {:?}", output_dir);
+            for entry in std::fs::read_dir(output_dir).expect("Failed to read output directory") {
+                let entry = entry.expect("Failed to read directory entry");
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("ts") {
+                    std::fs::remove_file(&path).expect(&format!("Failed to remove {:?}", path));
+                }
+            }
+        }
+
         // Set the TS_RS_EXPORT_DIR environment variable
         unsafe {
             env::set_var("TS_RS_EXPORT_DIR", output_dir);
