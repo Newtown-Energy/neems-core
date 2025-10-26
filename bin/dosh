@@ -7,7 +7,15 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASEDIR=$(dirname -- "$SCRIPT_DIR")
 NIGHTLY="+nightly"
 DEV_TEST_FLAGS="--color=always --features test-staging"
-CARGO=~/.cargo/bin/cargo
+
+# Allow overriding cargo path via environment variable
+# Default to ~/.cargo/bin/cargo if not set
+CARGO="${CARGO_PATH:-~/.cargo/bin/cargo}"
+
+# If the default doesn't exist, try to find cargo in PATH
+if [[ ! -f "$CARGO" ]] && command -v cargo &> /dev/null; then
+    CARGO=$(command -v cargo)
+fi
 
 # Function to find the project root
 _find_project_root() {
