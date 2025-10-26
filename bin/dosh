@@ -237,6 +237,39 @@ nextest() {
 }
 
 
+lint-format() {
+    echo "Checking Rust formatting..."
+    ${CARGO} fmt --all -- --check
+}
+
+lint-clippy() {
+    echo "Running Clippy linter..."
+    ${CARGO} clippy --all-targets --all-features -- -D warnings
+}
+
+lint() {
+    # Run all lint checks
+    echo "🔍 Running all lint checks..."
+    echo ""
+
+    local failed=0
+
+    # Rust formatting check
+    lint-format || failed=1
+    echo ""
+
+    # Rust linter
+    lint-clippy || failed=1
+    echo ""
+
+    if [ $failed -eq 1 ]; then
+        echo "❌ Some lint checks failed"
+        return 1
+    fi
+
+    echo "✨ All lint checks passed!"
+}
+
 push() {
     echo "Don't push from here.  Use the deploy repo."
 }
@@ -305,9 +338,12 @@ if [ $SCRIPTNAME = "cargo" ]; then
     fi
 fi
 
+# If this script is called as dosh but no args are provided, print usage
+if [ "$#" -eq 0 ]; then
+    printf "Usage:\n\t./${SCRIPTNAME} %s\n" "($(compgen -A function | grep '^[^_]' | paste -sd '|' -))"
+    exit 0
+fi
+
 # If this script is called as dosh OR as cargo and we have a function that
 # matches, run it.  If we are dosh, complain if the command isn't found.
-"$@" # <- execute the task
-
-# If this script is called as dosh but not args are provided, print usage
-[ "$#" -gt 0 ] || printf "Usage:\n\t./${SCRIPTNAME} %s\n" "($(compgen -A function | grep '^[^_]' | paste -sd '|' -))"
+"$@" # <- execute the task and exit with its status code
