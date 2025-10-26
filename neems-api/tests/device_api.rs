@@ -1,9 +1,12 @@
-use rocket::http::{ContentType, Status};
-use rocket::local::asynchronous::Client;
+use neems_api::{
+    models::{Company, Device, Site},
+    orm::testing::fast_test_rocket,
+};
+use rocket::{
+    http::{ContentType, Status},
+    local::asynchronous::Client,
+};
 use serde_json::json;
-
-use neems_api::models::{Company, Site, Device};
-use neems_api::orm::testing::fast_test_rocket;
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -29,33 +32,37 @@ async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
 }
 
 /// Helper to get a test company by name
-async fn get_company_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Company {
-    let response = client
-        .get("/api/1/Companies")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+async fn get_company_by_name(
+    client: &Client,
+    admin_cookie: &rocket::http::Cookie<'static>,
+    name: &str,
+) -> Company {
+    let response = client.get("/api/1/Companies").cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
-    companies.into_iter()
+    let companies: Vec<Company> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    companies
+        .into_iter()
         .find(|c| c.name == name)
         .expect(&format!("Company '{}' should exist from test data initialization", name))
 }
 
 /// Helper to get a test site by name
-async fn get_site_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Site {
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+async fn get_site_by_name(
+    client: &Client,
+    admin_cookie: &rocket::http::Cookie<'static>,
+    name: &str,
+) -> Site {
+    let response = client.get("/api/1/Sites").cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    sites.into_iter()
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    sites
+        .into_iter()
         .find(|s| s.name == name)
         .expect(&format!("Site '{}' should exist from test data initialization", name))
 }
@@ -85,9 +92,7 @@ async fn login_user(client: &Client, email: &str, password: &str) -> rocket::htt
 
 #[rocket::async_test]
 async fn test_device_endpoints_require_authentication() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Test all endpoints require authentication
     let response = client.get("/api/1/Devices").dispatch().await;
@@ -111,11 +116,7 @@ async fn test_device_endpoints_require_authentication() {
         "name": "Updated Inverter"
     });
 
-    let response = client
-        .put("/api/1/Devices/1")
-        .json(&update_device)
-        .dispatch()
-        .await;
+    let response = client.put("/api/1/Devices/1").json(&update_device).dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     let response = client.delete("/api/1/Devices/1").dispatch().await;
@@ -127,9 +128,7 @@ async fn test_device_endpoints_require_authentication() {
 
 #[rocket::async_test]
 async fn test_create_device_success() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -156,9 +155,12 @@ async fn test_create_device_success() {
 
     assert_eq!(response.status(), Status::Created);
     let created_device: Device = response.into_json().await.expect("valid device JSON");
-    
+
     assert_eq!(created_device.name, "Main Solar Inverter");
-    assert_eq!(created_device.description, Some("Primary inverter for rooftop solar array".to_string()));
+    assert_eq!(
+        created_device.description,
+        Some("Primary inverter for rooftop solar array".to_string())
+    );
     assert_eq!(created_device.type_, "Inverter");
     assert_eq!(created_device.model, "SUN2000-100KTL");
     assert_eq!(created_device.serial, Some("INV20240001".to_string()));
@@ -169,9 +171,7 @@ async fn test_create_device_success() {
 
 #[rocket::async_test]
 async fn test_create_device_defaults_name_to_type() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -193,7 +193,7 @@ async fn test_create_device_defaults_name_to_type() {
 
     assert_eq!(response.status(), Status::Created);
     let created_device: Device = response.into_json().await.expect("valid device JSON");
-    
+
     assert_eq!(created_device.name, "Battery"); // Should default to type_
     assert_eq!(created_device.type_, "Battery");
     assert_eq!(created_device.model, "PowerWall-2");
@@ -201,9 +201,7 @@ async fn test_create_device_defaults_name_to_type() {
 
 #[rocket::async_test]
 async fn test_create_device_duplicate_name_fails() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -249,9 +247,7 @@ async fn test_create_device_duplicate_name_fails() {
 
 #[rocket::async_test]
 async fn test_create_device_invalid_site_fails() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -278,34 +274,26 @@ async fn test_create_device_invalid_site_fails() {
 
 #[rocket::async_test]
 async fn test_list_devices_success() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
-    
-    let response = client
-        .get("/api/1/Devices")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+
+    let response = client.get("/api/1/Devices").cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    
+
     // Check OData structure
     assert!(odata_response["@odata.context"].is_string());
     assert!(odata_response["value"].is_array());
-    
+
     let context = odata_response["@odata.context"].as_str().unwrap();
     assert!(context.contains("#Devices"));
 }
 
 #[rocket::async_test]
 async fn test_get_device_success() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -332,15 +320,11 @@ async fn test_get_device_success() {
 
     // Now get the device
     let url = format!("/api/1/Devices/{}", created_device.id);
-    let response = client
-        .get(&url)
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.get(&url).cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let retrieved_device: Device = response.into_json().await.expect("valid device JSON");
-    
+
     assert_eq!(retrieved_device.id, created_device.id);
     assert_eq!(retrieved_device.name, "Test Device for Get");
     assert_eq!(retrieved_device.type_, "Sensor");
@@ -349,12 +333,10 @@ async fn test_get_device_success() {
 
 #[rocket::async_test]
 async fn test_get_device_not_found() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
-    
+
     let response = client
         .get("/api/1/Devices/99999") // Non-existent device
         .cookie(admin_cookie.clone())
@@ -366,9 +348,7 @@ async fn test_get_device_not_found() {
 
 #[rocket::async_test]
 async fn test_update_device_success() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -410,7 +390,7 @@ async fn test_update_device_success() {
 
     assert_eq!(response.status(), Status::Ok);
     let updated_device: Device = response.into_json().await.expect("valid device JSON");
-    
+
     assert_eq!(updated_device.id, created_device.id);
     assert_eq!(updated_device.name, "Updated Device Name");
     assert_eq!(updated_device.model, "NEW-MODEL");
@@ -420,9 +400,7 @@ async fn test_update_device_success() {
 
 #[rocket::async_test]
 async fn test_delete_device_success() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -449,30 +427,20 @@ async fn test_delete_device_success() {
 
     // Delete the device
     let url = format!("/api/1/Devices/{}", created_device.id);
-    let response = client
-        .delete(&url)
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.delete(&url).cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::NoContent);
 
     // Verify device is deleted
     let url = format!("/api/1/Devices/{}", created_device.id);
-    let get_response = client
-        .get(&url)
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let get_response = client.get(&url).cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(get_response.status(), Status::NotFound);
 }
 
 #[rocket::async_test]
 async fn test_get_device_site_navigation() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let admin_cookie = login_admin(&client).await;
     let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
@@ -499,49 +467,47 @@ async fn test_get_device_site_navigation() {
 
     // Get the device's site via navigation
     let url = format!("/api/1/Devices/{}/Site", created_device.id);
-    let response = client
-        .get(&url)
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.get(&url).cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let retrieved_site: Site = response.into_json().await.expect("valid site JSON");
-    
+
     assert_eq!(retrieved_site.id, site.id);
     assert_eq!(retrieved_site.name, site.name);
 }
 
 #[rocket::async_test]
 async fn test_device_rbac_company_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Login as company admin for Device Test Company A
     let company_admin_cookie = login_user(&client, "admin@devicetesta.com", "admin").await;
-    
+
     let response = client
         .get("/api/1/Companies")
         .cookie(company_admin_cookie.clone())
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
-    
-    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
-    let company1 = companies.iter().find(|c| c.name == "Device Test Company A").expect("Device Test Company A should exist");
 
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(company_admin_cookie.clone())
-        .dispatch()
-        .await;
-    assert_eq!(response.status(), Status::Ok);
-    
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    let site1 = sites.iter().find(|s| s.company_id == company1.id).expect("Company 1 should have a site");
+    let companies: Vec<Company> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let company1 = companies
+        .iter()
+        .find(|c| c.name == "Device Test Company A")
+        .expect("Device Test Company A should exist");
+
+    let response = client.get("/api/1/Sites").cookie(company_admin_cookie.clone()).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    let site1 = sites
+        .iter()
+        .find(|s| s.company_id == company1.id)
+        .expect("Company 1 should have a site");
 
     // Company admin should be able to create devices in their company
     let new_device = json!({
@@ -571,8 +537,9 @@ async fn test_device_rbac_company_admin() {
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let devices: Vec<Device> = serde_json::from_value(odata_response["value"].clone()).expect("valid devices array");
-    
+    let devices: Vec<Device> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid devices array");
+
     // Should only see devices from their company
     for device in &devices {
         assert_eq!(device.company_id, company1.id);
@@ -595,36 +562,28 @@ async fn test_device_rbac_company_admin() {
 
     // Company admin should be able to delete their devices
     let url = format!("/api/1/Devices/{}", created_device.id);
-    let response = client
-        .delete(&url)
-        .cookie(company_admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.delete(&url).cookie(company_admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::NoContent);
 }
 
 #[rocket::async_test]
 async fn test_device_rbac_regular_staff() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Login as regular staff member
     let staff_cookie = login_user(&client, "staff@testcompany.com", "admin").await;
-    
+
     // Staff should be able to view devices (but only in their company)
-    let response = client
-        .get("/api/1/Devices")
-        .cookie(staff_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/Devices").cookie(staff_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let devices: Vec<Device> = serde_json::from_value(odata_response["value"].clone()).expect("valid devices array");
-    
-    // Staff user from Test Company 1 should see no devices (devices moved to Device Test companies)
+    let devices: Vec<Device> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid devices array");
+
+    // Staff user from Test Company 1 should see no devices (devices moved to Device
+    // Test companies)
     let staff_company_id = 2; // Test Company 1 has ID 2 in test data
     assert_eq!(devices.len(), 0); // No devices should exist in Test Company 1 anymore
     for device in &devices {
@@ -652,13 +611,11 @@ async fn test_device_rbac_regular_staff() {
 
 #[rocket::async_test]
 async fn test_device_rbac_newtown_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Login as newtown admin
     let newtown_admin_cookie = login_user(&client, "newtownadmin@newtown.com", "admin").await;
-    
+
     // Newtown admin should be able to view ALL devices across companies
     let response = client
         .get("/api/1/Devices")
@@ -668,12 +625,17 @@ async fn test_device_rbac_newtown_admin() {
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let devices: Vec<Device> = serde_json::from_value(odata_response["value"].clone()).expect("valid devices array");
-    
+    let devices: Vec<Device> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid devices array");
+
     // Should see devices from multiple companies
-    let company_ids: std::collections::HashSet<i32> = devices.iter().map(|d| d.company_id).collect();
+    let company_ids: std::collections::HashSet<i32> =
+        devices.iter().map(|d| d.company_id).collect();
     // Should have devices from at least Test Company 1 and Test Company 2
-    assert!(company_ids.len() >= 2, "Newtown admin should see devices from multiple companies");
+    assert!(
+        company_ids.len() >= 2,
+        "Newtown admin should see devices from multiple companies"
+    );
 
     // Newtown admin should be able to create devices in any company
     let response = client
@@ -682,21 +644,25 @@ async fn test_device_rbac_newtown_admin() {
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
-    
-    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
-    let company2 = companies.iter().find(|c| c.name == "Device Test Company B").expect("Device Test Company B should exist");
 
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(newtown_admin_cookie.clone())
-        .dispatch()
-        .await;
-    assert_eq!(response.status(), Status::Ok);
-    
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    let site2 = sites.iter().find(|s| s.company_id == company2.id).expect("Device Test Company B should have a site");
+    let companies: Vec<Company> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    let company2 = companies
+        .iter()
+        .find(|c| c.name == "Device Test Company B")
+        .expect("Device Test Company B should exist");
+
+    let response = client.get("/api/1/Sites").cookie(newtown_admin_cookie.clone()).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    let site2 = sites
+        .iter()
+        .find(|s| s.company_id == company2.id)
+        .expect("Device Test Company B should have a site");
 
     let new_device = json!({
         "name": "Newtown Admin Device",

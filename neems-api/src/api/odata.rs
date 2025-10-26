@@ -3,9 +3,7 @@
 //! This module provides OData standard endpoints including metadata service
 //! and service document, as well as support for OData query options.
 
-use rocket::Route;
-use rocket::response::content::RawXml;
-use rocket::serde::json::Json;
+use rocket::{Route, response::content::RawXml, serde::json::Json};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -31,7 +29,8 @@ pub struct EntitySet {
 ///
 /// - **URL:** `/api/1/`
 /// - **Method:** `GET`
-/// - **Purpose:** Returns the service document listing all available entity sets
+/// - **Purpose:** Returns the service document listing all available entity
+///   sets
 /// - **Authentication:** None required
 ///
 /// This endpoint provides the entry point for OData clients to discover

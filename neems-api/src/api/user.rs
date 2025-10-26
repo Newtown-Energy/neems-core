@@ -4,28 +4,35 @@
 //! along with utility functions for generating test data and helper functions
 //! for API testing.
 
-use rand::prelude::IndexedRandom;
-use rand::rng;
-use rocket::Route;
-use rocket::http::{ContentType, Status};
-use rocket::local::asynchronous::Client;
-use rocket::response::{self, status};
-use rocket::serde::Serialize;
-use rocket::serde::json::{Json, json};
-
-use crate::logged_json::LoggedJson;
-use crate::models::{CompanyInput, Role, UserInput, UserWithRoles};
-use crate::odata_query::{ODataQuery, ODataCollectionResponse, build_context_url, apply_select};
-use crate::orm::DbConn;
-use crate::orm::company::get_company_by_name;
-use crate::orm::role::get_role_by_name;
-use crate::orm::user::{
-    delete_user_with_cleanup, get_user, get_user_by_email, get_user_with_roles,
-    get_users_by_company_with_roles, insert_user, list_all_users_with_roles, update_user,
+use rand::{prelude::IndexedRandom, rng};
+use rocket::{
+    Route,
+    http::{ContentType, Status},
+    local::asynchronous::Client,
+    response::{self, status},
+    serde::{
+        Serialize,
+        json::{Json, json},
+    },
 };
-use crate::orm::user_role::{assign_user_role_by_name, get_user_roles, remove_user_role_by_name};
-use crate::session_guards::AuthenticatedUser;
 use ts_rs::TS;
+
+use crate::{
+    logged_json::LoggedJson,
+    models::{CompanyInput, Role, UserInput, UserWithRoles},
+    odata_query::{ODataCollectionResponse, ODataQuery, apply_select, build_context_url},
+    orm::{
+        DbConn,
+        company::get_company_by_name,
+        role::get_role_by_name,
+        user::{
+            delete_user_with_cleanup, get_user, get_user_by_email, get_user_with_roles,
+            get_users_by_company_with_roles, insert_user, list_all_users_with_roles, update_user,
+        },
+        user_role::{assign_user_role_by_name, get_user_roles, remove_user_role_by_name},
+    },
+    session_guards::AuthenticatedUser,
+};
 
 /// Error response structure for user API failures.
 #[derive(Serialize, TS)]
@@ -253,11 +260,12 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
     selected
 }
 
-/// Helper function to create a user via the API and return the created UserWithRoles.
+/// Helper function to create a user via the API and return the created
+/// UserWithRoles.
 ///
-/// This function is primarily used for testing purposes. It makes a POST request
-/// to the user creation endpoint and returns the newly created user object with roles.
-/// It assigns a default "staff" role if none is specified.
+/// This function is primarily used for testing purposes. It makes a POST
+/// request to the user creation endpoint and returns the newly created user
+/// object with roles. It assigns a default "staff" role if none is specified.
 ///
 /// # Arguments
 /// * `client` - The Rocket test client instance
@@ -268,7 +276,8 @@ pub fn random_usernames(count: usize) -> Vec<&'static str> {
 ///
 /// # Panics
 /// This function will panic if the API request fails or returns invalid data,
-/// as it's intended for testing scenarios where such failures indicate test problems.
+/// as it's intended for testing scenarios where such failures indicate test
+/// problems.
 pub async fn create_user_by_api(client: &Client, user: &UserInput) -> UserWithRoles {
     let body = json!({
         "email": &user.email,
@@ -295,8 +304,9 @@ pub async fn create_user_by_api(client: &Client, user: &UserInput) -> UserWithRo
 
 /// Helper function to create a user with specific roles via the API.
 ///
-/// This function is primarily used for testing purposes. It makes a POST request
-/// to the user creation endpoint with specified roles and returns the newly created user object.
+/// This function is primarily used for testing purposes. It makes a POST
+/// request to the user creation endpoint with specified roles and returns the
+/// newly created user object.
 ///
 /// # Arguments
 /// * `client` - The Rocket test client instance
@@ -308,7 +318,8 @@ pub async fn create_user_by_api(client: &Client, user: &UserInput) -> UserWithRo
 ///
 /// # Panics
 /// This function will panic if the API request fails or returns invalid data,
-/// as it's intended for testing scenarios where such failures indicate test problems.
+/// as it's intended for testing scenarios where such failures indicate test
+/// problems.
 pub async fn create_user_with_roles_by_api(
     client: &Client,
     user: &UserInput,
@@ -346,7 +357,8 @@ pub async fn create_user_with_roles_by_api(
 ///
 /// This endpoint accepts a JSON payload containing user information and
 /// role assignments, creates a new user record in the database, and assigns
-/// the specified roles in a single operation. At least one role must be provided.
+/// the specified roles in a single operation. At least one role must be
+/// provided.
 ///
 /// # Request Format
 ///
@@ -413,11 +425,14 @@ pub async fn create_user_with_roles_by_api(
 ///
 /// # Arguments
 /// * `db` - Database connection pool
-/// * `new_user` - JSON payload containing the new user data and role assignments
+/// * `new_user` - JSON payload containing the new user data and role
+///   assignments
 ///
 /// # Returns
-/// * `Ok(status::Created<Json<UserWithRoles>>)` - Successfully created user with roles
-/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during creation with JSON error details
+/// * `Ok(status::Created<Json<UserWithRoles>>)` - Successfully created user
+///   with roles
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during
+///   creation with JSON error details
 #[post("/1/Users", data = "<new_user>")]
 pub async fn create_user(
     db: DbConn,
@@ -500,9 +515,7 @@ pub async fn create_user(
 
             // Check if role is newtown-staff or newtown-admin (company restriction)
             if role_name == "newtown-staff" || role_name == "newtown-admin" {
-                let newtown_company_search = CompanyInput {
-                    name: "Newtown Energy".to_string(),
-                };
+                let newtown_company_search = CompanyInput { name: "Newtown Energy".to_string() };
                 let newtown_company = match get_company_by_name(conn, &newtown_company_search) {
                     Ok(Some(company)) => company,
                     Ok(None) => {
@@ -593,7 +606,7 @@ pub async fn create_user(
                     error: "User created but not found when retrieving with roles".to_string(),
                 });
                 Err(response::status::Custom(Status::InternalServerError, err))
-            },
+            }
             Err(e) => {
                 eprintln!("Error getting created user with roles: {:?}", e);
                 let err = Json(ErrorResponse {
@@ -657,7 +670,7 @@ pub async fn list_users(
 ) -> Result<Json<serde_json::Value>, Status> {
     // Validate query options
     query.validate().map_err(|_| Status::BadRequest)?;
-    
+
     // Authorization: determine which users this user can see
     let users = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
         // newtown-admin and newtown-staff can see all users
@@ -749,66 +762,80 @@ pub async fn list_users(
     let expand_props = query.parse_expand();
     let select_props = query.parse_select();
     let mut expanded_users: Vec<serde_json::Value> = Vec::new();
-    
+
     // Check if activity timestamps are requested in $select
     let needs_activity_timestamps = if let Some(ref select_fields) = select_props {
-        select_fields.iter().any(|field| 
-            field == "activity_created_at" || field == "activity_updated_at"
-        )
+        select_fields
+            .iter()
+            .any(|field| field == "activity_created_at" || field == "activity_updated_at")
     } else {
         false // Default behavior doesn't include activity timestamps
     };
-    
+
     for user in &filtered_users {
         let mut user_json = serde_json::to_value(user).map_err(|_| Status::InternalServerError)?;
-        
+
         // Handle $expand=company
         if let Some(expansions) = &expand_props {
             if expansions.iter().any(|e| e.eq_ignore_ascii_case("company")) {
                 // Load company data for this user
                 let company_id = user.company_id;
-                let company = db.run(move |conn| {
-                    use crate::orm::company::get_company_by_id;
-                    get_company_by_id(conn, company_id)
-                }).await.map_err(|_| Status::InternalServerError)?;
-                
+                let company = db
+                    .run(move |conn| {
+                        use crate::orm::company::get_company_by_id;
+                        get_company_by_id(conn, company_id)
+                    })
+                    .await
+                    .map_err(|_| Status::InternalServerError)?;
+
                 if let Some(company) = company {
-                    user_json.as_object_mut()
-                        .unwrap()
-                        .insert("Company".to_string(), serde_json::to_value(company).map_err(|_| Status::InternalServerError)?);
+                    user_json.as_object_mut().unwrap().insert(
+                        "Company".to_string(),
+                        serde_json::to_value(company).map_err(|_| Status::InternalServerError)?,
+                    );
                 }
             }
         }
-        
+
         // Handle computed activity timestamps if requested
         if needs_activity_timestamps {
             let user_id = user.id;
-            let timestamps = db.run(move |conn| {
-                use crate::orm::entity_activity::{get_created_at, get_updated_at};
-                
-                let created_at = get_created_at(conn, "users", user_id).ok();
-                let updated_at = get_updated_at(conn, "users", user_id).ok();
-                
-                (created_at, updated_at)
-            }).await;
-            
+            let timestamps = db
+                .run(move |conn| {
+                    use crate::orm::entity_activity::{get_created_at, get_updated_at};
+
+                    let created_at = get_created_at(conn, "users", user_id).ok();
+                    let updated_at = get_updated_at(conn, "users", user_id).ok();
+
+                    (created_at, updated_at)
+                })
+                .await;
+
             // Add activity timestamps to user object
             let user_obj = user_json.as_object_mut().unwrap();
             if let Some(created_at) = timestamps.0 {
-                user_obj.insert("activity_created_at".to_string(), 
-                    serde_json::Value::String(created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()));
+                user_obj.insert(
+                    "activity_created_at".to_string(),
+                    serde_json::Value::String(
+                        created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    ),
+                );
             } else {
                 user_obj.insert("activity_created_at".to_string(), serde_json::Value::Null);
             }
-            
+
             if let Some(updated_at) = timestamps.1 {
-                user_obj.insert("activity_updated_at".to_string(), 
-                    serde_json::Value::String(updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()));
+                user_obj.insert(
+                    "activity_updated_at".to_string(),
+                    serde_json::Value::String(
+                        updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    ),
+                );
             } else {
                 user_obj.insert("activity_updated_at".to_string(), serde_json::Value::Null);
             }
         }
-        
+
         expanded_users.push(user_json);
     }
 
@@ -856,7 +883,8 @@ pub struct AddUserRoleRequest {
     pub role_name: String,
 }
 
-/// Request structure for removing a role from a user (user_id comes from URL path).
+/// Request structure for removing a role from a user (user_id comes from URL
+/// path).
 #[derive(serde::Deserialize, TS)]
 #[ts(export)]
 pub struct RemoveUserRoleRequest {
@@ -879,10 +907,12 @@ pub struct UpdateUserRequest {
 /// - **Method:** `GET`
 /// - **Purpose:** Retrieves a specific user by ID
 /// - **Authentication:** Required
-/// - **Authorization:** Users can view their own profile, admins can view any user
+/// - **Authorization:** Users can view their own profile, admins can view any
+///   user
 ///
 /// This endpoint retrieves a specific user's information. Users can view their
-/// own profile data, while users with admin privileges can view any user's data.
+/// own profile data, while users with admin privileges can view any user's
+/// data.
 ///
 /// # Parameters
 ///
@@ -916,7 +946,8 @@ pub struct UpdateUserRequest {
 ///
 /// # Returns
 /// * `Ok(Json<User>)` - The requested user data
-/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error with JSON error details
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error with JSON
+///   error details
 #[get("/1/Users/<user_id>")]
 pub async fn get_user_endpoint(
     db: DbConn,
@@ -950,15 +981,11 @@ pub async fn get_user_endpoint(
                 Ok(Json(user))
             }
             Ok(None) => {
-                let err = Json(ErrorResponse {
-                    error: "User not found".to_string(),
-                });
+                let err = Json(ErrorResponse { error: "User not found".to_string() });
                 Err(response::status::Custom(Status::NotFound, err))
             }
             Err(diesel::result::Error::NotFound) => {
-                let err = Json(ErrorResponse {
-                    error: "User not found".to_string(),
-                });
+                let err = Json(ErrorResponse { error: "User not found".to_string() });
                 Err(response::status::Custom(Status::NotFound, err))
             }
             Err(e) => {
@@ -978,7 +1005,8 @@ pub async fn get_user_endpoint(
 /// - **URL:** `/api/1/users/<user_id>/roles`
 /// - **Method:** `GET`
 /// - **Purpose:** Retrieves all roles assigned to a specific user
-/// - **Authentication:** Required (users can view their own roles, or users with admin privileges can view any user's roles)
+/// - **Authentication:** Required (users can view their own roles, or users
+///   with admin privileges can view any user's roles)
 ///
 /// This endpoint retrieves all roles assigned to a specific user.
 /// Users can view their own roles, or users with sufficient privileges
@@ -1057,22 +1085,27 @@ pub async fn get_user_roles_endpoint(
 /// - **URL:** `/api/1/users/<user_id>/roles`
 /// - **Method:** `POST`
 /// - **Purpose:** Assigns a role to a user with authorization checks
-/// - **Authentication:** Required (admin privileges with specific business rules)
+/// - **Authentication:** Required (admin privileges with specific business
+///   rules)
 ///
 /// This endpoint allows authorized users to add roles to other users
 /// following the business rules:
-/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy company
+/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy
+///    company
 /// 2. `newtown-admin` can set any user's role to anything
 /// 3. `newtown-staff` can set any user's role except `newtown-admin`
-/// 4. `admin` can set another user's role to `admin` if target user is at same company
+/// 4. `admin` can set another user's role to `admin` if target user is at same
+///    company
 /// 5. Users must have at least one role (validated elsewhere)
 ///
 /// # Authorization Rules
 ///
-/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy company
+/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy
+///    company
 /// 2. `newtown-admin` can set any user's role to anything
 /// 3. `newtown-staff` can set any user's role except `newtown-admin`
-/// 4. `admin` can set another user's role to `admin` if target user is at same company
+/// 4. `admin` can set another user's role to `admin` if target user is at same
+///    company
 /// 5. Users must have at least one role (validated elsewhere)
 ///
 /// # Request Format
@@ -1156,9 +1189,7 @@ pub async fn add_user_role(
 
     // Rule 1: newtown-staff and newtown-admin roles are reserved for Newtown Energy
     if role_name == "newtown-staff" || role_name == "newtown-admin" {
-        let newtown_company_search = CompanyInput {
-            name: "Newtown Energy".to_string(),
-        };
+        let newtown_company_search = CompanyInput { name: "Newtown Energy".to_string() };
         let newtown_company = db
             .run(move |conn| get_company_by_name(conn, &newtown_company_search))
             .await
@@ -1238,7 +1269,8 @@ pub async fn add_user_role(
 ///
 /// # Returns
 /// * `Ok(Status::Ok)` - Role successfully removed
-/// * `Err(Status)` - Error status (Forbidden, BadRequest, InternalServerError, etc.)
+/// * `Err(Status)` - Error status (Forbidden, BadRequest, InternalServerError,
+///   etc.)
 ///
 /// # Example
 ///
@@ -1273,10 +1305,8 @@ pub async fn remove_user_role(
         .ok_or(Status::NotFound)?;
 
     // Check if user would have any roles left after removal
-    let current_roles = db
-        .run(move |conn| get_user_roles(conn, target_user_id))
-        .await
-        .map_err(|e| {
+    let current_roles =
+        db.run(move |conn| get_user_roles(conn, target_user_id)).await.map_err(|e| {
             eprintln!("Error getting current user roles: {:?}", e);
             Status::InternalServerError
         })?;
@@ -1319,11 +1349,13 @@ pub async fn remove_user_role(
 /// - **Method:** `PUT`
 /// - **Purpose:** Updates a user's information
 /// - **Authentication:** Required
-/// - **Authorization:** Users can update their own profile, admins can update any user
+/// - **Authorization:** Users can update their own profile, admins can update
+///   any user
 ///
 /// This endpoint allows updating user information. Users can update their own
 /// profile data, while users with admin privileges can update any user's data.
-/// All fields in the request are optional - only provided fields will be updated.
+/// All fields in the request are optional - only provided fields will be
+/// updated.
 ///
 /// # Parameters
 ///
@@ -1528,8 +1560,9 @@ pub async fn delete_user_endpoint(
 /// Get User Company Navigation endpoint.
 ///
 /// - **URL:** `/api/1/Users/<user_id>/Company`
-/// - **Method:** `GET`  
-/// - **Purpose:** Retrieves the company associated with a user (OData navigation property)
+/// - **Method:** `GET`
+/// - **Purpose:** Retrieves the company associated with a user (OData
+///   navigation property)
 /// - **Authentication:** Required
 ///
 /// This is an OData navigation endpoint that returns the Company entity
@@ -1541,12 +1574,13 @@ pub async fn get_user_company(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<crate::models::Company>, Status> {
     // Authorization check: same as getting a user
-    let target_user = db.run(move |conn| {
-        get_user(conn, user_id)
-    }).await.map_err(|_| Status::InternalServerError)?;
-    
+    let target_user = db
+        .run(move |conn| get_user(conn, user_id))
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
     let target_user = target_user.ok_or(Status::NotFound)?;
-    
+
     let can_view = if auth_user.user.id == user_id {
         true
     } else if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
@@ -1576,13 +1610,14 @@ pub async fn get_user_company(
 /// Get User Roles Navigation endpoint.
 ///
 /// - **URL:** `/api/1/Users/<user_id>/Roles`
-/// - **Method:** `GET`  
-/// - **Purpose:** Retrieves the roles associated with a user (OData navigation property)
+/// - **Method:** `GET`
+/// - **Purpose:** Retrieves the roles associated with a user (OData navigation
+///   property)
 /// - **Authentication:** Required
 ///
 /// This is an OData navigation endpoint that returns the Role entities
-/// associated with the specified user. This is the same as get_user_roles_endpoint
-/// but follows OData navigation conventions.
+/// associated with the specified user. This is the same as
+/// get_user_roles_endpoint but follows OData navigation conventions.
 // Note: This endpoint is already implemented as get_user_roles_endpoint above
 
 /// Returns a vector of all routes defined in this module.

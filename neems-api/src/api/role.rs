@@ -4,18 +4,24 @@
 //! in the system. Roles define permissions and access levels that can
 //! be assigned to users within companies.
 
-use rocket::Route;
-use rocket::http::Status;
-use rocket::response::{self};
-use rocket::serde::json::Json;
+use rocket::{
+    Route,
+    http::Status,
+    response::{self},
+    serde::json::Json,
+};
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::logged_json::LoggedJson;
-use crate::models::{NewRole, Role};
-use crate::orm::DbConn;
-use crate::orm::role::{delete_role, get_all_roles, get_role, insert_role, update_role};
-use crate::session_guards::AuthenticatedUser;
+use crate::{
+    logged_json::LoggedJson,
+    models::{NewRole, Role},
+    orm::{
+        DbConn,
+        role::{delete_role, get_all_roles, get_role, insert_role, update_role},
+    },
+    session_guards::AuthenticatedUser,
+};
 
 /// Error response structure for role API failures.
 #[derive(Serialize, TS)]
@@ -80,15 +86,13 @@ pub async fn create_role(
         return Err(response::status::Custom(Status::Forbidden, err));
     }
     db.run(move |conn| {
-        insert_role(conn, new_role.into_inner())
-            .map(Json)
-            .map_err(|e| {
-                eprintln!("Error creating role: {:?}", e);
-                let err = Json(ErrorResponse {
-                    error: "Internal server error while creating role".to_string(),
-                });
-                response::status::Custom(Status::InternalServerError, err)
-            })
+        insert_role(conn, new_role.into_inner()).map(Json).map_err(|e| {
+            eprintln!("Error creating role: {:?}", e);
+            let err = Json(ErrorResponse {
+                error: "Internal server error while creating role".to_string(),
+            });
+            response::status::Custom(Status::InternalServerError, err)
+        })
     })
     .await
 }
@@ -214,7 +218,8 @@ pub async fn get_role_endpoint(
     role_id: i32,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<Role>, response::status::Custom<Json<ErrorResponse>>> {
-    // All authenticated users can get individual roles (needed for role assignment UIs)
+    // All authenticated users can get individual roles (needed for role assignment
+    // UIs)
     db.run(move |conn| {
         get_role(conn, role_id).map(Json).map_err(|e| match e {
             diesel::result::Error::NotFound => {
@@ -299,28 +304,23 @@ pub async fn update_role_endpoint(
         return Err(response::status::Custom(Status::Forbidden, err));
     }
     db.run(move |conn| {
-        update_role(
-            conn,
-            role_id,
-            request.name.clone(),
-            request.description.clone(),
-        )
-        .map(Json)
-        .map_err(|e| match e {
-            diesel::result::Error::NotFound => {
-                let err = Json(ErrorResponse {
-                    error: format!("Role with ID {} not found", role_id),
-                });
-                response::status::Custom(Status::NotFound, err)
-            }
-            _ => {
-                eprintln!("Error updating role: {:?}", e);
-                let err = Json(ErrorResponse {
-                    error: "Internal server error while updating role".to_string(),
-                });
-                response::status::Custom(Status::InternalServerError, err)
-            }
-        })
+        update_role(conn, role_id, request.name.clone(), request.description.clone())
+            .map(Json)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => {
+                    let err = Json(ErrorResponse {
+                        error: format!("Role with ID {} not found", role_id),
+                    });
+                    response::status::Custom(Status::NotFound, err)
+                }
+                _ => {
+                    eprintln!("Error updating role: {:?}", e);
+                    let err = Json(ErrorResponse {
+                        error: "Internal server error while updating role".to_string(),
+                    });
+                    response::status::Custom(Status::InternalServerError, err)
+                }
+            })
     })
     .await
 }

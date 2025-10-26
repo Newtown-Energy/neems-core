@@ -2,12 +2,17 @@
 extern crate rocket;
 
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
-use rocket::figment::value::Map;
-use rocket::figment::{Figment, providers::{Env, Format, Toml}};
-use rocket::fs::FileServer;
-use rocket::request::Request;
-use rocket::serde::json::{Json, Value, json};
-use rocket::{Build, Rocket};
+use rocket::{
+    Build, Rocket,
+    figment::{
+        Figment,
+        providers::{Env, Format, Toml},
+        value::Map,
+    },
+    fs::FileServer,
+    request::Request,
+    serde::json::{Json, Value, json},
+};
 
 pub mod admin_init_fairing;
 pub mod api;
@@ -116,11 +121,10 @@ fn log_rocket_info(rocket: &Rocket<Build>) {
 /// set up the test_rocket in-memory db.  That is defined in db.rs.
 #[launch]
 pub fn rocket() -> Rocket<Build> {
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
-    let site_database_url = std::env::var("SITE_DATABASE_URL")
-        .expect("SITE_DATABASE_URL must be set");
-    
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let site_database_url =
+        std::env::var("SITE_DATABASE_URL").expect("SITE_DATABASE_URL must be set");
+
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("ROCKET_").global())

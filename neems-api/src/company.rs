@@ -1,5 +1,4 @@
-use rand::prelude::IndexedRandom;
-use rand::rng;
+use rand::{prelude::IndexedRandom, rng};
 
 pub fn random_energy_company_names(count: usize) -> Vec<&'static str> {
     let names = vec![

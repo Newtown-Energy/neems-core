@@ -1,11 +1,20 @@
-use crate::schema::scheduler_executions;
 use chrono::NaiveDateTime;
 use diesel::{Associations, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::schema::scheduler_executions;
+
 #[derive(
-    Queryable, Selectable, Identifiable, Associations, QueryableByName, Debug, Serialize, Deserialize, TS,
+    Queryable,
+    Selectable,
+    Identifiable,
+    Associations,
+    QueryableByName,
+    Debug,
+    Serialize,
+    Deserialize,
+    TS,
 )]
 #[diesel(belongs_to(crate::models::site::Site))]
 #[diesel(belongs_to(crate::models::scheduler_script::SchedulerScript, foreign_key = script_id))]

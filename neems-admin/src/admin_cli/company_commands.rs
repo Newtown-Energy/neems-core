@@ -1,14 +1,14 @@
-use clap::Subcommand;
-use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
-use neems_api::orm::company::{
-    delete_company, get_all_companies, get_company_by_id, insert_company,
-};
-use neems_api::orm::entity_activity::{get_created_at};
-use neems_api::orm::site::get_sites_by_company;
-use neems_api::orm::user::{delete_user_with_cleanup, get_users_by_company};
-use regex::Regex;
 use std::io::{self, Write};
+
+use clap::Subcommand;
+use diesel::{prelude::*, sqlite::SqliteConnection};
+use neems_api::orm::{
+    company::{delete_company, get_all_companies, get_company_by_id, insert_company},
+    entity_activity::get_created_at,
+    site::get_sites_by_company,
+    user::{delete_user_with_cleanup, get_users_by_company},
+};
+use regex::Regex;
 
 #[derive(Subcommand)]
 pub enum CompanyAction {
@@ -58,20 +58,13 @@ pub fn handle_company_command_with_conn(
     admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        CompanyAction::Ls {
-            search_term,
-            fixed_string,
-        } => {
+        CompanyAction::Ls { search_term, fixed_string } => {
             company_ls_impl(conn, search_term, fixed_string)?;
         }
         CompanyAction::Add { name } => {
             company_add_impl(conn, name, admin_user_id)?;
         }
-        CompanyAction::Rm {
-            search_term,
-            fixed_string,
-            yes,
-        } => {
+        CompanyAction::Rm { search_term, fixed_string, yes } => {
             company_rm_impl(conn, search_term, fixed_string, yes, admin_user_id)?;
         }
         CompanyAction::Edit { id, name } => {
@@ -114,10 +107,7 @@ pub fn company_ls_impl(
             let created_at = get_created_at(conn, "companies", company.id)
                 .map(|dt| dt.to_string())
                 .unwrap_or_else(|_| "Unknown".to_string());
-            println!(
-                "  ID: {}, Name: {}, Created: {}",
-                company.id, company.name, created_at
-            );
+            println!("  ID: {}, Name: {}, Created: {}", company.id, company.name, created_at);
         }
     }
 
@@ -129,9 +119,8 @@ pub fn company_add_impl(
     name: String,
     admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use neems_api::models::CompanyInput;
-    use neems_api::orm::company::get_company_by_name;
-    
+    use neems_api::{models::CompanyInput, orm::company::get_company_by_name};
+
     // Check if company already exists
     let company_input = CompanyInput { name: name.clone() };
     if let Some(existing_company) = get_company_by_name(conn, &company_input)? {
@@ -186,10 +175,7 @@ pub fn company_rm_impl(
         return Ok(());
     }
 
-    println!(
-        "Found {} company(ies) matching the search term:",
-        matching_companies.len()
-    );
+    println!("Found {} company(ies) matching the search term:", matching_companies.len());
     for company in &matching_companies {
         // Get associated users and sites counts
         let users = get_users_by_company(conn, company.id)?;
@@ -306,7 +292,8 @@ fn update_company(
     use neems_api::schema::companies::dsl::*;
 
     if let Some(name_val) = new_name {
-        // Only update the name field - triggers will handle timestamp updates automatically
+        // Only update the name field - triggers will handle timestamp updates
+        // automatically
         diesel::update(companies.filter(id.eq(company_id)))
             .set(name.eq(name_val))
             .execute(conn)?;

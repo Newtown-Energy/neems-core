@@ -15,7 +15,8 @@ pub fn get_sites_by_company(
         .load(conn)
 }
 
-/// Creates a new site in the database (timestamps handled automatically by database triggers)
+/// Creates a new site in the database (timestamps handled automatically by
+/// database triggers)
 pub fn insert_site(
     conn: &mut SqliteConnection,
     site_name: String,
@@ -39,13 +40,13 @@ pub fn insert_site(
 
     // Return the inserted site
     let site = sites.order(id.desc()).select(Site::as_select()).first(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "sites", site.id, "create", user_id);
     }
-    
+
     Ok(site)
 }
 
@@ -78,7 +79,8 @@ pub fn get_all_sites(conn: &mut SqliteConnection) -> Result<Vec<Site>, diesel::r
     sites.order(id.asc()).select(Site::as_select()).load(conn)
 }
 
-/// Updates a site in the database (timestamps handled automatically by database triggers)
+/// Updates a site in the database (timestamps handled automatically by database
+/// triggers)
 pub fn update_site(
     conn: &mut SqliteConnection,
     site_id: i32,
@@ -107,13 +109,13 @@ pub fn update_site(
 
     // Return the updated site
     let site = sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "sites", site_id, "update", user_id);
     }
-    
+
     Ok(site)
 }
 
@@ -125,7 +127,7 @@ pub fn delete_site(
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
     let result = diesel::delete(sites.filter(id.eq(site_id))).execute(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if result > 0 {
         if let Some(user_id) = acting_user_id {
@@ -133,7 +135,7 @@ pub fn delete_site(
             let _ = update_latest_activity_user(conn, "sites", site_id, "delete", user_id);
         }
     }
-    
+
     Ok(result)
 }
 
@@ -143,7 +145,7 @@ pub fn get_site_with_timestamps(
     site_id: i32,
 ) -> Result<Option<SiteWithTimestamps>, diesel::result::Error> {
     use crate::orm::entity_activity;
-    
+
     // First get the site
     let site = match get_site_by_id(conn, site_id)? {
         Some(s) => s,
@@ -337,12 +339,15 @@ mod tests {
         .expect("Failed to insert site");
 
         // Get timestamps from activity log
-        let original_created_at = crate::orm::entity_activity::get_created_at(&mut conn, "sites", created_site.id)
-            .expect("Should have created timestamp");
-        let original_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
-            .expect("Should have updated timestamp");
+        let original_created_at =
+            crate::orm::entity_activity::get_created_at(&mut conn, "sites", created_site.id)
+                .expect("Should have created timestamp");
+        let original_updated_at =
+            crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
+                .expect("Should have updated timestamp");
 
-        // Wait a moment to ensure updated_at changes (SQLite timestamps have 1-second resolution)
+        // Wait a moment to ensure updated_at changes (SQLite timestamps have 1-second
+        // resolution)
         std::thread::sleep(std::time::Duration::from_millis(1100));
 
         // Test partial update (only name)
@@ -363,13 +368,15 @@ mod tests {
         assert_eq!(updated_site.latitude, 40.0);
         assert_eq!(updated_site.longitude, -74.0);
         assert_eq!(updated_site.company_id, company1.id);
-        
+
         // Check timestamps from activity log
-        let new_created_at = crate::orm::entity_activity::get_created_at(&mut conn, "sites", created_site.id)
-            .expect("Should have created timestamp");
-        let new_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
-            .expect("Should have updated timestamp");
-            
+        let new_created_at =
+            crate::orm::entity_activity::get_created_at(&mut conn, "sites", created_site.id)
+                .expect("Should have created timestamp");
+        let new_updated_at =
+            crate::orm::entity_activity::get_updated_at(&mut conn, "sites", created_site.id)
+                .expect("Should have updated timestamp");
+
         assert_eq!(new_created_at, original_created_at); // Should not change
         assert!(new_updated_at > original_updated_at); // Should be updated
 
@@ -397,16 +404,8 @@ mod tests {
     fn test_update_nonexistent_site() {
         let mut conn = setup_test_db();
 
-        let result = update_site(
-            &mut conn,
-            99999,
-            Some("Test".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
+        let result =
+            update_site(&mut conn, 99999, Some("Test".to_string()), None, None, None, None, None);
 
         assert!(result.is_err());
     }
@@ -468,10 +467,11 @@ mod tests {
     #[test]
     fn test_site_with_timestamps() {
         let mut conn = setup_test_db();
-        
-        let company = crate::company::insert_company(&mut conn, "Timestamp Test Company".to_string(), None)
-            .expect("Failed to insert company");
-        
+
+        let company =
+            crate::company::insert_company(&mut conn, "Timestamp Test Company".to_string(), None)
+                .expect("Failed to insert company");
+
         // Insert site
         let site = insert_site(
             &mut conn,
@@ -481,25 +481,26 @@ mod tests {
             -74.0060,
             company.id,
             None,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         // Get site with timestamps
         let site_with_timestamps = get_site_with_timestamps(&mut conn, site.id)
             .expect("Should get timestamps")
             .expect("Site should exist");
-            
+
         assert_eq!(site_with_timestamps.id, site.id);
         assert_eq!(site_with_timestamps.name, "Timestamp Test Site");
         assert_eq!(site_with_timestamps.address, "123 Test St");
         assert_eq!(site_with_timestamps.latitude, 40.7128);
         assert_eq!(site_with_timestamps.longitude, -74.0060);
         assert_eq!(site_with_timestamps.company_id, company.id);
-        
+
         // Timestamps should be recent (within last few seconds)
         let now = chrono::Utc::now().naive_utc();
         let created_diff = (site_with_timestamps.created_at - now).num_seconds().abs();
         let updated_diff = (site_with_timestamps.updated_at - now).num_seconds().abs();
-        
+
         assert!(created_diff <= 5, "Created timestamp should be recent");
         assert!(updated_diff <= 5, "Updated timestamp should be recent");
     }
@@ -524,12 +525,8 @@ mod tests {
         .expect("Failed to insert site");
 
         // Test case-insensitive lookup with different cases
-        let test_cases = vec![
-            "test site name",
-            "TEST SITE NAME",
-            "Test Site Name",
-            "tEsT sItE nAmE",
-        ];
+        let test_cases =
+            vec!["test site name", "TEST SITE NAME", "Test Site Name", "tEsT sItE nAmE"];
 
         for test_name in test_cases {
             let retrieved_site = get_site_by_company_and_name(&mut conn, company.id, test_name)
@@ -545,8 +542,9 @@ mod tests {
         assert!(result.is_none());
 
         // Test with different company (should not find the site)
-        let other_company = crate::company::insert_company(&mut conn, "Other Company".to_string(), None)
-            .expect("Failed to insert other company");
+        let other_company =
+            crate::company::insert_company(&mut conn, "Other Company".to_string(), None)
+                .expect("Failed to insert other company");
         let result = get_site_by_company_and_name(&mut conn, other_company.id, "Test Site Name")
             .expect("Query should succeed");
         assert!(result.is_none());

@@ -1,8 +1,10 @@
-use crate::models::Role;
-use crate::models::User;
-use crate::schema::user_roles;
 use diesel::{Associations, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    models::{Role, User},
+    schema::user_roles,
+};
 
 #[derive(Queryable, Associations, Debug, Serialize)]
 #[diesel(belongs_to(User, foreign_key = user_id))]

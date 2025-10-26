@@ -5,25 +5,28 @@
 //!
 //! # Authorization Rules
 //! - Company admins can perform CRUD operations on devices within their company
-//! - newtown-staff and newtown-admin roles can perform CRUD operations on any device
-//! - Regular users (staff) can view devices in their company but cannot modify them
+//! - newtown-staff and newtown-admin roles can perform CRUD operations on any
+//!   device
+//! - Regular users (staff) can view devices in their company but cannot modify
+//!   them
 
-use rocket::Route;
-use rocket::http::Status;
-use rocket::response::status;
-use rocket::serde::json::Json;
+use rocket::{Route, http::Status, response::status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::models::{Device, DeviceInput};
-use crate::odata_query::ODataQuery;
-use crate::orm::DbConn;
-use crate::orm::site::get_site_by_id;
-use crate::orm::device::{
-    delete_device, get_all_devices, get_device_by_id, get_devices_by_company, 
-    insert_device, update_device, get_device_by_site_and_name,
+use crate::{
+    models::{Device, DeviceInput},
+    odata_query::ODataQuery,
+    orm::{
+        DbConn,
+        device::{
+            delete_device, get_all_devices, get_device_by_id, get_device_by_site_and_name,
+            get_devices_by_company, insert_device, update_device,
+        },
+        site::get_site_by_id,
+    },
+    session_guards::AuthenticatedUser,
 };
-use crate::session_guards::AuthenticatedUser;
 
 /// Error response structure for device API failures.
 #[derive(Serialize, TS)]
@@ -36,7 +39,7 @@ pub struct ErrorResponse {
 #[derive(Deserialize, Serialize, TS)]
 #[ts(export)]
 pub struct CreateDeviceRequest {
-    pub name: Option<String>,           // Optional, defaults to type_ if not provided
+    pub name: Option<String>, // Optional, defaults to type_ if not provided
     pub description: Option<String>,
     #[ts(type = "string")]
     pub type_: String,
@@ -49,7 +52,8 @@ pub struct CreateDeviceRequest {
     pub site_id: i32,
 }
 
-/// Request payload for updating a device (all fields optional except ID constraints)
+/// Request payload for updating a device (all fields optional except ID
+/// constraints)
 #[derive(Deserialize, Serialize, TS)]
 #[ts(export)]
 pub struct UpdateDeviceRequest {
@@ -102,7 +106,8 @@ fn can_crud_device(user: &AuthenticatedUser, device_company_id: i32) -> bool {
 /// - **Method:** `POST`
 /// - **Purpose:** Creates a new device
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 ///
 /// # Request Format
 ///
@@ -129,7 +134,8 @@ fn can_crud_device(user: &AuthenticatedUser, device_company_id: i32) -> bool {
 /// - **401 Unauthorized**: User not authenticated
 /// - **403 Forbidden**: User lacks permission to create devices in this company
 /// - **404 Not Found**: Site not found or site doesn't belong to company
-/// - **400 Bad Request**: Device name already exists at site or validation error
+/// - **400 Bad Request**: Device name already exists at site or validation
+///   error
 #[post("/1/Devices", data = "<request>")]
 pub async fn create_device(
     db: DbConn,
@@ -155,9 +161,7 @@ pub async fn create_device(
             Ok(None) => {
                 return Err(status::Custom(
                     Status::NotFound,
-                    Json(ErrorResponse {
-                        error: "Site not found".to_string(),
-                    }),
+                    Json(ErrorResponse { error: "Site not found".to_string() }),
                 ));
             }
             Err(_) => {
@@ -224,7 +228,8 @@ pub async fn create_device(
 /// - **Method:** `GET`
 /// - **Purpose:** Lists devices with OData query support
 /// - **Authentication:** Required
-/// - **Authorization:** Users can view devices in their company; newtown roles can view all
+/// - **Authorization:** Users can view devices in their company; newtown roles
+///   can view all
 ///
 /// # OData Query Support
 /// - `$select`: Choose specific fields
@@ -275,12 +280,12 @@ pub async fn list_devices(
 
         // TODO: Apply OData query options (filtering, sorting, pagination)
         // For now, return all devices without query processing
-        
+
         let response = serde_json::json!({
             "@odata.context": "http://localhost/api/1/$metadata#Devices",
             "value": devices
         });
-        
+
         Ok(Json(response))
     })
     .await
@@ -292,7 +297,8 @@ pub async fn list_devices(
 /// - **Method:** `GET`
 /// - **Purpose:** Gets a specific device by ID
 /// - **Authentication:** Required
-/// - **Authorization:** Users can view devices in their company; newtown roles can view all
+/// - **Authorization:** Users can view devices in their company; newtown roles
+///   can view all
 #[get("/1/Devices/<device_id>")]
 pub async fn get_device(
     db: DbConn,
@@ -322,7 +328,8 @@ pub async fn get_device(
 /// - **Method:** `PUT`
 /// - **Purpose:** Updates a device
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 #[put("/1/Devices/<device_id>", data = "<request>")]
 pub async fn update_device_endpoint(
     db: DbConn,
@@ -339,9 +346,7 @@ pub async fn update_device_endpoint(
             Ok(None) => {
                 return Err(status::Custom(
                     Status::NotFound,
-                    Json(ErrorResponse {
-                        error: "Device not found".to_string(),
-                    }),
+                    Json(ErrorResponse { error: "Device not found".to_string() }),
                 ));
             }
             Err(_) => {
@@ -372,9 +377,7 @@ pub async fn update_device_endpoint(
                 Ok(None) => {
                     return Err(status::Custom(
                         Status::NotFound,
-                        Json(ErrorResponse {
-                            error: "Site not found".to_string(),
-                        }),
+                        Json(ErrorResponse { error: "Site not found".to_string() }),
                     ));
                 }
                 Err(_) => {
@@ -401,7 +404,8 @@ pub async fn update_device_endpoint(
                 return Err(status::Custom(
                     Status::Forbidden,
                     Json(ErrorResponse {
-                        error: "Insufficient permissions to move device to this company".to_string(),
+                        error: "Insufficient permissions to move device to this company"
+                            .to_string(),
                     }),
                 ));
             }
@@ -410,12 +414,15 @@ pub async fn update_device_endpoint(
         // Check for name conflicts if name is being changed
         if let Some(ref new_name) = request.name {
             let target_site_id = request.site_id.unwrap_or(current_device.site_id);
-            if let Ok(Some(existing_device)) = get_device_by_site_and_name(conn, target_site_id, new_name) {
+            if let Ok(Some(existing_device)) =
+                get_device_by_site_and_name(conn, target_site_id, new_name)
+            {
                 if existing_device.id != device_id {
                     return Err(status::Custom(
                         Status::BadRequest,
                         Json(ErrorResponse {
-                            error: "Device with this name already exists at the target site".to_string(),
+                            error: "Device with this name already exists at the target site"
+                                .to_string(),
                         }),
                     ));
                 }
@@ -454,7 +461,8 @@ pub async fn update_device_endpoint(
 /// - **Method:** `DELETE`
 /// - **Purpose:** Deletes a device
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 #[delete("/1/Devices/<device_id>")]
 pub async fn delete_device_endpoint(
     db: DbConn,
@@ -468,9 +476,7 @@ pub async fn delete_device_endpoint(
             Ok(None) => {
                 return Err(status::Custom(
                     Status::NotFound,
-                    Json(ErrorResponse {
-                        error: "Device not found".to_string(),
-                    }),
+                    Json(ErrorResponse { error: "Device not found".to_string() }),
                 ));
             }
             Err(_) => {
@@ -512,7 +518,8 @@ pub async fn delete_device_endpoint(
 /// - **Method:** `GET`
 /// - **Purpose:** Gets the site where a device is located
 /// - **Authentication:** Required
-/// - **Authorization:** Users can view devices in their company; newtown roles can view all
+/// - **Authorization:** Users can view devices in their company; newtown roles
+///   can view all
 #[get("/1/Devices/<device_id>/Site")]
 pub async fn get_device_site(
     db: DbConn,

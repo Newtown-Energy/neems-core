@@ -1,8 +1,11 @@
+use std::{env, error::Error};
+
 use clap::{Args, Parser, Subcommand};
 use dotenvy::dotenv;
-use neems_data::{DataAggregator, NewSource, UpdateSource, create_source, list_sources, get_source_by_name, update_source, delete_source};
-use std::env;
-use std::error::Error;
+use neems_data::{
+    DataAggregator, NewSource, UpdateSource, create_source, delete_source, get_source_by_name,
+    list_sources, update_source,
+};
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -15,7 +18,7 @@ pub mod built_info {
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-    
+
     /// Show extended version information
     #[arg(long, action = clap::ArgAction::SetTrue)]
     version_info: bool,
@@ -25,7 +28,11 @@ struct Cli {
 enum Commands {
     /// Start the data monitoring and aggregation service
     Monitor {
-        #[arg(short, long, help = "Enable verbose output showing data source polling")]
+        #[arg(
+            short,
+            long,
+            help = "Enable verbose output showing data source polling"
+        )]
         verbose: bool,
     },
     /// List all sources
@@ -39,12 +46,12 @@ enum Commands {
     #[command(alias = "rm")]
     Remove {
         /// Name of the source to remove
-        name: String
+        name: String,
     },
     /// Show details of a specific source
     Show {
         /// Name of the source to show
-        name: String
+        name: String,
     },
 }
 
@@ -77,9 +84,7 @@ struct AddArgs {
 
 /// Parse a single key=value pair
 fn parse_key_val(s: &str) -> Result<(String, String), Box<dyn Error + Send + Sync + 'static>> {
-    let pos = s
-        .find('=')
-        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    let pos = s.find('=').ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
     Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }
 
@@ -129,11 +134,12 @@ struct EditArgs {
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     dotenv().ok();
 
-    let database_path = env::var("SITE_DATABASE_URL")
-        .unwrap_or_else(|_| "site-data.sqlite".to_string());
+    let database_path =
+        env::var("SITE_DATABASE_URL").unwrap_or_else(|_| "site-data.sqlite".to_string());
 
     let aggregator = DataAggregator::new(Some(&database_path));
-    let mut connection = aggregator.establish_connection()
+    let mut connection = aggregator
+        .establish_connection()
         .map_err(|e| format!("Failed to establish database connection: {}", e))?;
 
     let cli = Cli::parse();
@@ -168,23 +174,35 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             if sources.is_empty() {
                 println!("No sources found.");
             } else {
-                println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
-                    "ID", "Name", "Test Type", "Arguments", "Active", "Site", "Company", "Last Run", "Description");
+                println!(
+                    "{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
+                    "ID",
+                    "Name",
+                    "Test Type",
+                    "Arguments",
+                    "Active",
+                    "Site",
+                    "Company",
+                    "Last Run",
+                    "Description"
+                );
                 println!("{}", "-".repeat(120));
                 for source in sources {
-                    let last_run = source.last_run
+                    let last_run = source
+                        .last_run
                         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                         .unwrap_or_else(|| "Never".to_string());
 
                     let test_type = source.test_type.as_deref().unwrap_or("(legacy)");
                     let arguments = match &source.arguments {
                         Some(args_json) => {
-                            match serde_json::from_str::<std::collections::HashMap<String, String>>(args_json) {
+                            match serde_json::from_str::<std::collections::HashMap<String, String>>(
+                                args_json,
+                            ) {
                                 Ok(args) if args.is_empty() => "{}".to_string(),
                                 Ok(args) => {
-                                    let formatted: Vec<String> = args.iter()
-                                        .map(|(k, v)| format!("{}={}", k, v))
-                                        .collect();
+                                    let formatted: Vec<String> =
+                                        args.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
                                     formatted.join(",")
                                 }
                                 Err(_) => "(invalid)".to_string(),
@@ -200,14 +218,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                         arguments
                     };
 
-                    println!("{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
+                    println!(
+                        "{:<4} {:<20} {:<15} {:<15} {:<8} {:<8} {:<8} {:<20} {}",
                         source.id.unwrap_or(0),
                         source.name,
                         test_type,
                         args_display,
                         source.active,
                         source.site_id.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
-                        source.company_id.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string()),
+                        source
+                            .company_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
                         last_run,
                         source.description.unwrap_or_else(|| "".to_string())
                     );
@@ -225,7 +247,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     // Display arguments nicely
                     match &source.arguments {
                         Some(args_json) => {
-                            match serde_json::from_str::<std::collections::HashMap<String, String>>(args_json) {
+                            match serde_json::from_str::<std::collections::HashMap<String, String>>(
+                                args_json,
+                            ) {
                                 Ok(args) if args.is_empty() => println!("  Arguments: (none)"),
                                 Ok(args) => {
                                     println!("  Arguments:");
@@ -239,18 +263,35 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                         None => println!("  Arguments: (none)"),
                     }
 
-                    println!("  Description: {}", source.description.unwrap_or_else(|| "(none)".to_string()));
+                    println!(
+                        "  Description: {}",
+                        source.description.unwrap_or_else(|| "(none)".to_string())
+                    );
                     println!("  Active: {}", source.active);
                     println!("  Interval: {} seconds", source.interval_seconds);
                     println!("  Created: {}", source.created_at.format("%Y-%m-%d %H:%M:%S"));
                     println!("  Updated: {}", source.updated_at.format("%Y-%m-%d %H:%M:%S"));
-                    println!("  Last Run: {}",
-                        source.last_run
+                    println!(
+                        "  Last Run: {}",
+                        source
+                            .last_run
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                             .unwrap_or_else(|| "Never".to_string())
                     );
-                    println!("  Site ID: {}", source.site_id.map(|id| id.to_string()).unwrap_or_else(|| "(none)".to_string()));
-                    println!("  Company ID: {}", source.company_id.map(|id| id.to_string()).unwrap_or_else(|| "(none)".to_string()));
+                    println!(
+                        "  Site ID: {}",
+                        source
+                            .site_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "(none)".to_string())
+                    );
+                    println!(
+                        "  Company ID: {}",
+                        source
+                            .company_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "(none)".to_string())
+                    );
                 }
                 None => {
                     eprintln!("Error: Source '{}' not found.", name);
@@ -277,12 +318,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             }
 
             // Use environment variables for defaults if not provided
-            let site_id = args.site_id.or_else(|| {
-                env::var("NEEMS_DEFAULT_SITE").ok().and_then(|s| s.parse().ok())
-            });
-            let company_id = args.company_id.or_else(|| {
-                env::var("NEEMS_DEFAULT_COMPANY").ok().and_then(|s| s.parse().ok())
-            });
+            let site_id = args
+                .site_id
+                .or_else(|| env::var("NEEMS_DEFAULT_SITE").ok().and_then(|s| s.parse().ok()));
+            let company_id = args
+                .company_id
+                .or_else(|| env::var("NEEMS_DEFAULT_COMPANY").ok().and_then(|s| s.parse().ok()));
 
             let test_type_str = args.test_type.clone();
             let new_source = NewSource {

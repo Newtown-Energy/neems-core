@@ -31,6 +31,6 @@ pub struct CompanyWithTimestamps {
     pub name: String,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
-    #[ts(type = "string")]  
+    #[ts(type = "string")]
     pub updated_at: chrono::NaiveDateTime,
 }

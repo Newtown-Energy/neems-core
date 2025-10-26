@@ -3,8 +3,7 @@
 //! This module provides health check and status endpoints for monitoring
 //! the application's operational state and availability.
 
-use rocket::Route;
-use rocket::serde::json::Json;
+use rocket::{Route, serde::json::Json};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -48,7 +47,7 @@ pub struct HealthStatus {
 /// A JSON response containing the application's health status
 #[rocket::get("/1/status")]
 pub fn health_status() -> Json<HealthStatus> {
-    Json(HealthStatus { 
+    Json(HealthStatus {
         status: "running",
         version: env!("CARGO_PKG_VERSION"),
         built: built_info::BUILT_TIME_UTC,

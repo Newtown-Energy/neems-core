@@ -1,9 +1,9 @@
 // neems-api/src/main.rs
 
-use clap::Parser;
-use rocket::error;
-use rocket::info;
 use std::env;
+
+use clap::Parser;
+use rocket::{error, info};
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -44,8 +44,5 @@ async fn main() {
         info!("Git commit: {}", commit);
     }
 
-    neems_api::rocket()
-        .launch()
-        .await
-        .expect("Rocket server failed to launch");
+    neems_api::rocket().launch().await.expect("Rocket server failed to launch");
 }

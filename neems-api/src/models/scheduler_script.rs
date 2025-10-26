@@ -1,10 +1,19 @@
-use crate::schema::scheduler_scripts;
 use diesel::{Associations, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::schema::scheduler_scripts;
+
 #[derive(
-    Queryable, Selectable, Identifiable, Associations, QueryableByName, Debug, Serialize, Deserialize, TS,
+    Queryable,
+    Selectable,
+    Identifiable,
+    Associations,
+    QueryableByName,
+    Debug,
+    Serialize,
+    Deserialize,
+    TS,
 )]
 #[diesel(belongs_to(crate::models::site::Site))]
 #[diesel(table_name = scheduler_scripts)]

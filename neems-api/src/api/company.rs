@@ -4,21 +4,26 @@
 //! in the system. Companies represent organizations or entities that can
 //! be associated with users and roles.
 
-use rocket::Route;
-use rocket::http::Status;
-use rocket::response::{self, status};
-use rocket::serde::json::Json;
+use rocket::{
+    Route,
+    http::Status,
+    response::{self, status},
+    serde::json::Json,
+};
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::company::{get_company_by_name_case_insensitive, insert_company};
-use crate::models::Site;
-use crate::models::{Company, CompanyInput, UserWithRoles};
-use crate::orm::DbConn;
-use crate::orm::company::{delete_company, get_all_companies};
-use crate::orm::site::get_sites_by_company;
-use crate::orm::user::get_users_by_company_with_roles;
-use crate::session_guards::AuthenticatedUser;
+use crate::{
+    company::{get_company_by_name_case_insensitive, insert_company},
+    models::{Company, CompanyInput, Site, UserWithRoles},
+    orm::{
+        DbConn,
+        company::{delete_company, get_all_companies},
+        site::get_sites_by_company,
+        user::get_users_by_company_with_roles,
+    },
+    session_guards::AuthenticatedUser,
+};
 
 /// Error response structure for company API failures.
 #[derive(Serialize, TS)]
@@ -63,7 +68,8 @@ pub struct ErrorResponse {
 ///
 /// # Returns
 /// * `Ok(status::Created<Json<Company>>)` - Successfully created company
-/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during creation with JSON error details
+/// * `Err(response::status::Custom<Json<ErrorResponse>>)` - Error during
+///   creation with JSON error details
 #[post("/1/Companies", data = "<new_company>")]
 pub async fn create_company(
     db: DbConn,
@@ -150,11 +156,10 @@ pub async fn list_companies(
 ) -> Result<Json<serde_json::Value>, Status> {
     // Validate query options
     query.validate().map_err(|_| Status::BadRequest)?;
-    
-    let companies = db.run(|conn| {
-        get_all_companies(conn).map_err(|_| Status::InternalServerError)
-    })
-    .await?;
+
+    let companies = db
+        .run(|conn| get_all_companies(conn).map_err(|_| Status::InternalServerError))
+        .await?;
 
     // Apply filtering if specified
     let mut filtered_companies = companies;
@@ -168,7 +173,9 @@ pub async fn list_companies(
                         crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
                             crate::odata_query::FilterOperator::Eq => company.name == *s,
                             crate::odata_query::FilterOperator::Ne => company.name != *s,
-                            crate::odata_query::FilterOperator::Contains => company.name.contains(s),
+                            crate::odata_query::FilterOperator::Contains => {
+                                company.name.contains(s)
+                            }
                             _ => true,
                         },
                         _ => true,
@@ -220,39 +227,48 @@ pub async fn list_companies(
     // Handle $expand first, then $select
     let expand_props = query.parse_expand();
     let mut expanded_companies: Vec<serde_json::Value> = Vec::new();
-    
+
     for company in &filtered_companies {
-        let mut company_json = serde_json::to_value(company).map_err(|_| Status::InternalServerError)?;
-        
+        let mut company_json =
+            serde_json::to_value(company).map_err(|_| Status::InternalServerError)?;
+
         // Handle expansions
         if let Some(expansions) = &expand_props {
             // Handle $expand=users
             if expansions.iter().any(|e| e.eq_ignore_ascii_case("users")) {
                 let company_id = company.id;
-                let users = db.run(move |conn| {
-                    use crate::orm::user::get_users_by_company_with_roles;
-                    get_users_by_company_with_roles(conn, company_id)
-                }).await.map_err(|_| Status::InternalServerError)?;
-                
-                company_json.as_object_mut()
-                    .unwrap()
-                    .insert("Users".to_string(), serde_json::to_value(users).map_err(|_| Status::InternalServerError)?);
+                let users = db
+                    .run(move |conn| {
+                        use crate::orm::user::get_users_by_company_with_roles;
+                        get_users_by_company_with_roles(conn, company_id)
+                    })
+                    .await
+                    .map_err(|_| Status::InternalServerError)?;
+
+                company_json.as_object_mut().unwrap().insert(
+                    "Users".to_string(),
+                    serde_json::to_value(users).map_err(|_| Status::InternalServerError)?,
+                );
             }
-            
+
             // Handle $expand=sites
             if expansions.iter().any(|e| e.eq_ignore_ascii_case("sites")) {
                 let company_id = company.id;
-                let sites = db.run(move |conn| {
-                    use crate::orm::site::get_sites_by_company;
-                    get_sites_by_company(conn, company_id)
-                }).await.map_err(|_| Status::InternalServerError)?;
-                
-                company_json.as_object_mut()
-                    .unwrap()
-                    .insert("Sites".to_string(), serde_json::to_value(sites).map_err(|_| Status::InternalServerError)?);
+                let sites = db
+                    .run(move |conn| {
+                        use crate::orm::site::get_sites_by_company;
+                        get_sites_by_company(conn, company_id)
+                    })
+                    .await
+                    .map_err(|_| Status::InternalServerError)?;
+
+                company_json.as_object_mut().unwrap().insert(
+                    "Sites".to_string(),
+                    serde_json::to_value(sites).map_err(|_| Status::InternalServerError)?,
+                );
             }
         }
-        
+
         expanded_companies.push(company_json);
     }
 
@@ -266,8 +282,13 @@ pub async fn list_companies(
     let selected_companies = selected_companies.map_err(|_| Status::InternalServerError)?;
 
     // Build OData response
-    let context = crate::odata_query::build_context_url("http://localhost/api/1", "Companies", select_props.as_deref());
-    let mut response = crate::odata_query::ODataCollectionResponse::new(context, selected_companies);
+    let context = crate::odata_query::build_context_url(
+        "http://localhost/api/1",
+        "Companies",
+        select_props.as_deref(),
+    );
+    let mut response =
+        crate::odata_query::ODataCollectionResponse::new(context, selected_companies);
 
     // Add count if requested
     if query.count.unwrap_or(false) {
@@ -283,12 +304,14 @@ pub async fn list_companies(
 /// - **Method:** `GET`
 /// - **Purpose:** Retrieves all sites for a specific company
 /// - **Authentication:** Required
-/// - **Authorization:** Users can see sites if they work for the company OR have newtown-admin/newtown-staff roles
+/// - **Authorization:** Users can see sites if they work for the company OR
+///   have newtown-admin/newtown-staff roles
 ///
-/// This endpoint retrieves all sites belonging to a specific company from the database.
-/// Access is restricted based on business rules:
+/// This endpoint retrieves all sites belonging to a specific company from the
+/// database. Access is restricted based on business rules:
 /// - Users can see sites for their own company (same company_id)
-/// - Users with 'newtown-admin' or 'newtown-staff' roles can see any company's sites
+/// - Users with 'newtown-admin' or 'newtown-staff' roles can see any company's
+///   sites
 ///
 /// # Response
 ///
@@ -328,7 +351,8 @@ pub async fn list_company_sites(
     company_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<Site>>, Status> {
-    // Check authorization: user must be in the same company OR have newtown admin/staff roles
+    // Check authorization: user must be in the same company OR have newtown
+    // admin/staff roles
     let has_access = auth_user.user.company_id == company_id
         || auth_user.has_any_role(&["newtown-admin", "newtown-staff"]);
 
@@ -350,12 +374,14 @@ pub async fn list_company_sites(
 /// - **Method:** `GET`
 /// - **Purpose:** Retrieves all users for a specific company
 /// - **Authentication:** Required
-/// - **Authorization:** Users can see users if they work for the company OR have newtown-admin/newtown-staff roles
+/// - **Authorization:** Users can see users if they work for the company OR
+///   have newtown-admin/newtown-staff roles
 ///
-/// This endpoint retrieves all users belonging to a specific company from the database.
-/// Access is restricted based on business rules:
+/// This endpoint retrieves all users belonging to a specific company from the
+/// database. Access is restricted based on business rules:
 /// - Users can see users for their own company (same company_id)
-/// - Users with 'newtown-admin' or 'newtown-staff' roles can see any company's users
+/// - Users with 'newtown-admin' or 'newtown-staff' roles can see any company's
+///   users
 ///
 /// # Response
 ///
@@ -394,7 +420,8 @@ pub async fn list_company_users(
     company_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<UserWithRoles>>, Status> {
-    // Check authorization: user must be in the same company OR have newtown admin/staff roles
+    // Check authorization: user must be in the same company OR have newtown
+    // admin/staff roles
     let has_access = auth_user.user.company_id == company_id
         || auth_user.has_any_role(&["newtown-admin", "newtown-staff"]);
 
@@ -464,24 +491,26 @@ pub async fn delete_company_endpoint(
 ///
 /// - **URL:** `/api/1/Companies/<company_id>/Users`
 /// - **Method:** `GET`
-/// - **Purpose:** Retrieves users associated with a company (OData navigation property)
+/// - **Purpose:** Retrieves users associated with a company (OData navigation
+///   property)
 /// - **Authentication:** Required
 ///
 /// This is an OData navigation endpoint that returns the User entities
-/// associated with the specified company. This is the same as list_company_users
-/// but follows OData navigation conventions.
+/// associated with the specified company. This is the same as
+/// list_company_users but follows OData navigation conventions.
 // Note: This endpoint is already implemented as list_company_users above
 
 /// Get Company Sites Navigation endpoint.
 ///
 /// - **URL:** `/api/1/Companies/<company_id>/Sites`
 /// - **Method:** `GET`
-/// - **Purpose:** Retrieves sites associated with a company (OData navigation property)
+/// - **Purpose:** Retrieves sites associated with a company (OData navigation
+///   property)
 /// - **Authentication:** Required
 ///
 /// This is an OData navigation endpoint that returns the Site entities
-/// associated with the specified company. This is the same as list_company_sites
-/// but follows OData navigation conventions.
+/// associated with the specified company. This is the same as
+/// list_company_sites but follows OData navigation conventions.
 // Note: This endpoint is already implemented as list_company_sites above
 
 /// Returns a vector of all routes defined in this module.

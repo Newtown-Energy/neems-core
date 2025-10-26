@@ -1,21 +1,23 @@
 use diesel::prelude::*;
 use dotenvy::dotenv;
-use rocket::Rocket;
-use rocket::fairing::AdHoc;
+use rocket::{Rocket, fairing::AdHoc};
 
-use crate::models::{CompanyInput, NewRole, NewUserRole, Role, User, UserInput};
-use crate::orm::DbConn;
-use crate::orm::company::{get_company_by_name, insert_company};
-use crate::orm::login::hash_password;
-use crate::orm::role::insert_role;
-use crate::orm::user::insert_user;
-use crate::schema::roles::dsl::*;
-use crate::schema::user_roles;
-use crate::schema::users::dsl::*;
+use crate::{
+    models::{CompanyInput, NewRole, NewUserRole, Role, User, UserInput},
+    orm::{
+        DbConn,
+        company::{get_company_by_name, insert_company},
+        login::hash_password,
+        role::insert_role,
+        user::insert_user,
+    },
+    schema::{roles::dsl::*, user_roles, users::dsl::*},
+};
 
 /// Add default admin user and inst if needed.
 ///
-/// Set the default admin email/pass based on envars NEEMS_DEFAULT_EMAIL and NEEMS_DEFAULT_PASSWORD
+/// Set the default admin email/pass based on envars NEEMS_DEFAULT_EMAIL and
+/// NEEMS_DEFAULT_PASSWORD
 pub fn admin_init_fairing() -> AdHoc {
     AdHoc::try_on_ignite("Admin User Initialization", |rocket| async {
         dotenv().ok();
@@ -50,24 +52,16 @@ async fn get_db_connection(rocket: &Rocket<rocket::Build>) -> Option<DbConn> {
 async fn setup_company(
     conn: &DbConn,
 ) -> Result<crate::models::Company, rocket::Rocket<rocket::Build>> {
-    conn.run(|c| find_or_create_company(c))
-        .await
-        .map_err(|_| rocket::build())
+    conn.run(|c| find_or_create_company(c)).await.map_err(|_| rocket::build())
 }
 
 fn find_or_create_company(
     c: &mut SqliteConnection,
 ) -> Result<crate::models::Company, diesel::result::Error> {
-    let candidate_names = [
-        "Newtown Energy",
-        "Newtown Energy, Inc",
-        "Newtown Energy, Inc.",
-    ];
+    let candidate_names = ["Newtown Energy", "Newtown Energy, Inc", "Newtown Energy, Inc."];
 
     for cand in candidate_names {
-        let comp_input = CompanyInput {
-            name: cand.to_string(),
-        };
+        let comp_input = CompanyInput { name: cand.to_string() };
         match get_company_by_name(c, &comp_input) {
             Ok(Some(found)) => {
                 info!("[admin-init] Matched company: '{}'", cand);
@@ -129,10 +123,7 @@ fn admin_user_exists(
     c: &mut SqliteConnection,
     admin_email: &str,
 ) -> Result<bool, diesel::result::Error> {
-    let existing_user = users
-        .filter(email.eq(admin_email))
-        .first::<User>(c)
-        .optional()?;
+    let existing_user = users.filter(email.eq(admin_email)).first::<User>(c).optional()?;
 
     Ok(existing_user.is_some())
 }
@@ -184,10 +175,7 @@ fn find_or_create_admin_role(
     c: &mut SqliteConnection,
     role_name: &str,
 ) -> Result<Role, diesel::result::Error> {
-    let existing_role = roles
-        .filter(name.eq(role_name))
-        .first::<Role>(c)
-        .optional()?;
+    let existing_role = roles.filter(name.eq(role_name)).first::<Role>(c).optional()?;
 
     match existing_role {
         Some(r) => Ok(r),
@@ -215,20 +203,11 @@ fn create_user_role_association(
     role_name: &str,
     admin_email: &str,
 ) -> Result<(), diesel::result::Error> {
-    let new_user_role = NewUserRole {
-        user_id: user.id,
-        role_id: role.id,
-    };
+    let new_user_role = NewUserRole { user_id: user.id, role_id: role.id };
 
-    match diesel::insert_into(user_roles::table)
-        .values(&new_user_role)
-        .execute(c)
-    {
+    match diesel::insert_into(user_roles::table).values(&new_user_role).execute(c) {
         Ok(_) => {
-            println!(
-                "[admin-init] Assigned role '{}' to user '{}'",
-                role_name, admin_email
-            );
+            println!("[admin-init] Assigned role '{}' to user '{}'", role_name, admin_email);
             Ok(())
         }
         Err(e) => {

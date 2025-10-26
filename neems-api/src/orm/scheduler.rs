@@ -1,10 +1,15 @@
-use diesel::prelude::*;
 use chrono::{NaiveDateTime, Utc};
-use crate::models::{SiteState, SchedulerScript, SchedulerExecutionInput};
-use crate::scheduler_executor::{ScriptExecutor, SiteData, ExecutionResult};
-use crate::orm::scheduler_script::get_latest_active_script_for_site;
-use crate::orm::scheduler_override::get_current_override_for_site;
-use crate::orm::scheduler_execution::insert_scheduler_execution;
+use diesel::prelude::*;
+
+use crate::{
+    models::{SchedulerExecutionInput, SchedulerScript, SiteState},
+    orm::{
+        scheduler_execution::insert_scheduler_execution,
+        scheduler_override::get_current_override_for_site,
+        scheduler_script::get_latest_active_script_for_site,
+    },
+    scheduler_executor::{ExecutionResult, ScriptExecutor, SiteData},
+};
 
 /// Main scheduler service that determines site state.
 pub struct SchedulerService {
@@ -13,9 +18,7 @@ pub struct SchedulerService {
 
 impl SchedulerService {
     pub fn new() -> Result<Self, String> {
-        Ok(Self {
-            executor: ScriptExecutor::new()?,
-        })
+        Ok(Self { executor: ScriptExecutor::new()? })
     }
 
     /// Gets the current state for a site at a specific datetime.
@@ -55,7 +58,7 @@ impl SchedulerService {
                 // We need site data for script execution
                 let site_data = self.get_site_data(conn, site_id)?;
                 let execution_result = self.executor.execute_script(&script, datetime, &site_data);
-                
+
                 Ok(SiteStateResult {
                     state: execution_result.state,
                     source: StateSource::Script(script.id),
@@ -72,9 +75,7 @@ impl SchedulerService {
                     error: None,
                 })
             }
-            Err(e) => {
-                Err(format!("Database error checking scripts: {}", e))
-            }
+            Err(e) => Err(format!("Database error checking scripts: {}", e)),
         }
     }
 
@@ -143,7 +144,7 @@ impl SchedulerService {
     /// Gets site data needed for script execution.
     fn get_site_data(&self, conn: &mut SqliteConnection, site_id: i32) -> Result<SiteData, String> {
         use crate::schema::sites::dsl::*;
-        
+
         let site = sites
             .find(site_id)
             .select((id, name, company_id, latitude, longitude))
@@ -204,7 +205,8 @@ pub fn get_site_state_at_datetime(
     service.get_site_state(conn, site_id, datetime)
 }
 
-/// Convenience function to execute scheduler for a site without creating a service instance.
+/// Convenience function to execute scheduler for a site without creating a
+/// service instance.
 pub fn execute_scheduler_for_site(
     conn: &mut SqliteConnection,
     site_id: i32,
@@ -232,11 +234,11 @@ mod tests {
     fn test_default_state() {
         let mut conn = setup_test_db();
         let service = SchedulerService::new().unwrap();
-        
+
         // Test with a non-existent site should return default idle state
         let datetime = Utc::now().naive_utc();
         let result = service.get_site_state(&mut conn, 999, datetime);
-        
+
         // Should return default idle state when no overrides or scripts exist
         assert!(result.is_ok());
         let state_result = result.unwrap();

@@ -3,15 +3,15 @@
 //! This module provides database layer functions for session termination,
 //! including session revocation and cleanup operations.
 
-use crate::DbConn;
-use crate::schema::sessions::dsl::*;
 use diesel::prelude::*;
+
+use crate::{DbConn, schema::sessions::dsl::*};
 
 /// Revokes a session by marking it as revoked in the database.
 ///
-/// This function updates the session record in the database to mark it as revoked,
-/// effectively terminating the user's session. The session token becomes invalid
-/// after this operation.
+/// This function updates the session record in the database to mark it as
+/// revoked, effectively terminating the user's session. The session token
+/// becomes invalid after this operation.
 ///
 /// # Arguments
 /// * `db` - Database connection for updating the session

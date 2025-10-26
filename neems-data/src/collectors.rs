@@ -1,20 +1,27 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use serde_json::{Value as JsonValue, json};
-use std::collections::HashMap;
 
 pub mod data_sources {
     use super::*;
 
-
-    /// Ping localhost several times and get statistics using ping's built-in capabilities
-    pub async fn ping_localhost(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    /// Ping localhost several times and get statistics using ping's built-in
+    /// capabilities
+    pub async fn ping_localhost(
+        source_id: i32,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         ping_target(source_id, "127.0.0.1").await
     }
 
-    /// Ping a specific target and get statistics using ping's built-in capabilities
-    pub async fn ping_target(source_id: i32, target: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    /// Ping a specific target and get statistics using ping's built-in
+    /// capabilities
+    pub async fn ping_target(
+        source_id: i32,
+        target: &str,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let attempts = 3;
-        
+
         let output = tokio::process::Command::new("ping")
             .args(&["-c", &attempts.to_string(), "-W", "500", target])
             .output()
@@ -22,7 +29,7 @@ pub mod data_sources {
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            
+
             // Parse ping statistics from output
             let mut min_ms: Option<f64> = None;
             let mut avg_ms: Option<f64> = None;
@@ -30,7 +37,7 @@ pub mod data_sources {
             let mut mdev_ms: Option<f64> = None;
             let mut packets_transmitted = 0;
             let mut packets_received = 0;
-            
+
             for line in stdout.lines() {
                 // Parse packet statistics: "3 packets transmitted, 3 received, 0% packet loss"
                 if line.contains("packets transmitted") {
@@ -40,7 +47,7 @@ pub mod data_sources {
                         packets_received = parts[3].parse().unwrap_or(0);
                     }
                 }
-                
+
                 // Parse timing statistics: "rtt min/avg/max/mdev = 0.123/0.456/0.789/0.123 ms"
                 if line.contains("rtt min/avg/max/mdev") {
                     if let Some(stats_part) = line.split(" = ").nth(1) {
@@ -92,17 +99,20 @@ pub mod data_sources {
         }
     }
 
-
-
-
     /// Determine the charging state based on the current time.
     /// This is the public-facing collector function.
-    pub async fn charging_state(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn charging_state(
+        source_id: i32,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         charging_state_for_battery(source_id, "default").await
     }
 
-    /// Determine the charging state for a specific battery based on the current time.
-    pub async fn charging_state_for_battery(source_id: i32, battery_id: &str) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    /// Determine the charging state for a specific battery based on the current
+    /// time.
+    pub async fn charging_state_for_battery(
+        source_id: i32,
+        battery_id: &str,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let now = Utc::now();
         let (state, level) = charging_state_with_level(now, battery_id);
         Ok(json!({
@@ -114,9 +124,10 @@ pub mod data_sources {
         }))
     }
 
-
     /// Collect hard drive space information for root and /dev mounted drives
-    pub async fn disk_space(source_id: i32) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn disk_space(
+        source_id: i32,
+    ) -> Result<JsonValue, Box<dyn std::error::Error + Send + Sync>> {
         let output = tokio::process::Command::new("df")
             .args(&["-B1"]) // Show sizes in bytes
             .output()
@@ -134,7 +145,8 @@ pub mod data_sources {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut drives = Vec::new();
 
-        for line in stdout.lines().skip(1) { // Skip header line
+        for line in stdout.lines().skip(1) {
+            // Skip header line
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 6 {
                 let filesystem = parts[0];
@@ -150,8 +162,8 @@ pub mod data_sources {
                         "total_bytes": total_bytes,
                         "used_bytes": used_bytes,
                         "available_bytes": total_bytes - used_bytes,
-                        "used_percent": if total_bytes > 0 { 
-                            (used_bytes as f64 / total_bytes as f64) * 100.0 
+                        "used_percent": if total_bytes > 0 {
+                            (used_bytes as f64 / total_bytes as f64) * 100.0
                         } else { 0.0 }
                     }));
                 }
@@ -204,7 +216,7 @@ pub mod data_sources {
         } else {
             85.0 // Hold at high level after charge
         };
-        
+
         ("hold", level)
     }
 }
@@ -244,24 +256,21 @@ pub struct DataCollector {
 }
 
 impl DataCollector {
-    /// Create a new DataCollector with the modern test_type and arguments approach
-    pub fn new_with_test_type(test_type: TestType, source_id: i32, arguments: HashMap<String, String>) -> Self {
-        Self {
-            test_type,
-            source_id,
-            arguments,
-        }
+    /// Create a new DataCollector with the modern test_type and arguments
+    /// approach
+    pub fn new_with_test_type(
+        test_type: TestType,
+        source_id: i32,
+        arguments: HashMap<String, String>,
+    ) -> Self {
+        Self { test_type, source_id, arguments }
     }
 
     /// Backward-compatible constructor that parses old-style names
     /// For unknown names, creates a collector that will fail at collect time
     pub fn new(name: String, source_id: i32) -> Self {
         if let Some((test_type, arguments)) = Self::parse_legacy_name(&name) {
-            Self {
-                test_type,
-                source_id,
-                arguments,
-            }
+            Self { test_type, source_id, arguments }
         } else {
             // Create a placeholder that will fail at collect time for unknown names
             Self {
@@ -277,28 +286,29 @@ impl DataCollector {
     }
 
     /// Parse legacy collector names into test_type and arguments
-    /// Returns None for unknown collector names to maintain backward compatibility
+    /// Returns None for unknown collector names to maintain backward
+    /// compatibility
     fn parse_legacy_name(name: &str) -> Option<(TestType, HashMap<String, String>)> {
         let mut arguments = HashMap::new();
-        
+
         match name {
             "ping_localhost" => {
                 arguments.insert("target".to_string(), "127.0.0.1".to_string());
                 Some((TestType::Ping, arguments))
-            },
+            }
             "charging_state" => Some((TestType::ChargingState, arguments)),
             "disk_space" => Some((TestType::DiskSpace, arguments)),
             name if name.starts_with("charging_state_") => {
                 let battery_id = name.strip_prefix("charging_state_").unwrap_or("default");
                 arguments.insert("battery_id".to_string(), battery_id.to_string());
                 Some((TestType::ChargingState, arguments))
-            },
+            }
             name if name.starts_with("ping_") => {
                 let target = name.strip_prefix("ping_").unwrap_or("127.0.0.1");
                 arguments.insert("target".to_string(), target.to_string());
                 Some((TestType::Ping, arguments))
-            },
-            _ => None // Unknown collector names return None
+            }
+            _ => None, // Unknown collector names return None
         }
     }
 
@@ -311,16 +321,16 @@ impl DataCollector {
 
         match self.test_type {
             TestType::Ping => {
-                let target = self.arguments.get("target").map(|s| s.as_str()).unwrap_or("127.0.0.1");
+                let target =
+                    self.arguments.get("target").map(|s| s.as_str()).unwrap_or("127.0.0.1");
                 data_sources::ping_target(self.source_id, target).await
             }
             TestType::ChargingState => {
-                let battery_id = self.arguments.get("battery_id").map(|s| s.as_str()).unwrap_or("default");
+                let battery_id =
+                    self.arguments.get("battery_id").map(|s| s.as_str()).unwrap_or("default");
                 data_sources::charging_state_for_battery(self.source_id, battery_id).await
             }
-            TestType::DiskSpace => {
-                data_sources::disk_space(self.source_id).await
-            }
+            TestType::DiskSpace => data_sources::disk_space(self.source_id).await,
         }
     }
 
@@ -331,7 +341,8 @@ impl DataCollector {
         Self::new_with_test_type(TestType::Ping, source_id, arguments)
     }
 
-    /// Helper method to create a charging state collector for a specific battery
+    /// Helper method to create a charging state collector for a specific
+    /// battery
     pub fn new_charging_state(source_id: i32, battery_id: Option<&str>) -> Self {
         let mut arguments = HashMap::new();
         if let Some(battery_id) = battery_id {

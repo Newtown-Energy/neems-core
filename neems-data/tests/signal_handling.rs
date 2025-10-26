@@ -1,9 +1,10 @@
-
-use neems_data::{DataAggregator, NewSource, get_source_by_name, get_recent_readings};
-use nix::sys::signal::{self, Signal};
-use nix::unistd;
+use neems_data::{DataAggregator, NewSource, get_recent_readings, get_source_by_name};
+use nix::{
+    sys::signal::{self, Signal},
+    unistd,
+};
 use tempfile::NamedTempFile;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 fn setup_test_db_for_signal_test() -> (DataAggregator, NamedTempFile) {
     let temp_file = NamedTempFile::new().unwrap();

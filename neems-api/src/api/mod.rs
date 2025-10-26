@@ -24,8 +24,8 @@ use rocket::Route;
 /// Collects all routes from all API submodules.
 ///
 /// This function gathers route handlers from all API submodules (fixphrase,
-/// company, data, login, logout, role, secure_test, site, status, and user) and returns them as a single vector
-/// for registration with the Rocket framework.
+/// company, data, login, logout, role, secure_test, site, status, and user) and
+/// returns them as a single vector for registration with the Rocket framework.
 ///
 /// # Returns
 /// A vector containing all route handlers from all API submodules

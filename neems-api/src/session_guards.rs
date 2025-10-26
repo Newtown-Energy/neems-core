@@ -1,14 +1,14 @@
 //! Session-based authentication and authorization guards for Rocket routes.
 //!
-//! This module provides request guards that automatically validate user sessions
-//! and enforce role-based access control. It ensures that only authenticated
-//! users with appropriate roles can access protected routes.
+//! This module provides request guards that automatically validate user
+//! sessions and enforce role-based access control. It ensures that only
+//! authenticated users with appropriate roles can access protected routes.
 //!
 //! # Basic Authentication
 //!
 //! ```rust
-//! use rocket::get;
 //! use neems_api::session_guards::AuthenticatedUser;
+//! use rocket::get;
 //!
 //! #[get("/profile")]
 //! fn get_profile(user: AuthenticatedUser) -> String {
@@ -22,8 +22,8 @@
 //! ## Using Role-Specific Guards
 //!
 //! ```rust
-//! use rocket::get;
 //! use neems_api::session_guards::{AdminUser, NewtownAdminUser, StaffUser};
+//! use rocket::get;
 //!
 //! #[get("/admin")]
 //! fn admin_only(user: AdminUser) -> String {
@@ -39,8 +39,8 @@
 //! ## Using Role Helper Methods
 //!
 //! ```rust
-//! use rocket::get;
 //! use neems_api::session_guards::AuthenticatedUser;
+//! use rocket::get;
 //!
 //! #[get("/flexible")]
 //! fn flexible_roles(user: AuthenticatedUser) -> String {
@@ -57,8 +57,8 @@
 //! ## Manual Role Checking
 //!
 //! ```rust
-//! use rocket::{get, http::Status};
 //! use neems_api::session_guards::AuthenticatedUser;
+//! use rocket::{get, http::Status};
 //!
 //! #[get("/conditional")]
 //! fn conditional_access(user: AuthenticatedUser) -> Result<String, Status> {
@@ -72,14 +72,18 @@
 
 use chrono::Utc;
 use diesel::prelude::*;
-use rocket::http::Status;
-use rocket::outcome::Outcome;
-use rocket::request::{self, FromRequest, Request};
+use rocket::{
+    http::Status,
+    outcome::Outcome,
+    request::{self, FromRequest, Request},
+};
 
-use crate::DbConn;
-use crate::models::{Role, Session, User};
-use crate::orm::user_role::get_user_roles;
-use crate::schema::{sessions, users};
+use crate::{
+    DbConn,
+    models::{Role, Session, User},
+    orm::user_role::get_user_roles,
+    schema::{sessions, users},
+};
 
 /// A request guard for routes that require an authenticated user.
 ///
@@ -98,7 +102,8 @@ use crate::schema::{sessions, users};
 /// # Returns
 ///
 /// - `Outcome::Success(AuthenticatedUser)` if authentication succeeds
-/// - `Outcome::Error(Status::Unauthorized)` if authentication fails or user has no roles
+/// - `Outcome::Error(Status::Unauthorized)` if authentication fails or user has
+///   no roles
 /// - `Outcome::Error(Status::InternalServerError)` if database connection fails
 ///
 /// # Usage
@@ -107,8 +112,8 @@ use crate::schema::{sessions, users};
 /// requires authentication:
 ///
 /// ```rust
-/// use rocket::get;
 /// use neems_api::session_guards::AuthenticatedUser;
+/// use rocket::get;
 /// #[get("/protected")]
 /// fn protected_route(user: AuthenticatedUser) -> String {
 ///     format!("Hello, {}! You have {} roles.", user.user.email, user.roles.len())
@@ -117,12 +122,17 @@ use crate::schema::{sessions, users};
 ///
 /// # Role-Based Access Control
 ///
-/// The `AuthenticatedUser` struct provides several helper methods for role checking:
+/// The `AuthenticatedUser` struct provides several helper methods for role
+/// checking:
 ///
-/// - `has_role(&self, role_name: &str) -> bool` - Check if user has a specific role
-/// - `has_any_role(&self, role_names: &[&str]) -> bool` - Check if user has any of the specified roles
-/// - `has_all_roles(&self, role_names: &[&str]) -> bool` - Check if user has all of the specified roles
-/// - `has_no_roles(&self, role_names: &[&str]) -> bool` - Check if user has none of the specified roles
+/// - `has_role(&self, role_name: &str) -> bool` - Check if user has a specific
+///   role
+/// - `has_any_role(&self, role_names: &[&str]) -> bool` - Check if user has any
+///   of the specified roles
+/// - `has_all_roles(&self, role_names: &[&str]) -> bool` - Check if user has
+///   all of the specified roles
+/// - `has_no_roles(&self, role_names: &[&str]) -> bool` - Check if user has
+///   none of the specified roles
 #[derive(Debug)]
 pub struct AuthenticatedUser {
     /// The authenticated user from the database
@@ -140,18 +150,23 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
     /// This method implements the core authentication logic by:
     /// 1. Extracting the database connection from the request
     /// 2. Reading the "session" cookie from the request
-    /// 3. Querying the sessions table to find a valid, non-revoked, non-expired session
+    /// 3. Querying the sessions table to find a valid, non-revoked, non-expired
+    ///    session
     /// 4. Retrieving the associated user from the users table
     ///
     /// # Arguments
     ///
-    /// * `request` - The incoming HTTP request containing cookies and database connection
+    /// * `request` - The incoming HTTP request containing cookies and database
+    ///   connection
     ///
     /// # Returns
     ///
-    /// * `Outcome::Success(AuthenticatedUser)` - Valid session with authenticated user
-    /// * `Outcome::Error(Status::Unauthorized)` - Invalid/missing session or user
-    /// * `Outcome::Error(Status::InternalServerError)` - Database connection failure
+    /// * `Outcome::Success(AuthenticatedUser)` - Valid session with
+    ///   authenticated user
+    /// * `Outcome::Error(Status::Unauthorized)` - Invalid/missing session or
+    ///   user
+    /// * `Outcome::Error(Status::InternalServerError)` - Database connection
+    ///   failure
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         let cookies = request.cookies();
         let db = match request.guard::<DbConn>().await {
@@ -236,25 +251,19 @@ impl AuthenticatedUser {
     /// Helper method to check if the user has any of the specified roles
     pub fn has_any_role(&self, role_names: &[&str]) -> bool {
         let user_role_names: Vec<&str> = self.roles.iter().map(|r| r.name.as_str()).collect();
-        role_names
-            .iter()
-            .any(|required| user_role_names.contains(required))
+        role_names.iter().any(|required| user_role_names.contains(required))
     }
 
     /// Helper method to check if the user has all of the specified roles
     pub fn has_all_roles(&self, role_names: &[&str]) -> bool {
         let user_role_names: Vec<&str> = self.roles.iter().map(|r| r.name.as_str()).collect();
-        role_names
-            .iter()
-            .all(|required| user_role_names.contains(required))
+        role_names.iter().all(|required| user_role_names.contains(required))
     }
 
     /// Helper method to check if the user has none of the specified roles
     pub fn has_no_roles(&self, role_names: &[&str]) -> bool {
         let user_role_names: Vec<&str> = self.roles.iter().map(|r| r.name.as_str()).collect();
-        !role_names
-            .iter()
-            .any(|forbidden| user_role_names.contains(forbidden))
+        !role_names.iter().any(|forbidden| user_role_names.contains(forbidden))
     }
 
     /// Helper method to check if the user has a specific role
@@ -306,14 +315,15 @@ macro_rules! create_role_guard {
 // # Returns
 //
 // - `Outcome::Success(AdminUser)` if user is authenticated and has "admin" role
-// - `Outcome::Error(Status::Forbidden)` if user is authenticated but lacks "admin" role
+// - `Outcome::Error(Status::Forbidden)` if user is authenticated but lacks
+//   "admin" role
 // - `Outcome::Error(Status::Unauthorized)` if user is not authenticated
 //
 // # Usage
 //
 // ```rust
-// use rocket::get;
 // use neems_api::session_guards::AdminUser;
+// use rocket::get;
 //
 // #[get("/admin-panel")]
 // fn admin_panel(user: AdminUser) -> String {
@@ -365,12 +375,8 @@ impl RoleGuard {
         };
 
         if required_roles.is_empty()
-            || auth_user.has_any_role(
-                &required_roles
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>(),
-            )
+            || auth_user
+                .has_any_role(&required_roles.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         {
             Outcome::Success(auth_user)
         } else {

@@ -1,5 +1,6 @@
-use crate::models::{NewUserRole, Role};
 use diesel::prelude::*;
+
+use crate::models::{NewUserRole, Role};
 
 /// Assigns a role to a user
 pub fn assign_user_role(
@@ -14,9 +15,7 @@ pub fn assign_user_role(
         role_id: role_id_param,
     };
 
-    diesel::insert_into(user_roles)
-        .values(&new_user_role)
-        .execute(conn)?;
+    diesel::insert_into(user_roles).values(&new_user_role).execute(conn)?;
 
     Ok(())
 }
@@ -29,12 +28,8 @@ pub fn remove_user_role(
 ) -> Result<(), diesel::result::Error> {
     use crate::schema::user_roles::dsl::*;
 
-    diesel::delete(
-        user_roles
-            .filter(user_id.eq(user_id_param))
-            .filter(role_id.eq(role_id_param)),
-    )
-    .execute(conn)?;
+    diesel::delete(user_roles.filter(user_id.eq(user_id_param)).filter(role_id.eq(role_id_param)))
+        .execute(conn)?;
 
     Ok(())
 }
@@ -44,8 +39,7 @@ pub fn get_user_roles(
     conn: &mut SqliteConnection,
     user_id_param: i32,
 ) -> Result<Vec<Role>, diesel::result::Error> {
-    use crate::schema::roles::dsl::*;
-    use crate::schema::user_roles;
+    use crate::schema::{roles::dsl::*, user_roles};
 
     roles
         .inner_join(user_roles::table.on(id.eq(user_roles::role_id)))
@@ -60,8 +54,7 @@ pub fn user_has_role(
     user_id_param: i32,
     role_name: &str,
 ) -> Result<bool, diesel::result::Error> {
-    use crate::schema::roles::dsl::*;
-    use crate::schema::user_roles;
+    use crate::schema::{roles::dsl::*, user_roles};
 
     let count: i64 = roles
         .inner_join(user_roles::table.on(id.eq(user_roles::role_id)))
@@ -123,11 +116,12 @@ pub fn remove_all_user_roles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::UserInput;
-    use crate::orm::login::hash_password;
-    use crate::orm::role::get_all_roles;
-    use crate::orm::testing::setup_test_db;
-    use crate::orm::user::insert_user;
+    use crate::{
+        models::UserInput,
+        orm::{
+            login::hash_password, role::get_all_roles, testing::setup_test_db, user::insert_user,
+        },
+    };
 
     #[test]
     fn test_assign_and_get_user_roles() {

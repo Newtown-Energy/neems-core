@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use ts_rs::TS;
 
 use crate::schema::sources;
@@ -35,7 +36,10 @@ impl Source {
     }
 
     /// Set arguments from a HashMap, serializing to JSON
-    pub fn set_arguments(&mut self, args: &HashMap<String, String>) -> Result<(), serde_json::Error> {
+    pub fn set_arguments(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), serde_json::Error> {
         self.arguments = Some(serde_json::to_string(args)?);
         Ok(())
     }
@@ -95,7 +99,10 @@ pub struct UpdateSource {
 
 impl UpdateSource {
     /// Set arguments from a HashMap
-    pub fn with_arguments(mut self, args: &HashMap<String, String>) -> Result<Self, serde_json::Error> {
+    pub fn with_arguments(
+        mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<Self, serde_json::Error> {
         self.arguments = Some(serde_json::to_string(args)?);
         Ok(self)
     }

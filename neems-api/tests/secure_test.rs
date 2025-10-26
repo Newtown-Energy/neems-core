@@ -5,14 +5,13 @@
 //! when the `test-staging` feature is enabled.
 
 #[cfg(feature = "test-staging")]
+use neems_api::orm::testing::fast_test_rocket;
+#[cfg(feature = "test-staging")]
 use rocket::http::{ContentType, Status};
 #[cfg(feature = "test-staging")]
 use rocket::local::asynchronous::Client;
 #[cfg(feature = "test-staging")]
 use serde_json::json;
-
-#[cfg(feature = "test-staging")]
-use neems_api::orm::testing::fast_test_rocket;
 
 #[cfg(feature = "test-staging")]
 /// Helper function to login as a specific user and get session cookie.
@@ -45,17 +44,11 @@ async fn login_as_user(
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_admin_only_endpoint_with_admin_user() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
 
-    let response = client
-        .get("/api/1/test/admin-only")
-        .cookie(session_cookie)
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/test/admin-only").cookie(session_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
 
@@ -73,17 +66,11 @@ async fn test_admin_only_endpoint_with_admin_user() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_admin_only_endpoint_with_non_admin_user() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "staff@example.com", "staffpass").await;
 
-    let response = client
-        .get("/api/1/test/admin-only")
-        .cookie(session_cookie)
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/test/admin-only").cookie(session_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
 }
@@ -91,37 +78,24 @@ async fn test_admin_only_endpoint_with_non_admin_user() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_staff_only_endpoint_with_staff_user() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "staff@example.com", "staffpass").await;
 
-    let response = client
-        .get("/api/1/test/staff-only")
-        .cookie(session_cookie)
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/test/staff-only").cookie(session_cookie).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
 
     let json_response: serde_json::Value = response.into_json().await.expect("valid JSON response");
 
     assert_eq!(json_response["required_role"], "staff");
-    assert!(
-        json_response["message"]
-            .as_str()
-            .unwrap()
-            .contains("staff@example.com")
-    );
+    assert!(json_response["message"].as_str().unwrap().contains("staff@example.com"));
 }
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_admin_and_staff_endpoint_with_both_roles() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "admin_staff@example.com", "adminstaff").await;
 
@@ -136,20 +110,13 @@ async fn test_admin_and_staff_endpoint_with_both_roles() {
     let json_response: serde_json::Value = response.into_json().await.expect("valid JSON response");
 
     assert_eq!(json_response["required_roles"], json!(["admin", "staff"]));
-    assert!(
-        json_response["message"]
-            .as_str()
-            .unwrap()
-            .contains("admin_staff@example.com")
-    );
+    assert!(json_response["message"].as_str().unwrap().contains("admin_staff@example.com"));
 }
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_admin_and_staff_endpoint_with_only_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
 
@@ -165,9 +132,7 @@ async fn test_admin_and_staff_endpoint_with_only_admin() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_admin_and_staff_endpoint_with_only_staff() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "staff@example.com", "staffpass").await;
 
@@ -183,9 +148,7 @@ async fn test_admin_and_staff_endpoint_with_only_staff() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_no_admin_allowed_endpoint_with_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
 
@@ -201,9 +164,7 @@ async fn test_no_admin_allowed_endpoint_with_admin() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_no_admin_allowed_endpoint_with_non_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "staff@example.com", "staffpass").await;
 
@@ -218,20 +179,13 @@ async fn test_no_admin_allowed_endpoint_with_non_admin() {
     let json_response: serde_json::Value = response.into_json().await.expect("valid JSON response");
 
     assert_eq!(json_response["forbidden_roles"], json!(["admin"]));
-    assert!(
-        json_response["message"]
-            .as_str()
-            .unwrap()
-            .contains("staff@example.com")
-    );
+    assert!(json_response["message"].as_str().unwrap().contains("staff@example.com"));
 }
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_any_admin_or_staff_endpoint_with_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "test_superadmin@example.com", "adminpass").await;
 
@@ -245,18 +199,13 @@ async fn test_any_admin_or_staff_endpoint_with_admin() {
 
     let json_response: serde_json::Value = response.into_json().await.expect("valid JSON response");
 
-    assert_eq!(
-        json_response["accepted_roles"],
-        json!(["admin", "staff", "newtown-admin"])
-    );
+    assert_eq!(json_response["accepted_roles"], json!(["admin", "staff", "newtown-admin"]));
 }
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_any_admin_or_staff_endpoint_with_staff() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie = login_as_user(&client, "staff@example.com", "staffpass").await;
 
@@ -272,9 +221,7 @@ async fn test_any_admin_or_staff_endpoint_with_staff() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_any_admin_or_staff_endpoint_with_newtown_admin() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie =
         login_as_user(&client, "newtown_superadmin@example.com", "newtownpass").await;
@@ -291,9 +238,7 @@ async fn test_any_admin_or_staff_endpoint_with_newtown_admin() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_newtown_admin_only_endpoint() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie =
         login_as_user(&client, "newtown_superadmin@example.com", "newtownpass").await;
@@ -320,9 +265,7 @@ async fn test_newtown_admin_only_endpoint() {
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_newtown_staff_only_endpoint() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let session_cookie =
         login_as_user(&client, "newtown_staff@example.com", "newtownstaffpass").await;
@@ -338,20 +281,13 @@ async fn test_newtown_staff_only_endpoint() {
     let json_response: serde_json::Value = response.into_json().await.expect("valid JSON response");
 
     assert_eq!(json_response["required_role"], "newtown-staff");
-    assert!(
-        json_response["message"]
-            .as_str()
-            .unwrap()
-            .contains("newtown_staff@example.com")
-    );
+    assert!(json_response["message"].as_str().unwrap().contains("newtown_staff@example.com"));
 }
 
 #[cfg(feature = "test-staging")]
 #[rocket::async_test]
 async fn test_unauthenticated_access_to_all_endpoints() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     let test_endpoints = vec![
         "/api/1/test/admin-only",

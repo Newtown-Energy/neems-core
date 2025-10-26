@@ -1,4 +1,5 @@
-//! Test and staging-only secure endpoints for authentication and authorization testing.
+//! Test and staging-only secure endpoints for authentication and authorization
+//! testing.
 //!
 //! This module provides dummy secure endpoints that demonstrate different
 //! types of authentication and authorization requirements. These endpoints
@@ -60,7 +61,8 @@ pub struct ErrorResponse {
 ///
 /// **Failure (HTTP 401/403):** Authorization failure
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/admin-only")]
 pub fn admin_only(admin_user: AdminUser) -> Json<Value> {
@@ -92,7 +94,8 @@ pub fn admin_only(admin_user: AdminUser) -> Json<Value> {
 /// }
 /// ```
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/staff-only")]
 pub fn staff_only(staff_user: StaffUser) -> Json<Value> {
@@ -111,7 +114,8 @@ pub fn staff_only(staff_user: StaffUser) -> Json<Value> {
 /// - **Authentication:** Required (newtown-admin role)
 ///
 /// This endpoint demonstrates a more specific role requirement using the
-/// NewtownAdminUser guard. Only users with the "newtown-admin" role can access this endpoint.
+/// NewtownAdminUser guard. Only users with the "newtown-admin" role can access
+/// this endpoint.
 ///
 /// # Response
 ///
@@ -124,7 +128,8 @@ pub fn staff_only(staff_user: StaffUser) -> Json<Value> {
 /// }
 /// ```
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/newtown-admin-only")]
 pub fn newtown_admin_only(newtown_admin_user: NewtownAdminUser) -> Json<Value> {
@@ -143,7 +148,8 @@ pub fn newtown_admin_only(newtown_admin_user: NewtownAdminUser) -> Json<Value> {
 /// - **Authentication:** Required (newtown-staff role)
 ///
 /// This endpoint demonstrates a more specific role requirement using the
-/// NewtownStaffUser guard. Only users with the "newtown-staff" role can access this endpoint.
+/// NewtownStaffUser guard. Only users with the "newtown-staff" role can access
+/// this endpoint.
 ///
 /// # Response
 ///
@@ -156,7 +162,8 @@ pub fn newtown_admin_only(newtown_admin_user: NewtownAdminUser) -> Json<Value> {
 /// }
 /// ```
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/newtown-staff-only")]
 pub fn newtown_staff_only(newtown_staff_user: NewtownStaffUser) -> Json<Value> {
@@ -192,7 +199,8 @@ pub fn newtown_staff_only(newtown_staff_user: NewtownStaffUser) -> Json<Value> {
 ///
 /// **Failure (HTTP 403 Forbidden):** Missing required roles
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/admin-and-staff")]
 pub fn admin_and_staff(
@@ -238,7 +246,8 @@ pub fn admin_and_staff(
 ///
 /// **Failure (HTTP 403 Forbidden):** User has admin role
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/no-admin-allowed")]
 pub fn no_admin_allowed(
@@ -283,7 +292,8 @@ pub fn no_admin_allowed(
 ///
 /// **Failure (HTTP 403 Forbidden):** Missing any accepted roles
 ///
-/// **Note:** This endpoint is only available when the `test-staging` feature is enabled during compilation.
+/// **Note:** This endpoint is only available when the `test-staging` feature is
+/// enabled during compilation.
 #[cfg(feature = "test-staging")]
 #[get("/1/test/any-admin-or-staff")]
 pub fn any_admin_or_staff(

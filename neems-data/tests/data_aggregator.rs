@@ -1,13 +1,13 @@
 //! tests/data_aggregator.rs
 
-use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
+use diesel::{prelude::*, sqlite::SqliteConnection};
 use diesel_migrations::MigrationHarness;
-use neems_data::collectors::DataCollector;
-use neems_data::models::{NewReading, NewSource, UpdateSource};
 use neems_data::{
-    MIGRATIONS, create_source, get_recent_readings, get_source_by_name, insert_reading,
-    list_sources, update_source,
+    MIGRATIONS,
+    collectors::DataCollector,
+    create_source, get_recent_readings, get_source_by_name, insert_reading, list_sources,
+    models::{NewReading, NewSource, UpdateSource},
+    update_source,
 };
 
 /// Helper function to set up an in-memory SQLite database for testing.
@@ -15,9 +15,7 @@ use neems_data::{
 fn setup_test_db() -> SqliteConnection {
     let mut connection =
         SqliteConnection::establish(":memory:").expect("Failed to create in-memory db");
-    connection
-        .run_pending_migrations(MIGRATIONS)
-        .expect("Failed to run migrations");
+    connection.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
     connection
 }
 

@@ -6,8 +6,8 @@
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-    use std::path::Path;
+    use std::{env, path::Path};
+
     use ts_rs::TS;
 
     #[test]
@@ -18,20 +18,13 @@ mod tests {
         // 3. ../ts-bindings (fallback)
 
         let output_dir_str = if let Ok(env_dir) = env::var("NEEMS_TS_OUTPUT_DIR") {
-            println!(
-                "Using TypeScript output directory from NEEMS_TS_OUTPUT_DIR: {}",
-                env_dir
-            );
+            println!("Using TypeScript output directory from NEEMS_TS_OUTPUT_DIR: {}", env_dir);
             env_dir
         } else {
             let react_dir = "../../react/src/types/generated";
             let fallback_dir = "../ts-bindings";
 
-            if Path::new(react_dir)
-                .parent()
-                .unwrap_or(Path::new(""))
-                .exists()
-            {
+            if Path::new(react_dir).parent().unwrap_or(Path::new("")).exists() {
                 println!("Using React project directory: {}", react_dir);
                 react_dir.to_string()
             } else {
@@ -48,7 +41,8 @@ mod tests {
         }
 
         // Clean up old TypeScript files to prevent orphaned definitions
-        // This ensures that if a Rust type is removed or renamed, its .ts file is also removed
+        // This ensures that if a Rust type is removed or renamed, its .ts file is also
+        // removed
         if output_dir.exists() {
             println!("Cleaning old TypeScript files from {:?}", output_dir);
             for entry in std::fs::read_dir(output_dir).expect("Failed to read output directory") {
@@ -66,23 +60,26 @@ mod tests {
         }
 
         // Import all the types to trigger their generation
-        use crate::api::company::ErrorResponse as CompanyErrorResponse;
-        use crate::api::login::{ErrorResponse as LoginErrorResponse, LoginSuccessResponse};
-        use crate::api::site::ErrorResponse as SiteErrorResponse;
-        use crate::api::site::{CreateSiteRequest, UpdateSiteRequest};
-        use crate::api::user::ErrorResponse as UserErrorResponse;
-        use crate::api::user::{
-            AddUserRoleRequest, CreateUserWithRolesRequest, RemoveUserRoleRequest,
-            UpdateUserRequest,
+        use crate::{
+            api::{
+                company::ErrorResponse as CompanyErrorResponse,
+                login::{ErrorResponse as LoginErrorResponse, LoginSuccessResponse},
+                site::{CreateSiteRequest, ErrorResponse as SiteErrorResponse, UpdateSiteRequest},
+                user::{
+                    AddUserRoleRequest, CreateUserWithRolesRequest,
+                    ErrorResponse as UserErrorResponse, RemoveUserRoleRequest, UpdateUserRequest,
+                },
+            },
+            models::*,
         };
-        use crate::models::*;
 
         // Export all the types
         User::export().expect("Failed to export User type");
         UserInput::export().expect("Failed to export UserInput type");
         UserWithRoles::export().expect("Failed to export UserWithRoles type");
         UserWithTimestamps::export().expect("Failed to export UserWithTimestamps type");
-        UserWithRolesAndTimestamps::export().expect("Failed to export UserWithRolesAndTimestamps type");
+        UserWithRolesAndTimestamps::export()
+            .expect("Failed to export UserWithRolesAndTimestamps type");
 
         Company::export().expect("Failed to export Company type");
         CompanyInput::export().expect("Failed to export CompanyInput type");
@@ -136,22 +133,27 @@ mod tests {
         // Scheduler model types
         SchedulerScript::export().expect("Failed to export SchedulerScript type");
         SchedulerScriptInput::export().expect("Failed to export SchedulerScriptInput type");
-        UpdateSchedulerScriptRequest::export().expect("Failed to export UpdateSchedulerScriptRequest type");
-        SchedulerScriptWithTimestamps::export().expect("Failed to export SchedulerScriptWithTimestamps type");
-        
+        UpdateSchedulerScriptRequest::export()
+            .expect("Failed to export UpdateSchedulerScriptRequest type");
+        SchedulerScriptWithTimestamps::export()
+            .expect("Failed to export SchedulerScriptWithTimestamps type");
+
         SchedulerOverride::export().expect("Failed to export SchedulerOverride type");
         SchedulerOverrideInput::export().expect("Failed to export SchedulerOverrideInput type");
-        UpdateSchedulerOverrideRequest::export().expect("Failed to export UpdateSchedulerOverrideRequest type");
-        SchedulerOverrideWithTimestamps::export().expect("Failed to export SchedulerOverrideWithTimestamps type");
+        UpdateSchedulerOverrideRequest::export()
+            .expect("Failed to export UpdateSchedulerOverrideRequest type");
+        SchedulerOverrideWithTimestamps::export()
+            .expect("Failed to export SchedulerOverrideWithTimestamps type");
         SiteState::export().expect("Failed to export SiteState type");
-        
+
         SchedulerExecution::export().expect("Failed to export SchedulerExecution type");
         SchedulerExecutionInput::export().expect("Failed to export SchedulerExecutionInput type");
 
         // Scheduler API types
         use crate::api::scheduler::{
-            ErrorResponse as SchedulerErrorResponse, ValidateScriptRequest, ValidateScriptResponse,
-            ExecuteSchedulerRequest, ExecuteSchedulerResponse, SiteStateResponse
+            ErrorResponse as SchedulerErrorResponse, ExecuteSchedulerRequest,
+            ExecuteSchedulerResponse, SiteStateResponse, ValidateScriptRequest,
+            ValidateScriptResponse,
         };
         SchedulerErrorResponse::export().expect("Failed to export scheduler::ErrorResponse type");
         ValidateScriptRequest::export().expect("Failed to export ValidateScriptRequest type");
@@ -161,12 +163,11 @@ mod tests {
         SiteStateResponse::export().expect("Failed to export SiteStateResponse type");
 
         // Neems-data model types
-        neems_data::models::Source::export().expect("Failed to export neems_data::models::Source type");
-        neems_data::models::Reading::export().expect("Failed to export neems_data::models::Reading type");
+        neems_data::models::Source::export()
+            .expect("Failed to export neems_data::models::Source type");
+        neems_data::models::Reading::export()
+            .expect("Failed to export neems_data::models::Reading type");
 
-        println!(
-            "TypeScript types generated successfully in {:?}",
-            output_dir
-        );
+        println!("TypeScript types generated successfully in {:?}", output_dir);
     }
 }

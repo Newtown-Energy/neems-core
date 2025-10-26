@@ -1,9 +1,11 @@
 //! API version 1 - FixPhrase endpoints
 //!
-//! This module provides HTTP endpoints for encoding and decoding FixPhrase location data.
-//! FixPhrase is a location encoding system that converts latitude/longitude coordinates
-//! into human-readable phrases.
+//! This module provides HTTP endpoints for encoding and decoding FixPhrase
+//! location data. FixPhrase is a location encoding system that converts
+//! latitude/longitude coordinates into human-readable phrases.
 
+#[cfg(feature = "fixphrase")]
+pub use fixphrase::{FixPhrase, FixPhraseError};
 use rocket::Route;
 #[cfg(feature = "fixphrase")]
 use rocket::http::Status as HttpStatus;
@@ -13,10 +15,6 @@ use rocket::response::status as rocket_status;
 use rocket::serde::json::Json;
 #[cfg(feature = "fixphrase")]
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "fixphrase")]
-pub use fixphrase::{FixPhrase, FixPhraseError};
-
 #[cfg(feature = "fixphrase")]
 use ts_rs::TS;
 
@@ -34,11 +32,13 @@ pub struct FixPhraseResponse {
 ///
 /// - **URL:** `/api/1/fixphrase/encode/<lat>/<lon>`
 /// - **Method:** `GET`
-/// - **Purpose:** Encodes latitude/longitude coordinates into a FixPhrase string
+/// - **Purpose:** Encodes latitude/longitude coordinates into a FixPhrase
+///   string
 /// - **Authentication:** None required
 ///
-/// This endpoint takes latitude and longitude coordinates and returns a FixPhrase
-/// representation along with the decoded coordinates and accuracy information.
+/// This endpoint takes latitude and longitude coordinates and returns a
+/// FixPhrase representation along with the decoded coordinates and accuracy
+/// information.
 ///
 /// # Parameters
 ///
@@ -69,8 +69,10 @@ pub struct FixPhraseResponse {
 /// * `lon` - The longitude coordinate (must be between -180 and 180)
 ///
 /// # Returns
-/// * `Ok(Json<FixPhraseResponse>)` - Successfully encoded FixPhrase with decoded verification
-/// * `Err(rocket_status::Custom<Json<FixPhraseError>>)` - Error during encoding or decoding
+/// * `Ok(Json<FixPhraseResponse>)` - Successfully encoded FixPhrase with
+///   decoded verification
+/// * `Err(rocket_status::Custom<Json<FixPhraseError>>)` - Error during encoding
+///   or decoding
 ///
 /// # Example
 ///

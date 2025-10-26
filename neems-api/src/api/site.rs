@@ -5,25 +5,32 @@
 //!
 //! # Authorization Rules
 //! - Company admins can perform CRUD operations on sites within their company
-//! - newtown-staff and newtown-admin roles can perform CRUD operations on any site
+//! - newtown-staff and newtown-admin roles can perform CRUD operations on any
+//!   site
 //! - Regular users cannot perform CRUD operations
 
-use rocket::Route;
-use rocket::http::Status;
-use rocket::response::{self, status};
-use rocket::serde::json::Json;
+use rocket::{
+    Route,
+    http::Status,
+    response::{self, status},
+    serde::json::Json,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::logged_json::LoggedJson;
-use crate::models::Site;
-use crate::orm::DbConn;
-use crate::orm::company::get_company_by_id;
-use crate::orm::site::{
-    delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id, get_sites_by_company,
-    insert_site, update_site,
+use crate::{
+    logged_json::LoggedJson,
+    models::Site,
+    orm::{
+        DbConn,
+        company::get_company_by_id,
+        site::{
+            delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id,
+            get_sites_by_company, insert_site, update_site,
+        },
+    },
+    session_guards::AuthenticatedUser,
 };
-use crate::session_guards::AuthenticatedUser;
 
 /// Error response structure for site API failures.
 #[derive(Serialize, TS)]
@@ -75,7 +82,8 @@ fn can_crud_site(user: &AuthenticatedUser, site_company_id: i32) -> bool {
 /// - **Method:** `POST`
 /// - **Purpose:** Creates a new site
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 ///
 /// # Request Format
 ///
@@ -123,7 +131,8 @@ pub async fn create_site(
         // First validate that the company exists
         match get_company_by_id(conn, new_site.company_id) {
             Ok(Some(_)) => {
-                // Company exists, now check if site with this name already exists in the company
+                // Company exists, now check if site with this name already exists in the
+                // company
                 match get_site_by_company_and_name(conn, new_site.company_id, &new_site.name) {
                     Ok(Some(_existing_site)) => {
                         // Site with this name already exists in this company
@@ -194,7 +203,8 @@ pub async fn create_site(
 /// - **Method:** `GET`
 /// - **Purpose:** Retrieves a specific site by ID
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 #[get("/1/Sites/<site_id>")]
 pub async fn get_site(
     db: DbConn,
@@ -257,7 +267,7 @@ pub async fn list_sites(
             "@odata.context": "http://localhost/api/1/$metadata#Sites",
             "value": sites
         });
-        
+
         Ok(Json(response))
     })
     .await
@@ -269,7 +279,8 @@ pub async fn list_sites(
 /// - **Method:** `PUT`
 /// - **Purpose:** Updates a specific site
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 ///
 /// # Request Format
 ///
@@ -374,7 +385,8 @@ pub async fn update_site_endpoint(
 /// - **Method:** `DELETE`
 /// - **Purpose:** Deletes a specific site
 /// - **Authentication:** Required
-/// - **Authorization:** Company admin (for own company) or newtown-admin/newtown-staff (for any company)
+/// - **Authorization:** Company admin (for own company) or
+///   newtown-admin/newtown-staff (for any company)
 #[delete("/1/Sites/<site_id>")]
 pub async fn delete_site_endpoint(
     db: DbConn,
@@ -423,11 +435,5 @@ pub async fn delete_site_endpoint(
 /// # Returns
 /// A vector containing all route handlers for site endpoints
 pub fn routes() -> Vec<Route> {
-    routes![
-        create_site,
-        get_site,
-        list_sites,
-        update_site_endpoint,
-        delete_site_endpoint
-    ]
+    routes![create_site, get_site, list_sites, update_site_endpoint, delete_site_endpoint]
 }

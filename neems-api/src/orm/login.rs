@@ -1,8 +1,8 @@
 //! Database operations for user authentication and session management.
 //!
-//! This module provides database layer functions for user login, session creation,
-//! password verification, and session storage. It abstracts database operations
-//! to support both production and testing environments.
+//! This module provides database layer functions for user login, session
+//! creation, password verification, and session storage. It abstracts database
+//! operations to support both production and testing environments.
 
 use argon2::{
     Argon2, PasswordHasher,
@@ -13,16 +13,20 @@ use diesel::prelude::*;
 use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use uuid::Uuid;
 
-use crate::DbConn;
-use crate::models::{NewSession, User};
 #[cfg(feature = "test-staging")]
 use crate::orm::testing::FakeDbConn;
-use crate::schema::{sessions, users};
+use crate::{
+    DbConn,
+    models::{NewSession, User},
+    schema::{sessions, users},
+};
 
-/// Trait for abstracting database operations to support both production and testing.
+/// Trait for abstracting database operations to support both production and
+/// testing.
 ///
 /// This trait allows the same functions to work with both `DbConn` (production)
-/// and `FakeDbConn` (testing) by providing a unified interface for database operations.
+/// and `FakeDbConn` (testing) by providing a unified interface for database
+/// operations.
 pub trait DbRunner {
     /// Executes a database operation with a connection.
     ///
@@ -84,14 +88,9 @@ fn generate_session_token() -> String {
 /// * `Err(Status::InternalServerError)` - Database query failed
 pub async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Option<User>, Status> {
     let email = email.to_owned();
-    db.run(move |conn| {
-        users::table
-            .filter(users::email.eq(email))
-            .first::<User>(conn)
-            .optional()
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)
+    db.run(move |conn| users::table.filter(users::email.eq(email)).first::<User>(conn).optional())
+        .await
+        .map_err(|_| Status::InternalServerError)
 }
 
 /// Verifies a password against a stored hash.
@@ -109,9 +108,7 @@ pub async fn find_user_by_email<D: DbRunner>(db: &D, email: &str) -> Result<Opti
 /// * `false` - Password doesn't match or hash format is invalid
 fn verify_password(password: &str, stored_hash: &str) -> bool {
     let parsed_hash = PasswordHash::new(stored_hash).expect("Invalid hash format");
-    Argon2::default()
-        .verify_password(password.as_bytes(), &parsed_hash)
-        .is_ok()
+    Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
 }
 
 /// Creates a new session and stores it in the database.
@@ -138,13 +135,9 @@ pub async fn create_and_store_session<D: DbRunner>(db: &D, user_id: i32) -> Resu
         revoked: false,
     };
 
-    db.run(move |conn| {
-        diesel::insert_into(sessions::table)
-            .values(&new_session)
-            .execute(conn)
-    })
-    .await
-    .map_err(|_| Status::InternalServerError)?;
+    db.run(move |conn| diesel::insert_into(sessions::table).values(&new_session).execute(conn))
+        .await
+        .map_err(|_| Status::InternalServerError)?;
 
     Ok(session_token)
 }
@@ -174,10 +167,11 @@ fn set_session_cookie(cookies: &CookieJar<'_>, session_token: &str) {
     cookies.add(cookie);
 }
 
-/// Processes a complete login workflow including validation and session creation.
+/// Processes a complete login workflow including validation and session
+/// creation.
 ///
-/// This function handles the complete login process: validates input, finds the user,
-/// verifies the password, creates a session, and sets the session cookie.
+/// This function handles the complete login process: validates input, finds the
+/// user, verifies the password, creates a session, and sets the session cookie.
 ///
 /// # Arguments
 /// * `db` - Database connection implementing the `DbRunner` trait
@@ -185,7 +179,8 @@ fn set_session_cookie(cookies: &CookieJar<'_>, session_token: &str) {
 /// * `login` - Login request containing email and password
 ///
 /// # Returns
-/// * `Ok((Status::Ok, User))` - Login successful, session created and cookie set, returns user data
+/// * `Ok((Status::Ok, User))` - Login successful, session created and cookie
+///   set, returns user data
 /// * `Err(Status::BadRequest)` - Empty email or password provided
 /// * `Err(Status::Unauthorized)` - Invalid credentials or user not found
 /// * `Err(Status::InternalServerError)` - Database operation failed
@@ -222,8 +217,8 @@ pub async fn process_login<D: DbRunner>(
 /// Hashes a password using Argon2 with a random salt.
 ///
 /// This function creates a secure hash of a password using the Argon2 algorithm
-/// with a cryptographically random salt. The resulting hash can be safely stored
-/// in the database and used for password verification.
+/// with a cryptographically random salt. The resulting hash can be safely
+/// stored in the database and used for password verification.
 ///
 /// # Arguments
 /// * `password` - Plain text password to hash
@@ -245,14 +240,15 @@ pub fn hash_password(password: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rocket::http::Cookie;
+
     use super::*;
-    use crate::models::User;
-    use crate::models::UserInput;
-    use crate::orm::company::insert_company;
     #[cfg(feature = "test-staging")]
     use crate::orm::testing::{setup_test_db, setup_test_dbconn};
-    use crate::orm::user::insert_user;
-    use rocket::http::Cookie;
+    use crate::{
+        models::{User, UserInput},
+        orm::{company::insert_company, user::insert_user},
+    };
 
     #[test]
     fn test_verify_password() {
@@ -277,8 +273,8 @@ mod tests {
 
     /// Inserts a dummy company and a dummy user, returning the inserted user.
     fn insert_dummy_user(conn: &mut diesel::SqliteConnection) -> User {
-        let company =
-            insert_company(conn, "Open Tech Strategies".to_string(), None).expect("insert dummy company");
+        let company = insert_company(conn, "Open Tech Strategies".to_string(), None)
+            .expect("insert dummy company");
 
         let hash = hash_password("dummy password");
 
@@ -366,9 +362,7 @@ mod tests {
 
     impl MockCookieJar {
         pub fn new() -> Self {
-            Self {
-                cookies: Vec::new(),
-            }
+            Self { cookies: Vec::new() }
         }
 
         pub fn add(&mut self, cookie: Cookie<'static>) {
