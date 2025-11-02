@@ -1,6 +1,9 @@
 # Development Dockerfile for neems-data with live reload
 FROM rustlang/rust:nightly-bookworm
 
+# Install Rust tooling components (clippy, rustfmt, rust-src)
+RUN rustup component add clippy rustfmt rust-src
+
 # Install sqlite3 and cargo-watch for live reload
 RUN apt-get update && apt-get install -y \
     sqlite3 \
