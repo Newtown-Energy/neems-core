@@ -1,8 +1,8 @@
-use diesel::QueryableByName;
-use diesel::prelude::*;
-use diesel::sql_types::BigInt;
+use diesel::{QueryableByName, prelude::*, sql_types::BigInt};
 
-use crate::models::{NewUser, User, UserInput, UserWithRoles, UserWithTimestamps, UserWithRolesAndTimestamps};
+use crate::models::{
+    NewUser, User, UserInput, UserWithRoles, UserWithRolesAndTimestamps, UserWithTimestamps,
+};
 
 #[derive(QueryableByName)]
 struct LastInsertRowId {
@@ -25,22 +25,20 @@ pub fn insert_user(
         totp_secret: new_user.totp_secret,
     };
 
-    diesel::insert_into(users)
-        .values(&insertable_user)
-        .execute(conn)?;
+    diesel::insert_into(users).values(&insertable_user).execute(conn)?;
 
     let last_id = diesel::sql_query("SELECT last_insert_rowid() as last_insert_rowid")
         .get_result::<LastInsertRowId>(conn)?
         .last_insert_rowid;
 
     let user = users.filter(id.eq(last_id as i32)).first::<User>(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "users", user.id, "create", user_id);
     }
-    
+
     Ok(user)
 }
 
@@ -50,7 +48,7 @@ pub fn get_user_with_timestamps(
     user_id: i32,
 ) -> Result<Option<UserWithTimestamps>, diesel::result::Error> {
     use crate::orm::entity_activity;
-    
+
     // First get the user
     let user = match get_user(conn, user_id)? {
         Some(u) => u,
@@ -78,7 +76,7 @@ pub fn get_user_with_roles_and_timestamps(
     user_id: i32,
 ) -> Result<Option<UserWithRolesAndTimestamps>, diesel::result::Error> {
     use crate::orm::entity_activity;
-    
+
     // First get the user with roles
     let user_with_roles = match get_user_with_roles(conn, user_id)? {
         Some(u) => u,
@@ -131,7 +129,10 @@ pub fn get_users_by_company(
 }
 
 /// Gets a single user by ID.
-pub fn get_user(conn: &mut SqliteConnection, user_id: i32) -> Result<Option<User>, diesel::result::Error> {
+pub fn get_user(
+    conn: &mut SqliteConnection,
+    user_id: i32,
+) -> Result<Option<User>, diesel::result::Error> {
     use crate::schema::users::dsl::*;
     users.filter(id.eq(user_id)).first::<User>(conn).optional()
 }
@@ -151,10 +152,11 @@ pub fn get_user_by_email(
         .optional()
 }
 
-/// Updates a user's fields (timestamps handled automatically by database triggers).
+/// Updates a user's fields (timestamps handled automatically by database
+/// triggers).
 ///
-/// This function updates the specified fields of a user. All fields are optional - only provided
-/// fields will be updated.
+/// This function updates the specified fields of a user. All fields are
+/// optional - only provided fields will be updated.
 ///
 /// # Arguments
 /// * `conn` - Database connection
@@ -205,31 +207,32 @@ pub fn update_user(
 
     // Return the updated user
     let user = users.filter(id.eq(user_id)).first::<User>(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(actor_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "users", user_id, "update", actor_id);
     }
-    
+
     Ok(user)
 }
 
 /// Deletes a user by ID.
 ///
-/// This function permanently removes a user from the database. This is a hard delete
-/// operation - the user record will be completely removed.
+/// This function permanently removes a user from the database. This is a hard
+/// delete operation - the user record will be completely removed.
 ///
-/// **Warning**: This will also remove any associated records that reference this user
-/// (like user roles, sessions, etc.) due to foreign key constraints. Consider the
-/// implications before using this function.
+/// **Warning**: This will also remove any associated records that reference
+/// this user (like user roles, sessions, etc.) due to foreign key constraints.
+/// Consider the implications before using this function.
 ///
 /// # Arguments
 /// * `conn` - Database connection
 /// * `user_id` - ID of the user to delete
 ///
 /// # Returns
-/// * `Ok(usize)` - Number of rows affected (should be 1 if user existed, 0 if not found)
+/// * `Ok(usize)` - Number of rows affected (should be 1 if user existed, 0 if
+///   not found)
 /// * `Err(diesel::result::Error)` - Database error
 pub fn delete_user(
     conn: &mut SqliteConnection,
@@ -242,16 +245,18 @@ pub fn delete_user(
 
 /// Deletes a user and all associated data (roles, sessions) by ID.
 ///
-/// This function performs a complete deletion of a user and all their associated
-/// data, properly handling foreign key constraints and database triggers.
-/// It disables the trigger temporarily to allow complete user deletion.
+/// This function performs a complete deletion of a user and all their
+/// associated data, properly handling foreign key constraints and database
+/// triggers. It disables the trigger temporarily to allow complete user
+/// deletion.
 ///
 /// # Arguments
 /// * `conn` - Database connection
 /// * `user_id` - ID of the user to delete
 ///
 /// # Returns
-/// * `Ok(usize)` - Number of users deleted (should be 1 if user existed, 0 if not found)
+/// * `Ok(usize)` - Number of users deleted (should be 1 if user existed, 0 if
+///   not found)
 /// * `Err(diesel::result::Error)` - Database error
 pub fn delete_user_with_cleanup(
     conn: &mut SqliteConnection,
@@ -268,10 +273,9 @@ pub fn delete_user_with_cleanup(
         }
         Err(e) => return Err(e), // Other database errors
     };
-    
+
     // Insert into deleted_users table
-    use crate::models::NewDeletedUser;
-    use crate::schema::deleted_users;
+    use crate::{models::NewDeletedUser, schema::deleted_users};
     let archived_user = NewDeletedUser {
         id: user_to_delete.id,
         email: user_to_delete.email,
@@ -280,23 +284,22 @@ pub fn delete_user_with_cleanup(
         totp_secret: user_to_delete.totp_secret,
         deleted_by: acting_user_id,
     };
-    
-    diesel::insert_into(deleted_users::table)
-        .values(&archived_user)
-        .execute(conn)?;
+
+    diesel::insert_into(deleted_users::table).values(&archived_user).execute(conn)?;
 
     // Temporarily drop the trigger to allow deletion
     diesel::sql_query("DROP TRIGGER IF EXISTS prevent_user_without_roles").execute(conn)?;
 
-    // Delete the user (user_roles and sessions will cascade automatically due to foreign key constraints)
+    // Delete the user (user_roles and sessions will cascade automatically due to
+    // foreign key constraints)
     let result = diesel::delete(users.filter(id.eq(user_id))).execute(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
-    if result > 0 {
-        if let Some(actor_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ = update_latest_activity_user(conn, "users", user_id, "delete", actor_id);
-        }
+    if result > 0
+        && let Some(actor_id) = acting_user_id
+    {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "users", user_id, "delete", actor_id);
     }
 
     // Recreate the trigger
@@ -316,9 +319,10 @@ pub fn delete_user_with_cleanup(
     Ok(result)
 }
 
-/// Gets user information for audit purposes, checking both active and deleted users.
+/// Gets user information for audit purposes, checking both active and deleted
+/// users.
 ///
-/// This function first checks the active users table, and if not found, 
+/// This function first checks the active users table, and if not found,
 /// checks the deleted_users table to provide information for audit trails.
 ///
 /// # Arguments
@@ -326,7 +330,8 @@ pub fn delete_user_with_cleanup(
 /// * `user_id` - ID of the user to look up
 ///
 /// # Returns
-/// * `Ok(Some((email, is_deleted)))` - User found with email and deletion status
+/// * `Ok(Some((email, is_deleted)))` - User found with email and deletion
+///   status
 /// * `Ok(None)` - User not found in either table
 /// * `Err(diesel::result::Error)` - Database error
 pub fn get_user_for_audit(
@@ -334,21 +339,23 @@ pub fn get_user_for_audit(
     user_id: i32,
 ) -> Result<Option<(String, bool)>, diesel::result::Error> {
     // First check active users
-    use crate::schema::users::dsl::{users, id as users_id};
+    use crate::schema::users::dsl::{id as users_id, users};
     if let Ok(user) = users.filter(users_id.eq(user_id)).first::<crate::models::User>(conn) {
         return Ok(Some((user.email, false))); // Found active user
     }
-    
+
     // If not found in active users, check deleted users
     use crate::schema::deleted_users::dsl::{deleted_users, id as deleted_users_id};
-    if let Ok(deleted_user) = deleted_users.filter(deleted_users_id.eq(user_id)).first::<crate::models::DeletedUser>(conn) {
+    if let Ok(deleted_user) = deleted_users
+        .filter(deleted_users_id.eq(user_id))
+        .first::<crate::models::DeletedUser>(conn)
+    {
         return Ok(Some((deleted_user.email, true))); // Found deleted user
     }
-    
+
     // Not found in either table
     Ok(None)
 }
-
 
 /// Gets a single user by ID with their roles.
 ///
@@ -464,8 +471,7 @@ pub fn get_users_by_company_with_roles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::company::insert_company;
-    use crate::orm::testing::setup_test_db;
+    use crate::orm::{company::insert_company, testing::setup_test_db};
 
     #[test]
     fn test_insert_user() {
@@ -507,20 +513,20 @@ mod tests {
 
         // Insert user
         let user = insert_user(&mut conn, new_user, None).unwrap();
-        
+
         // Get user with timestamps
         let user_with_timestamps = get_user_with_timestamps(&mut conn, user.id)
             .expect("Should get timestamps")
             .expect("User should exist");
-            
+
         assert_eq!(user_with_timestamps.id, user.id);
         assert_eq!(user_with_timestamps.email, "timestamp@example.com");
-        
+
         // Timestamps should be recent (within last few seconds)
         let now = chrono::Utc::now().naive_utc();
         let created_diff = (user_with_timestamps.created_at - now).num_seconds().abs();
         let updated_diff = (user_with_timestamps.updated_at - now).num_seconds().abs();
-        
+
         assert!(created_diff <= 5, "Created timestamp should be recent");
         assert!(updated_diff <= 5, "Updated timestamp should be recent");
     }
@@ -551,9 +557,8 @@ mod tests {
         ];
 
         for test_email in test_cases {
-            let retrieved_user = get_user_by_email(&mut conn, test_email)
-                .unwrap()
-                .expect("User should be found");
+            let retrieved_user =
+                get_user_by_email(&mut conn, test_email).unwrap().expect("User should be found");
             assert_eq!(retrieved_user.id, inserted_user.id);
             assert_eq!(retrieved_user.email, "Test.User@Example.COM"); // Original case preserved
         }

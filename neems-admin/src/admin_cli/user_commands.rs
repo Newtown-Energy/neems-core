@@ -1,21 +1,31 @@
-use argon2::password_hash::{SaltString, rand_core::OsRng};
-use argon2::{Argon2, PasswordHasher};
+use std::io::{self, Write};
+
+use argon2::{
+    Argon2, PasswordHasher,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use crate::admin_cli::utils::resolve_company_id;
-use neems_api::models::UserInput;
-use neems_api::orm::company::get_company_by_id;
-use neems_api::orm::entity_activity::{get_created_at};
-use neems_api::orm::role::get_role_by_name;
-use neems_api::orm::user::{
-    delete_user_with_cleanup, get_user, get_user_by_email, insert_user, list_all_users, update_user,
-};
-use neems_api::orm::user_role::{
-    assign_user_role_by_name, get_user_roles, remove_all_user_roles, remove_user_role_by_name,
+use neems_api::{
+    models::UserInput,
+    orm::{
+        company::get_company_by_id,
+        entity_activity::get_created_at,
+        role::get_role_by_name,
+        user::{
+            delete_user_with_cleanup, get_user, get_user_by_email, insert_user, list_all_users,
+            update_user,
+        },
+        user_role::{
+            assign_user_role_by_name, get_user_roles, remove_all_user_roles,
+            remove_user_role_by_name,
+        },
+    },
 };
 use regex::Regex;
 use rpassword::read_password;
-use std::io::{self, Write};
+
+use crate::admin_cli::utils::resolve_company_id;
 
 #[derive(Subcommand)]
 pub enum UserAction {
@@ -111,37 +121,20 @@ pub fn handle_user_command_with_conn(
     admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        UserAction::Add {
-            email,
-            password,
-            company_id,
-            totp_secret,
-        } => {
+        UserAction::Add { email, password, company_id, totp_secret } => {
             let resolved_company_id = resolve_company_id(conn, &company_id)?;
             add_user_impl(conn, &email, password, resolved_company_id, totp_secret, admin_user_id)?;
         }
         UserAction::ChangePassword { email, password } => {
             change_password_impl(conn, &email, password, admin_user_id)?;
         }
-        UserAction::Ls {
-            search_term,
-            fixed_string,
-        } => {
+        UserAction::Ls { search_term, fixed_string } => {
             list_users_impl(conn, search_term, fixed_string)?;
         }
-        UserAction::Rm {
-            search_term,
-            fixed_string,
-            yes,
-        } => {
+        UserAction::Rm { search_term, fixed_string, yes } => {
             remove_users_impl(conn, search_term, fixed_string, yes, admin_user_id)?;
         }
-        UserAction::Edit {
-            id,
-            email,
-            company_id,
-            totp_secret,
-        } => {
+        UserAction::Edit { id, email, company_id, totp_secret } => {
             let resolved_company_id = if let Some(company_str) = company_id {
                 Some(resolve_company_id(conn, &company_str)?)
             } else {
@@ -234,17 +227,11 @@ pub fn list_users_impl(
 
     let filtered_users = if let Some(term) = search_term {
         if fixed_string {
-            users
-                .into_iter()
-                .filter(|user| user.email.contains(&term))
-                .collect::<Vec<_>>()
+            users.into_iter().filter(|user| user.email.contains(&term)).collect::<Vec<_>>()
         } else {
             let regex = Regex::new(&term)
                 .map_err(|e| format!("Invalid regex pattern '{}': {}", term, e))?;
-            users
-                .into_iter()
-                .filter(|user| regex.is_match(&user.email))
-                .collect::<Vec<_>>()
+            users.into_iter().filter(|user| regex.is_match(&user.email)).collect::<Vec<_>>()
         }
     } else {
         users
@@ -296,10 +283,7 @@ pub fn remove_users_impl(
     } else {
         let regex = Regex::new(&search_term)
             .map_err(|e| format!("Invalid regex pattern '{}': {}", search_term, e))?;
-        users
-            .into_iter()
-            .filter(|user| regex.is_match(&user.email))
-            .collect::<Vec<_>>()
+        users.into_iter().filter(|user| regex.is_match(&user.email)).collect::<Vec<_>>()
     };
 
     if matching_users.is_empty() {
@@ -307,15 +291,9 @@ pub fn remove_users_impl(
         return Ok(());
     }
 
-    println!(
-        "Found {} user(s) matching the search term:",
-        matching_users.len()
-    );
+    println!("Found {} user(s) matching the search term:", matching_users.len());
     for user in &matching_users {
-        println!(
-            "  ID: {}, Email: {}, Company ID: {}",
-            user.id, user.email, user.company_id
-        );
+        println!("  ID: {}, Email: {}, Company ID: {}", user.id, user.email, user.company_id);
     }
 
     if !yes {
@@ -347,10 +325,8 @@ pub fn remove_users_impl(
                 }
             }
             Err(e) => {
-                errors.push(format!(
-                    "Failed to delete user {} (ID: {}): {}",
-                    user.email, user.id, e
-                ));
+                errors
+                    .push(format!("Failed to delete user {} (ID: {}): {}", user.email, user.id, e));
             }
         }
     }
@@ -464,10 +440,7 @@ pub fn user_add_role_impl(
 
     // Add the role
     assign_user_role_by_name(conn, user.id, role_name)?;
-    println!(
-        "Successfully added role '{}' to user '{}'",
-        role_name, email
-    );
+    println!("Successfully added role '{}' to user '{}'", role_name, email);
 
     Ok(())
 }
@@ -503,10 +476,7 @@ pub fn user_rm_role_impl(
 
     // Remove the role
     remove_user_role_by_name(conn, user.id, role_name)?;
-    println!(
-        "Successfully removed role '{}' from user '{}'",
-        role_name, email
-    );
+    println!("Successfully removed role '{}' from user '{}'", role_name, email);
 
     Ok(())
 }
@@ -521,11 +491,8 @@ pub fn user_set_roles_impl(
         .ok_or_else(|| format!("User with email '{}' not found", email))?;
 
     // Parse roles from comma-separated string
-    let role_names: Vec<&str> = roles_str
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let role_names: Vec<&str> =
+        roles_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
 
     if role_names.is_empty() {
         return Err("Cannot set empty role list: users must have at least one role".into());

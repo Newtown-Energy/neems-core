@@ -3,11 +3,10 @@
 use chrono::{NaiveDate, TimeZone, Timelike, Utc};
 use neems_data::collectors::{DataCollector, data_sources};
 
-
-
 #[tokio::test]
 async fn test_ping_localhost_collector() {
-    // This test is designed to be non-intrusive and likely to pass in most dev environments.
+    // This test is designed to be non-intrusive and likely to pass in most dev
+    // environments.
     let result = data_sources::ping_localhost(1).await;
     assert!(result.is_ok());
     let json = result.unwrap();
@@ -15,8 +14,6 @@ async fn test_ping_localhost_collector() {
     assert!(json.get("target").is_some());
     assert!(json.get("successful_pings").is_some());
 }
-
-
 
 #[tokio::test]
 async fn test_data_collector_dispatch() {

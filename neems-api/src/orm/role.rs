@@ -1,5 +1,4 @@
-use diesel::prelude::*;
-use diesel::sql_types::BigInt;
+use diesel::{prelude::*, sql_types::BigInt};
 
 use crate::models::{NewRole, Role};
 
@@ -40,7 +39,8 @@ pub fn get_all_roles(conn: &mut SqliteConnection) -> Result<Vec<Role>, diesel::r
 ///
 /// # Returns
 /// * `Ok(Role)` - The role if found
-/// * `Err(diesel::result::Error)` - Database error (including NotFound if role doesn't exist)
+/// * `Err(diesel::result::Error)` - Database error (including NotFound if role
+///   doesn't exist)
 pub fn get_role(conn: &mut SqliteConnection, role_id: i32) -> Result<Role, diesel::result::Error> {
     use crate::schema::roles::dsl::*;
     roles.filter(id.eq(role_id)).first::<Role>(conn)
@@ -62,22 +62,20 @@ pub fn get_role_by_name(
     role_name: &str,
 ) -> Result<Option<Role>, diesel::result::Error> {
     use crate::schema::roles::dsl::*;
-    roles
-        .filter(name.eq(role_name))
-        .first::<Role>(conn)
-        .optional()
+    roles.filter(name.eq(role_name)).first::<Role>(conn).optional()
 }
 
 /// Updates a role's fields.
 ///
-/// This function updates the specified fields of a role. All fields are optional -
-/// only provided fields will be updated.
+/// This function updates the specified fields of a role. All fields are
+/// optional - only provided fields will be updated.
 ///
 /// # Arguments
 /// * `conn` - Database connection
 /// * `role_id` - ID of the role to update
 /// * `new_name` - Optional new role name
-/// * `new_description` - Optional new description (None to keep current, Some(None) to set to null)
+/// * `new_description` - Optional new description (None to keep current,
+///   Some(None) to set to null)
 ///
 /// # Returns
 /// * `Ok(Role)` - Updated role object
@@ -109,19 +107,20 @@ pub fn update_role(
 
 /// Deletes a role by ID.
 ///
-/// This function permanently removes a role from the database. This is a hard delete
-/// operation - the role record will be completely removed.
+/// This function permanently removes a role from the database. This is a hard
+/// delete operation - the role record will be completely removed.
 ///
-/// **Warning**: This will also affect any user_roles records that reference this role
-/// due to foreign key constraints. Make sure to handle user role assignments before
-/// deleting roles.
+/// **Warning**: This will also affect any user_roles records that reference
+/// this role due to foreign key constraints. Make sure to handle user role
+/// assignments before deleting roles.
 ///
 /// # Arguments
 /// * `conn` - Database connection
 /// * `role_id` - ID of the role to delete
 ///
 /// # Returns
-/// * `Ok(usize)` - Number of rows affected (should be 1 if role existed, 0 if not found)
+/// * `Ok(usize)` - Number of rows affected (should be 1 if role existed, 0 if
+///   not found)
 /// * `Err(diesel::result::Error)` - Database error
 pub fn delete_role(
     conn: &mut SqliteConnection,
@@ -165,14 +164,8 @@ mod tests {
         // Check ordering and content
         assert_eq!(roles[0].name, "newtown-admin");
         assert_eq!(roles[1].name, "newtown-staff");
-        assert_eq!(
-            roles[0].description,
-            Some("Administrator for Newtown".to_string())
-        );
-        assert_eq!(
-            roles[1].description,
-            Some("Staff member for Newtown".to_string())
-        );
+        assert_eq!(roles[0].description, Some("Administrator for Newtown".to_string()));
+        assert_eq!(roles[1].description, Some("Staff member for Newtown".to_string()));
 
         // IDs should be present and ascending
         assert!(roles[0].id > 0);
@@ -197,10 +190,7 @@ mod tests {
 
         assert_eq!(retrieved_role.id, inserted_role.id);
         assert_eq!(retrieved_role.name, "Get Test Role");
-        assert_eq!(
-            retrieved_role.description,
-            Some("A role for get testing".to_string())
-        );
+        assert_eq!(retrieved_role.description, Some("A role for get testing".to_string()));
     }
 
     #[test]
@@ -231,10 +221,7 @@ mod tests {
         let role = retrieved_role.unwrap();
         assert_eq!(role.id, inserted_role.id);
         assert_eq!(role.name, "Named Test Role");
-        assert_eq!(
-            role.description,
-            Some("A role for name testing".to_string())
-        );
+        assert_eq!(role.description, Some("A role for name testing".to_string()));
 
         // Test getting a role that doesn't exist by name
         let not_found = get_role_by_name(&mut conn, "Nonexistent Role").unwrap();
@@ -254,20 +241,13 @@ mod tests {
         let inserted_role = insert_role(&mut conn, new_role).unwrap();
 
         // Test updating name only
-        let updated_role = update_role(
-            &mut conn,
-            inserted_role.id,
-            Some("Updated Name".to_string()),
-            None,
-        )
-        .unwrap();
+        let updated_role =
+            update_role(&mut conn, inserted_role.id, Some("Updated Name".to_string()), None)
+                .unwrap();
 
         assert_eq!(updated_role.id, inserted_role.id);
         assert_eq!(updated_role.name, "Updated Name");
-        assert_eq!(
-            updated_role.description,
-            Some("Original description".to_string())
-        ); // Unchanged
+        assert_eq!(updated_role.description, Some("Original description".to_string())); // Unchanged
 
         // Test updating description only
         let updated_role2 = update_role(
@@ -279,10 +259,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated_role2.name, "Updated Name"); // From previous update
-        assert_eq!(
-            updated_role2.description,
-            Some("New description".to_string())
-        ); // Updated
+        assert_eq!(updated_role2.description, Some("New description".to_string())); // Updated
 
         // Test setting description to null
         let updated_role3 = update_role(&mut conn, inserted_role.id, None, Some(None)).unwrap();
@@ -300,10 +277,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated_role4.name, "Final Name");
-        assert_eq!(
-            updated_role4.description,
-            Some("Final description".to_string())
-        );
+        assert_eq!(updated_role4.description, Some("Final description".to_string()));
     }
 
     #[test]
@@ -413,10 +387,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated_role.name, "New Name Only");
-        assert_eq!(
-            updated_role.description,
-            Some("Initial description".to_string())
-        );
+        assert_eq!(updated_role.description, Some("Initial description".to_string()));
 
         // Update only description, keep name
         let updated_role2 = update_role(
@@ -428,10 +399,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated_role2.name, "New Name Only"); // Unchanged from previous
-        assert_eq!(
-            updated_role2.description,
-            Some("New Description Only".to_string())
-        );
+        assert_eq!(updated_role2.description, Some("New Description Only".to_string()));
     }
 
     #[test]
@@ -464,10 +432,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(updated_role.name, "Updated Full Cycle Role");
-        assert_eq!(
-            updated_role.description,
-            Some("Updated description".to_string())
-        );
+        assert_eq!(updated_role.description, Some("Updated description".to_string()));
 
         // Verify update by reading again
         let verified_role = get_role(&mut conn, created_role.id).unwrap();

@@ -1,11 +1,20 @@
-use crate::schema::scheduler_overrides;
 use chrono::NaiveDateTime;
 use diesel::{Associations, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::schema::scheduler_overrides;
+
 #[derive(
-    Queryable, Selectable, Identifiable, Associations, QueryableByName, Debug, Serialize, Deserialize, TS,
+    Queryable,
+    Selectable,
+    Identifiable,
+    Associations,
+    QueryableByName,
+    Debug,
+    Serialize,
+    Deserialize,
+    TS,
 )]
 #[diesel(belongs_to(crate::models::site::Site))]
 #[diesel(belongs_to(crate::models::user::User, foreign_key = created_by))]
@@ -92,21 +101,25 @@ pub enum SiteState {
     Idle,
 }
 
+impl std::str::FromStr for SiteState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "charge" => Ok(SiteState::Charge),
+            "discharge" => Ok(SiteState::Discharge),
+            "idle" => Ok(SiteState::Idle),
+            _ => Err(format!("Invalid site state: {}", s)),
+        }
+    }
+}
+
 impl SiteState {
     pub fn as_str(&self) -> &'static str {
         match self {
             SiteState::Charge => "charge",
             SiteState::Discharge => "discharge",
             SiteState::Idle => "idle",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "charge" => Ok(SiteState::Charge),
-            "discharge" => Ok(SiteState::Discharge),
-            "idle" => Ok(SiteState::Idle),
-            _ => Err(format!("Invalid site state: {}", s)),
         }
     }
 }

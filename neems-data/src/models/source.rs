@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use ts_rs::TS;
 
 use crate::schema::sources;
@@ -35,7 +36,10 @@ impl Source {
     }
 
     /// Set arguments from a HashMap, serializing to JSON
-    pub fn set_arguments(&mut self, args: &HashMap<String, String>) -> Result<(), serde_json::Error> {
+    pub fn set_arguments(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<(), serde_json::Error> {
         self.arguments = Some(serde_json::to_string(args)?);
         Ok(())
     }
@@ -54,27 +58,33 @@ pub struct NewSource {
     pub company_id: Option<i32>,
 }
 
+/// Builder-style configuration for creating a NewSource
+#[derive(Debug, Clone, Default)]
+pub struct NewSourceConfig {
+    pub description: Option<String>,
+    pub active: Option<bool>,
+    pub interval_seconds: Option<i32>,
+    pub site_id: Option<i32>,
+    pub company_id: Option<i32>,
+}
+
 impl NewSource {
     /// Create a NewSource with arguments from a HashMap
     pub fn with_arguments(
         name: String,
         test_type: String,
         arguments: &HashMap<String, String>,
-        description: Option<String>,
-        active: Option<bool>,
-        interval_seconds: Option<i32>,
-        site_id: Option<i32>,
-        company_id: Option<i32>,
+        config: NewSourceConfig,
     ) -> Result<Self, serde_json::Error> {
         Ok(NewSource {
             name,
-            description,
-            active,
-            interval_seconds,
+            description: config.description,
+            active: config.active,
+            interval_seconds: config.interval_seconds,
             test_type: Some(test_type),
             arguments: Some(serde_json::to_string(arguments)?),
-            site_id,
-            company_id,
+            site_id: config.site_id,
+            company_id: config.company_id,
         })
     }
 }
@@ -95,7 +105,10 @@ pub struct UpdateSource {
 
 impl UpdateSource {
     /// Set arguments from a HashMap
-    pub fn with_arguments(mut self, args: &HashMap<String, String>) -> Result<Self, serde_json::Error> {
+    pub fn with_arguments(
+        mut self,
+        args: &HashMap<String, String>,
+    ) -> Result<Self, serde_json::Error> {
         self.arguments = Some(serde_json::to_string(args)?);
         Ok(self)
     }

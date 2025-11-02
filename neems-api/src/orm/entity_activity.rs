@@ -21,14 +21,10 @@ pub fn log_activity(
         user_id: user_id_val,
     };
 
-    diesel::insert_into(entity_activity)
-        .values(&new_activity)
-        .execute(conn)?;
+    diesel::insert_into(entity_activity).values(&new_activity).execute(conn)?;
 
     // Get the inserted record
-    entity_activity
-        .order(id.desc())
-        .first::<EntityActivity>(conn)
+    entity_activity.order(id.desc()).first::<EntityActivity>(conn)
 }
 
 /// Get the creation timestamp for an entity (first 'create' operation)
@@ -94,11 +90,11 @@ pub fn get_activities_by_operation(
 
 /// Update the most recent activity entry with user information
 /// This is used to add user_id to trigger-created activity entries
-/// 
+///
 /// The function finds the most recent activity entry that matches the given
-/// table, entity, and operation type, and updates its user_id if it's currently NULL.
-/// We only look at entries created within the last 2 seconds to ensure we're updating
-/// the entry that was just created by the database trigger.
+/// table, entity, and operation type, and updates its user_id if it's currently
+/// NULL. We only look at entries created within the last 2 seconds to ensure
+/// we're updating the entry that was just created by the database trigger.
 pub fn update_latest_activity_user(
     conn: &mut SqliteConnection,
     table_name_val: &str,
@@ -106,13 +102,14 @@ pub fn update_latest_activity_user(
     operation_type_val: &str,
     acting_user_id: i32,
 ) -> Result<(), diesel::result::Error> {
-    use crate::schema::entity_activity::dsl::*;
     use chrono::{Duration, Utc};
-    
+
+    use crate::schema::entity_activity::dsl::*;
+
     // Find activity entries created within the last 2 seconds
     // This ensures we're updating the entry just created by the trigger
     let recent_cutoff = Utc::now().naive_utc() - Duration::seconds(2);
-    
+
     // First find the most recent matching activity entry
     let activity_to_update = entity_activity
         .filter(table_name.eq(table_name_val))
@@ -124,23 +121,27 @@ pub fn update_latest_activity_user(
         .limit(1)
         .first::<EntityActivity>(conn)
         .optional()?;
-    
+
     // Update the found entry if it exists
     if let Some(activity) = activity_to_update {
         diesel::update(entity_activity.filter(id.eq(activity.id)))
             .set(user_id.eq(acting_user_id))
             .execute(conn)?;
     }
-    
+
     Ok(())
 }
 
 /// Test function to verify database triggers are working
-/// This creates a user, updates it, and deletes it, then checks the activity log
-pub fn test_triggers_manually(conn: &mut SqliteConnection) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::orm::company;
-    use crate::orm::user;
-    use crate::models::UserInput;
+/// This creates a user, updates it, and deletes it, then checks the activity
+/// log
+pub fn test_triggers_manually(
+    conn: &mut SqliteConnection,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        models::UserInput,
+        orm::{company, user},
+    };
 
     println!("Testing database triggers...");
 
@@ -166,15 +167,15 @@ pub fn test_triggers_manually(conn: &mut SqliteConnection) -> Result<(), Box<dyn
         println!("  - {} at {}", activity.operation_type, activity.timestamp);
     }
 
-    // Update the user (should trigger 'update' log)  
+    // Update the user (should trigger 'update' log)
     user::update_user(
-        conn, 
-        created_user.id, 
-        Some("updated.email@example.com".to_string()), 
-        None, 
-        None, 
+        conn,
+        created_user.id,
+        Some("updated.email@example.com".to_string()),
         None,
-        None
+        None,
+        None,
+        None,
     )?;
     println!("Updated user email");
 
@@ -198,7 +199,7 @@ pub fn test_triggers_manually(conn: &mut SqliteConnection) -> Result<(), Box<dyn
 
     // Verify we have create, update, and delete entries
     let has_create = final_activities.iter().any(|a| a.operation_type == "create");
-    let has_update = final_activities.iter().any(|a| a.operation_type == "update");  
+    let has_update = final_activities.iter().any(|a| a.operation_type == "update");
     let has_delete = final_activities.iter().any(|a| a.operation_type == "delete");
 
     println!("Trigger test results:");
@@ -225,7 +226,7 @@ mod tests {
 
         let result = log_activity(&mut conn, "users", 1, "create", None);
         assert!(result.is_ok());
-        
+
         let activity = result.unwrap();
         assert_eq!(activity.table_name, "users");
         assert_eq!(activity.entity_id, 1);
@@ -239,7 +240,7 @@ mod tests {
 
         // First log a create activity
         log_activity(&mut conn, "users", 1, "create", None).unwrap();
-        
+
         // Then log an update
         std::thread::sleep(std::time::Duration::from_millis(10)); // Ensure different timestamp
         log_activity(&mut conn, "users", 1, "update", None).unwrap();
@@ -266,10 +267,10 @@ mod tests {
         assert_eq!(history[2].operation_type, "update");
     }
 
-    #[test] 
+    #[test]
     fn test_database_triggers() {
         let mut conn = setup_test_db();
-        
+
         // This test will verify that database triggers are working
         let result = test_triggers_manually(&mut conn);
         assert!(result.is_ok(), "Database triggers test failed: {:?}", result);
@@ -278,7 +279,7 @@ mod tests {
     #[test]
     fn test_all_table_triggers() {
         let mut conn = setup_test_db();
-        
+
         let result = test_all_triggers_comprehensive(&mut conn);
         assert!(result.is_ok(), "Comprehensive triggers test failed: {:?}", result);
     }
@@ -286,11 +287,12 @@ mod tests {
     #[test]
     fn test_user_id_tracking() {
         let mut conn = setup_test_db();
-        
+
         // Create a company first
-        let company = crate::orm::company::insert_company(&mut conn, "Test Company".to_string(), None)
-            .expect("Failed to create company");
-        
+        let company =
+            crate::orm::company::insert_company(&mut conn, "Test Company".to_string(), None)
+                .expect("Failed to create company");
+
         // Test 1: Operations without user_id should have NULL user_id
         let user_input = crate::models::UserInput {
             email: "test1@example.com".to_string(),
@@ -298,18 +300,18 @@ mod tests {
             company_id: company.id,
             totp_secret: None,
         };
-        
+
         let user1 = crate::orm::user::insert_user(&mut conn, user_input, None)
             .expect("Failed to create user");
-            
-        let activities1 = get_activity_history(&mut conn, "users", user1.id)
-            .expect("Failed to get activities");
-        
+
+        let activities1 =
+            get_activity_history(&mut conn, "users", user1.id).expect("Failed to get activities");
+
         // Should have create activity with NULL user_id
         assert_eq!(activities1.len(), 1);
         assert_eq!(activities1[0].operation_type, "create");
         assert_eq!(activities1[0].user_id, None);
-        
+
         // Test 2: Operations with user_id should have that user_id recorded
         let user_input2 = crate::models::UserInput {
             email: "test2@example.com".to_string(),
@@ -317,18 +319,18 @@ mod tests {
             company_id: company.id,
             totp_secret: None,
         };
-        
+
         let user2 = crate::orm::user::insert_user(&mut conn, user_input2, Some(user1.id))
             .expect("Failed to create user");
-            
-        let activities2 = get_activity_history(&mut conn, "users", user2.id)
-            .expect("Failed to get activities");
-        
+
+        let activities2 =
+            get_activity_history(&mut conn, "users", user2.id).expect("Failed to get activities");
+
         // Should have create activity with user1's ID
         assert_eq!(activities2.len(), 1);
         assert_eq!(activities2[0].operation_type, "create");
         assert_eq!(activities2[0].user_id, Some(user1.id));
-        
+
         // Test 3: Update operations should also track user_id
         crate::orm::user::update_user(
             &mut conn,
@@ -338,24 +340,29 @@ mod tests {
             None,
             None,
             Some(user1.id),
-        ).expect("Failed to update user");
-        
-        let activities3 = get_activity_history(&mut conn, "users", user2.id)
-            .expect("Failed to get activities");
-        
+        )
+        .expect("Failed to update user");
+
+        let activities3 =
+            get_activity_history(&mut conn, "users", user2.id).expect("Failed to get activities");
+
         // Should have create and update activities
         assert_eq!(activities3.len(), 2);
         let update_activity = activities3.iter().find(|a| a.operation_type == "update").unwrap();
         assert_eq!(update_activity.user_id, Some(user1.id));
-        
+
         println!("✅ User tracking test passed!");
     }
 }
 
 /// Comprehensive test function to verify all table triggers are working
-pub fn test_all_triggers_comprehensive(conn: &mut SqliteConnection) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::orm::{company, site};
-    use crate::models::CompanyInput;
+pub fn test_all_triggers_comprehensive(
+    conn: &mut SqliteConnection,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        models::CompanyInput,
+        orm::{company, site},
+    };
 
     println!("Testing triggers for all tables...");
 
@@ -365,11 +372,14 @@ pub fn test_all_triggers_comprehensive(conn: &mut SqliteConnection) -> Result<()
         name: "Trigger Test Company All".to_string(),
     };
     let created_company = company::insert_company(conn, company_input.name, None)?;
-    
+
     // Check company create activity
     let company_activities = get_activity_history(conn, "companies", created_company.id)?;
     println!("Company activities after create: {}", company_activities.len());
-    assert!(company_activities.iter().any(|a| a.operation_type == "create"), "Company create not logged");
+    assert!(
+        company_activities.iter().any(|a| a.operation_type == "create"),
+        "Company create not logged"
+    );
 
     // Skip company update test since there's no update_company function
     // The create trigger is already verified above
@@ -377,19 +387,22 @@ pub fn test_all_triggers_comprehensive(conn: &mut SqliteConnection) -> Result<()
     // Test site triggers
     println!("Testing site triggers...");
     let created_site = site::insert_site(
-        conn, 
+        conn,
         "Test Site".to_string(),
         "123 Test St".to_string(),
         40.7128,
         -74.0060,
         created_company.id,
-        None
+        None,
     )?;
-    
+
     // Check site create activity
     let site_activities = get_activity_history(conn, "sites", created_site.id)?;
     println!("Site activities after create: {}", site_activities.len());
-    assert!(site_activities.iter().any(|a| a.operation_type == "create"), "Site create not logged");
+    assert!(
+        site_activities.iter().any(|a| a.operation_type == "create"),
+        "Site create not logged"
+    );
 
     // Update site
     site::update_site(
@@ -400,31 +413,41 @@ pub fn test_all_triggers_comprehensive(conn: &mut SqliteConnection) -> Result<()
         None,
         None,
         None,
-        None
+        None,
     )?;
     let site_activities_after_update = get_activity_history(conn, "sites", created_site.id)?;
     println!("Site activities after update: {}", site_activities_after_update.len());
-    assert!(site_activities_after_update.iter().any(|a| a.operation_type == "update"), "Site update not logged");
+    assert!(
+        site_activities_after_update.iter().any(|a| a.operation_type == "update"),
+        "Site update not logged"
+    );
 
     // Test session triggers (general count since we use placeholder entity_id)
     println!("Testing session triggers...");
-    // This would create a session, but we don't have direct session creation in our ORM
-    // For now, we'll just verify the triggers exist by checking if we can count session activities
+    // This would create a session, but we don't have direct session creation in our
+    // ORM For now, we'll just verify the triggers exist by checking if we can
+    // count session activities
     let all_session_activities = get_activities_by_operation(conn, "create")?
         .iter()
         .filter(|a| a.table_name == "sessions")
         .count();
-    
+
     println!("Session create activities found: {}", all_session_activities);
 
     // Clean up - delete entities (should trigger delete logs)
     site::delete_site(conn, created_site.id, None)?;
     let site_final_activities = get_activity_history(conn, "sites", created_site.id)?;
-    assert!(site_final_activities.iter().any(|a| a.operation_type == "delete"), "Site delete not logged");
+    assert!(
+        site_final_activities.iter().any(|a| a.operation_type == "delete"),
+        "Site delete not logged"
+    );
 
-    company::delete_company(conn, created_company.id, None)?;  
+    company::delete_company(conn, created_company.id, None)?;
     let company_final_activities = get_activity_history(conn, "companies", created_company.id)?;
-    assert!(company_final_activities.iter().any(|a| a.operation_type == "delete"), "Company delete not logged");
+    assert!(
+        company_final_activities.iter().any(|a| a.operation_type == "delete"),
+        "Company delete not logged"
+    );
 
     println!("✅ All table triggers working correctly!");
     Ok(())

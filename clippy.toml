@@ -1,0 +1,30 @@
+# Clippy configuration for neems-core workspace
+# See https://doc.rust-lang.org/clippy/configuration.html for all options
+
+# Warn on missing documentation for public items
+# (set to false if you don't want to enforce documentation)
+missing-docs-in-crate-items = false
+
+# Maximum cognitive complexity allowed for functions
+cognitive-complexity-threshold = 30
+
+# Allow single character variable names in certain contexts
+single-char-binding-names-threshold = 4
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Maximum number of lines for a function
+too-many-lines-threshold = 100
+
+# Disallow certain lints
+disallowed-methods = []
+disallowed-types = []
+
+# Enforce specific naming conventions
+# These align with Rust standard naming conventions
+enforce-iter-loop-reborrow = true
+
+# Pedantic lints (enable if you want stricter checking)
+# Uncomment to enable:
+# pedantic = "warn"

@@ -1,9 +1,12 @@
-use rocket::http::{ContentType, Status};
-use rocket::local::asynchronous::Client;
+use neems_api::{
+    models::{Company, Site},
+    orm::testing::fast_test_rocket,
+};
+use rocket::{
+    http::{ContentType, Status},
+    local::asynchronous::Client,
+};
 use serde_json::json;
-
-use neems_api::models::{Company, Site};
-use neems_api::orm::testing::fast_test_rocket;
 
 /// Helper to login as default admin and get session cookie
 async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
@@ -29,17 +32,19 @@ async fn login_admin(client: &Client) -> rocket::http::Cookie<'static> {
 }
 
 /// Helper to get a test company by name
-async fn get_company_by_name(client: &Client, admin_cookie: &rocket::http::Cookie<'static>, name: &str) -> Company {
-    let response = client
-        .get("/api/1/Companies")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+async fn get_company_by_name(
+    client: &Client,
+    admin_cookie: &rocket::http::Cookie<'static>,
+    name: &str,
+) -> Company {
+    let response = client.get("/api/1/Companies").cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let companies: Vec<Company> = serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
-    companies.into_iter()
+    let companies: Vec<Company> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid companies array");
+    companies
+        .into_iter()
         .find(|c| c.name == name)
         .expect(&format!("Company '{}' should exist from test data initialization", name))
 }
@@ -69,9 +74,7 @@ async fn login_user(client: &Client, email: &str, password: &str) -> rocket::htt
 
 #[rocket::async_test]
 async fn test_site_endpoints_require_authentication() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
 
     // Test all endpoints require authentication
     let response = client.get("/api/1/Sites").dispatch().await;
@@ -95,11 +98,7 @@ async fn test_site_endpoints_require_authentication() {
         "name": "Updated Site"
     });
 
-    let response = client
-        .put("/api/1/Sites/1")
-        .json(&update_site)
-        .dispatch()
-        .await;
+    let response = client.put("/api/1/Sites/1").json(&update_site).dispatch().await;
     assert_eq!(response.status(), Status::Unauthorized);
 
     let response = client.delete("/api/1/Sites/1").dispatch().await;
@@ -108,9 +107,7 @@ async fn test_site_endpoints_require_authentication() {
 
 #[rocket::async_test]
 async fn test_company_admin_can_crud_own_company_sites() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
     // Get pre-created test company
@@ -120,30 +117,24 @@ async fn test_company_admin_can_crud_own_company_sites() {
     let admin_session = login_user(&client, "user@testcompany.com", "admin").await;
 
     // Get the pre-created Test Site 1 from golden DB
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(admin_session.clone())
-        .dispatch()
-        .await;
-    
+    let response = client.get("/api/1/Sites").cookie(admin_session.clone()).dispatch().await;
+
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+
     // Find Test Site 1 (belongs to Test Company 1)
-    let test_site = sites.iter()
+    let test_site = sites
+        .iter()
         .find(|s| s.name == "Test Site 1")
         .expect("Test Site 1 should exist in golden DB");
-    
+
     assert_eq!(test_site.company_id, company.id);
 
     // Read the site
     let url = format!("/api/1/Sites/{}", test_site.id);
-    let response = client
-        .get(&url)
-        .cookie(admin_session.clone())
-        .dispatch()
-        .await;
+    let response = client.get(&url).cookie(admin_session.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let retrieved_site: Site = response.into_json().await.expect("valid site JSON");
@@ -180,9 +171,7 @@ async fn test_company_admin_can_crud_own_company_sites() {
 
 #[rocket::async_test]
 async fn test_company_admin_cannot_access_different_company_sites() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
     // Get pre-created test companies
@@ -211,27 +200,21 @@ async fn test_company_admin_cannot_access_different_company_sites() {
     assert_eq!(response.status(), Status::Forbidden);
 
     // Get Test Site 2 from golden DB (belongs to Test Company 2)
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
-    
+    let response = client.get("/api/1/Sites").cookie(admin_cookie.clone()).dispatch().await;
+
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    
-    let company2_site = sites.iter()
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+
+    let company2_site = sites
+        .iter()
         .find(|s| s.name == "Test Site 2" && s.company_id == company2.id)
         .expect("Test Site 2 should exist in golden DB");
 
     // Company1 admin should not be able to read company2's site (Test Site 2)
     let url = format!("/api/1/Sites/{}", company2_site.id);
-    let response = client
-        .get(&url)
-        .cookie(admin1_session.clone())
-        .dispatch()
-        .await;
+    let response = client.get(&url).cookie(admin1_session.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
 
@@ -257,34 +240,26 @@ async fn test_company_admin_cannot_access_different_company_sites() {
 
 #[rocket::async_test]
 async fn test_newtown_admin_can_crud_any_site() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
     // Get all sites from golden DB
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/Sites").cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
-    
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+
     // Use Test Site 1 for testing (any site works for newtown admin)
-    let test_site = sites.iter()
+    let test_site = sites
+        .iter()
         .find(|s| s.name == "Test Site 1")
         .expect("Test Site 1 should exist in golden DB");
 
     // Newtown admin can read any site
     let url = format!("/api/1/Sites/{}", test_site.id);
-    let response = client
-        .get(&url)
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.get(&url).cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
 
@@ -305,15 +280,12 @@ async fn test_newtown_admin_can_crud_any_site() {
     assert_eq!(updated_site.name, "Newtown Updated Site");
 
     // Newtown admin can see all sites
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(admin_cookie.clone())
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/Sites").cookie(admin_cookie.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Ok);
     let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
-    let all_sites: Vec<Site> = serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    let all_sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
     assert!(!all_sites.is_empty());
 
     // Newtown admin can delete any site
@@ -324,9 +296,7 @@ async fn test_newtown_admin_can_crud_any_site() {
 
 #[rocket::async_test]
 async fn test_regular_user_cannot_crud_sites() {
-    let client = Client::tracked(fast_test_rocket())
-        .await
-        .expect("valid rocket instance");
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
     // Get pre-created test company
@@ -336,11 +306,7 @@ async fn test_regular_user_cannot_crud_sites() {
     let user_session = login_user(&client, "staff@testcompany.com", "admin").await;
 
     // Regular user cannot list sites
-    let response = client
-        .get("/api/1/Sites")
-        .cookie(user_session.clone())
-        .dispatch()
-        .await;
+    let response = client.get("/api/1/Sites").cookie(user_session.clone()).dispatch().await;
 
     assert_eq!(response.status(), Status::Forbidden);
 

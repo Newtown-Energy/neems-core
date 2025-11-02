@@ -1,5 +1,8 @@
 use diesel::prelude::*;
-use crate::models::{NewSchedulerScript, SchedulerScript, SchedulerScriptInput, UpdateSchedulerScriptRequest};
+
+use crate::models::{
+    NewSchedulerScript, SchedulerScript, SchedulerScriptInput, UpdateSchedulerScriptRequest,
+};
 
 /// Gets all scheduler scripts for a specific site ID.
 pub fn get_scheduler_scripts_by_site(
@@ -61,22 +64,21 @@ pub fn insert_scheduler_script(
 
     let new_script = NewSchedulerScript::from(input);
 
-    diesel::insert_into(scheduler_scripts)
-        .values(&new_script)
-        .execute(conn)?;
+    diesel::insert_into(scheduler_scripts).values(&new_script).execute(conn)?;
 
     // Return the inserted script
     let script = scheduler_scripts
         .order(id.desc())
         .select(SchedulerScript::as_select())
         .first(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
-        let _ = update_latest_activity_user(conn, "scheduler_scripts", script.id, "create", user_id);
+        let _ =
+            update_latest_activity_user(conn, "scheduler_scripts", script.id, "create", user_id);
     }
-    
+
     Ok(script)
 }
 
@@ -119,7 +121,8 @@ pub fn update_scheduler_script(
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
-        let _ = update_latest_activity_user(conn, "scheduler_scripts", script_id, "update", user_id);
+        let _ =
+            update_latest_activity_user(conn, "scheduler_scripts", script_id, "update", user_id);
     }
 
     // Return the updated script
@@ -137,10 +140,12 @@ pub fn delete_scheduler_script(
 ) -> Result<bool, diesel::result::Error> {
     use crate::schema::scheduler_scripts::dsl::*;
 
-    // Update the trigger-created activity entry with user information before deletion
+    // Update the trigger-created activity entry with user information before
+    // deletion
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
-        let _ = update_latest_activity_user(conn, "scheduler_scripts", script_id, "delete", user_id);
+        let _ =
+            update_latest_activity_user(conn, "scheduler_scripts", script_id, "delete", user_id);
     }
 
     let affected_rows = diesel::delete(scheduler_scripts.find(script_id)).execute(conn)?;
@@ -171,22 +176,23 @@ pub fn deactivate_other_scripts_for_site(
     use crate::schema::scheduler_scripts::dsl::*;
 
     let affected_rows = diesel::update(
-        scheduler_scripts
-            .filter(site_id.eq(site_id_param).and(id.ne(except_script_id)))
+        scheduler_scripts.filter(site_id.eq(site_id_param).and(id.ne(except_script_id))),
     )
     .set(is_active.eq(false))
     .execute(conn)?;
 
     // Update activity entries for all affected scripts
     if let Some(_user_id) = acting_user_id {
-        // Note: This is a bulk operation, so we can't easily track individual script updates
-        // in the activity log. In a production system, you might want to handle this differently.
+        // Note: This is a bulk operation, so we can't easily track individual
+        // script updates in the activity log. In a production system,
+        // you might want to handle this differently.
     }
 
     Ok(affected_rows)
 }
 
-/// Validates that a script name is unique within a site (excluding a specific script ID for updates).
+/// Validates that a script name is unique within a site (excluding a specific
+/// script ID for updates).
 pub fn is_script_name_unique_in_site(
     conn: &mut SqliteConnection,
     site_id_param: i32,

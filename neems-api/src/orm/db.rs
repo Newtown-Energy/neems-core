@@ -10,8 +10,9 @@ pub struct DbConn(diesel::SqliteConnection);
 
 /// Enables foreign key support for SQLite connections.
 ///
-/// This executes the `PRAGMA foreign_keys = ON` command on the provided connection.
-/// Foreign keys are disabled by default in SQLite for backwards compatibility.
+/// This executes the `PRAGMA foreign_keys = ON` command on the provided
+/// connection. Foreign keys are disabled by default in SQLite for backwards
+/// compatibility.
 ///
 /// # Arguments
 /// * `conn` - A mutable reference to a SQLite database connection
@@ -23,15 +24,14 @@ pub fn set_foreign_keys(conn: &mut diesel::SqliteConnection) {
         .expect("Failed to enable foreign keys");
 }
 
-/// Creates a Rocket fairing that enables foreign key support for SQLite connections.
+/// Creates a Rocket fairing that enables foreign key support for SQLite
+/// connections.
 ///
-/// This fairing will execute when the Rocket application ignites, ensuring foreign keys
-/// are enabled for all database connections in the pool.
+/// This fairing will execute when the Rocket application ignites, ensuring
+/// foreign keys are enabled for all database connections in the pool.
 pub fn set_foreign_keys_fairing() -> AdHoc {
     AdHoc::on_ignite("Set Foreign Keys", |rocket| async {
-        let conn = DbConn::get_one(&rocket)
-            .await
-            .expect("database connection for migration");
+        let conn = DbConn::get_one(&rocket).await.expect("database connection for migration");
         conn.run(|c| {
             set_foreign_keys(c);
         })
@@ -59,9 +59,7 @@ pub fn run_pending_migrations(conn: &mut diesel::SqliteConnection) {
 pub fn run_migrations_fairing() -> AdHoc {
     AdHoc::on_ignite("Diesel Migrations", |rocket| async {
         // Get a database connection from Rocket's pool
-        let conn = DbConn::get_one(&rocket)
-            .await
-            .expect("database connection for migration");
+        let conn = DbConn::get_one(&rocket).await.expect("database connection for migration");
         conn.run(|c| {
             run_pending_migrations(c);
         })

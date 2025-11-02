@@ -3,14 +3,14 @@
 //! This module provides HTTP endpoints for user logout functionality,
 //! including session revocation and cookie cleanup.
 
-use crate::DbConn;
-use crate::orm::logout::revoke_session;
-use rocket::serde::json::{Json, Value, json};
 use rocket::{
     Route,
     http::{Cookie, CookieJar},
     post,
+    serde::json::{Json, Value, json},
 };
+
+use crate::{DbConn, orm::logout::revoke_session};
 
 /// Logout endpoint that terminates user sessions.
 ///
@@ -19,9 +19,9 @@ use rocket::{
 /// - **Purpose:** Terminates the current session and removes the session cookie
 /// - **Authentication:** None required (works with or without valid session)
 ///
-/// This endpoint handles user logout by revoking the current session in the database
-/// and removing the session cookie from the client. It safely handles cases where
-/// no session cookie is present.
+/// This endpoint handles user logout by revoking the current session in the
+/// database and removing the session cookie from the client. It safely handles
+/// cases where no session cookie is present.
 ///
 /// # Response
 ///
@@ -32,7 +32,8 @@ use rocket::{
 /// * `cookies` - Cookie jar containing the session cookie to remove
 ///
 /// # Returns
-/// * `Json<Value>` - Always returns JSON success message, regardless of session state
+/// * `Json<Value>` - Always returns JSON success message, regardless of session
+///   state
 ///
 /// # Behavior
 /// - Extracts the session token from the "session" cookie

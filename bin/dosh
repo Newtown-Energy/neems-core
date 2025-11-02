@@ -7,7 +7,15 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASEDIR=$(dirname -- "$SCRIPT_DIR")
 NIGHTLY="+nightly"
 DEV_TEST_FLAGS="--color=always --features test-staging"
-CARGO=~/.cargo/bin/cargo
+
+# Allow overriding cargo path via environment variable
+# Default to ~/.cargo/bin/cargo if not set
+CARGO="${CARGO_PATH:-~/.cargo/bin/cargo}"
+
+# If the default doesn't exist, try to find cargo in PATH
+if [[ ! -f "$CARGO" ]] && command -v cargo &> /dev/null; then
+    CARGO=$(command -v cargo)
+fi
 
 # Function to find the project root
 _find_project_root() {
@@ -237,6 +245,49 @@ nextest() {
 }
 
 
+lint-format() {
+    echo "Checking Rust formatting..."
+    ${CARGO} fmt --all -- --check
+}
+
+lint-clippy() {
+    echo "Running Clippy linter..."
+    # Temporarily allow these lints - they should be addressed incrementally
+    ${CARGO} clippy --all-targets --all-features -- -D warnings \
+        -A clippy::collapsible_if \
+        -A clippy::empty_line_after_doc_comments \
+        -A clippy::expect_fun_call \
+        -A clippy::if_same_then_else \
+        -A clippy::items_after_test_module \
+        -A clippy::len_zero \
+        -A clippy::match_ref_pats \
+        -A clippy::too_many_arguments \
+        -A clippy::useless_vec
+}
+
+lint() {
+    # Run all lint checks
+    echo "🔍 Running all lint checks..."
+    echo ""
+
+    local failed=0
+
+    # Rust formatting check
+    lint-format || failed=1
+    echo ""
+
+    # Rust linter
+    lint-clippy || failed=1
+    echo ""
+
+    if [ $failed -eq 1 ]; then
+        echo "❌ Some lint checks failed"
+        return 1
+    fi
+
+    echo "✨ All lint checks passed!"
+}
+
 push() {
     echo "Don't push from here.  Use the deploy repo."
 }
@@ -305,9 +356,12 @@ if [ $SCRIPTNAME = "cargo" ]; then
     fi
 fi
 
+# If this script is called as dosh but no args are provided, print usage
+if [ "$#" -eq 0 ]; then
+    printf "Usage:\n\t./${SCRIPTNAME} %s\n" "($(compgen -A function | grep '^[^_]' | paste -sd '|' -))"
+    exit 0
+fi
+
 # If this script is called as dosh OR as cargo and we have a function that
 # matches, run it.  If we are dosh, complain if the command isn't found.
-"$@" # <- execute the task
-
-# If this script is called as dosh but not args are provided, print usage
-[ "$#" -gt 0 ] || printf "Usage:\n\t./${SCRIPTNAME} %s\n" "($(compgen -A function | grep '^[^_]' | paste -sd '|' -))"
+"$@" # <- execute the task and exit with its status code

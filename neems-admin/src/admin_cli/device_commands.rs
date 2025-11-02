@@ -1,15 +1,21 @@
+use std::io::{self, Write};
+
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_api::models::DeviceInput;
-use neems_api::orm::company::get_company_by_id;
-use crate::admin_cli::utils::resolve_company_id;
-use neems_api::orm::device::{
-    delete_device, get_all_devices, get_device_by_id, get_device_by_site_and_name, 
-    get_devices_by_company, get_devices_by_site, insert_device, update_device,
+use neems_api::{
+    models::DeviceInput,
+    orm::{
+        company::get_company_by_id,
+        device::{
+            delete_device, get_all_devices, get_device_by_id, get_device_by_site_and_name,
+            get_devices_by_company, get_devices_by_site, insert_device, update_device,
+        },
+        site::get_site_by_id,
+    },
 };
-use neems_api::orm::site::get_site_by_id;
 use regex::Regex;
-use std::io::{self, Write};
+
+use crate::admin_cli::utils::resolve_company_id;
 
 #[derive(Subcommand)]
 pub enum DeviceAction {
@@ -84,7 +90,10 @@ pub enum DeviceAction {
         serial: Option<String>,
         #[arg(long = "ip", help = "New IP address (use empty string to clear)")]
         ip_address: Option<String>,
-        #[arg(long, help = "New install date (YYYY-MM-DD HH:MM:SS or empty to clear)")]
+        #[arg(
+            long,
+            help = "New install date (YYYY-MM-DD HH:MM:SS or empty to clear)"
+        )]
         install_date: Option<String>,
         #[arg(long = "company", help = "New company ID or name")]
         company_id: Option<String>,
@@ -127,8 +136,12 @@ pub fn handle_device_command_with_conn(
                 if date_str.is_empty() {
                     None
                 } else {
-                    Some(chrono::NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S")
-                        .map_err(|e| format!("Invalid date format: {}. Use YYYY-MM-DD HH:MM:SS", e))?)
+                    Some(
+                        chrono::NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S")
+                            .map_err(|e| {
+                                format!("Invalid date format: {}. Use YYYY-MM-DD HH:MM:SS", e)
+                            })?,
+                    )
                 }
             } else {
                 None
@@ -160,7 +173,15 @@ pub fn handle_device_command_with_conn(
             } else {
                 None
             };
-            device_rm_impl(conn, search_term, fixed_string, yes, resolved_company_id, site_id, admin_user_id)?;
+            device_rm_impl(
+                conn,
+                search_term,
+                fixed_string,
+                yes,
+                resolved_company_id,
+                site_id,
+                admin_user_id,
+            )?;
         }
         DeviceAction::Edit {
             id,
@@ -217,14 +238,22 @@ pub fn device_ls_impl(
         if fixed_string {
             devices
                 .into_iter()
-                .filter(|device| device.name.contains(&term) || device.type_.contains(&term) || device.model.contains(&term))
+                .filter(|device| {
+                    device.name.contains(&term)
+                        || device.type_.contains(&term)
+                        || device.model.contains(&term)
+                })
                 .collect::<Vec<_>>()
         } else {
             let regex = Regex::new(&term)
                 .map_err(|e| format!("Invalid regex pattern '{}': {}", term, e))?;
             devices
                 .into_iter()
-                .filter(|device| regex.is_match(&device.name) || regex.is_match(&device.type_) || regex.is_match(&device.model))
+                .filter(|device| {
+                    regex.is_match(&device.name)
+                        || regex.is_match(&device.type_)
+                        || regex.is_match(&device.model)
+                })
                 .collect::<Vec<_>>()
         }
     } else {
@@ -238,7 +267,12 @@ pub fn device_ls_impl(
         for device in filtered_devices {
             println!(
                 "  ID: {}, Name: {}, Type: {}, Model: {}, Company ID: {}, Site ID: {}",
-                device.id, device.name, device.type_, device.model, device.company_id, device.site_id
+                device.id,
+                device.name,
+                device.type_,
+                device.model,
+                device.company_id,
+                device.site_id
             );
             if let Some(desc) = &device.description {
                 println!("    Description: {}", desc);
@@ -275,7 +309,9 @@ pub fn device_add_impl(
 
     // Check if device already exists for this site
     let device_name = device_input.name.clone().unwrap_or_else(|| device_input.type_.clone());
-    if let Some(existing_device) = get_device_by_site_and_name(conn, device_input.site_id, &device_name)? {
+    if let Some(existing_device) =
+        get_device_by_site_and_name(conn, device_input.site_id, &device_name)?
+    {
         println!("Device already exists!");
         println!("ID: {}", existing_device.id);
         println!("Name: {}", existing_device.name);
@@ -331,14 +367,22 @@ pub fn device_rm_impl(
     let matching_devices = if fixed_string {
         devices
             .into_iter()
-            .filter(|device| device.name.contains(&search_term) || device.type_.contains(&search_term) || device.model.contains(&search_term))
+            .filter(|device| {
+                device.name.contains(&search_term)
+                    || device.type_.contains(&search_term)
+                    || device.model.contains(&search_term)
+            })
             .collect::<Vec<_>>()
     } else {
         let regex = Regex::new(&search_term)
             .map_err(|e| format!("Invalid regex pattern '{}': {}", search_term, e))?;
         devices
             .into_iter()
-            .filter(|device| regex.is_match(&device.name) || regex.is_match(&device.type_) || regex.is_match(&device.model))
+            .filter(|device| {
+                regex.is_match(&device.name)
+                    || regex.is_match(&device.type_)
+                    || regex.is_match(&device.model)
+            })
             .collect::<Vec<_>>()
     };
 
@@ -347,10 +391,7 @@ pub fn device_rm_impl(
         return Ok(());
     }
 
-    println!(
-        "Found {} device(s) matching the search term:",
-        matching_devices.len()
-    );
+    println!("Found {} device(s) matching the search term:", matching_devices.len());
     for device in &matching_devices {
         println!(
             "  ID: {}, Name: {}, Type: {}, Model: {}, Company ID: {}, Site ID: {}",
@@ -463,13 +504,15 @@ pub fn device_edit_impl(
     let parsed_description = new_description.map(|s| if s.is_empty() { None } else { Some(s) });
     let parsed_serial = new_serial.map(|s| if s.is_empty() { None } else { Some(s) });
     let parsed_ip_address = new_ip_address.map(|s| if s.is_empty() { None } else { Some(s) });
-    
+
     let parsed_install_date = if let Some(date_str) = new_install_date {
         if date_str.is_empty() {
             Some(None)
         } else {
-            Some(Some(chrono::NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| format!("Invalid date format: {}. Use YYYY-MM-DD HH:MM:SS", e))?))
+            Some(Some(
+                chrono::NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S")
+                    .map_err(|e| format!("Invalid date format: {}. Use YYYY-MM-DD HH:MM:SS", e))?,
+            ))
         }
     } else {
         None

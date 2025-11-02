@@ -1,10 +1,19 @@
-use crate::schema::sites;
 use diesel::{Associations, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::schema::sites;
+
 #[derive(
-    Queryable, Selectable, Identifiable, Associations, QueryableByName, Debug, Serialize, Deserialize, TS,
+    Queryable,
+    Selectable,
+    Identifiable,
+    Associations,
+    QueryableByName,
+    Debug,
+    Serialize,
+    Deserialize,
+    TS,
 )]
 #[diesel(belongs_to(crate::models::company::Company))]
 #[diesel(table_name = sites)]

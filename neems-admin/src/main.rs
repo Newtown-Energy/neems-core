@@ -1,26 +1,25 @@
-/*!
- * NEEMS Administrative CLI Utility
- *
- * This is a command-line interface for administrative management of a neems-api
- * instance's SQLite database. The utility provides comprehensive database management
- * capabilities including user, company, and site management, as well as system operations.
- *
- * The CLI leverages the ORM functions located in @neems-api/src/orm/ for all database
- * manipulations, ensuring consistent data access patterns and maintaining referential
- * integrity across operations.
- *
- * Key Features:
- * - User management (create, list, edit, remove, password changes)  
- * - Company management (create, list, edit, remove with cascading deletes)
- * - Site management (create, list, edit, remove)
- * - Device management (create, list, edit, remove with unique constraints)
- * - Search functionality with regex and fixed-string support
- * - Secure password prompting without echo
- * - Cascading deletes to maintain data consistency
- * - Interactive confirmation prompts for destructive operations
- *
- * For detailed usage information and available commands, run with --help.
- */
+//! NEEMS Administrative CLI Utility
+//!
+//! This is a command-line interface for administrative management of a
+//! neems-api instance's SQLite database. The utility provides comprehensive
+//! database management capabilities including user, company, and site
+//! management, as well as system operations.
+//!
+//! The CLI leverages the ORM functions located in @neems-api/src/orm/ for all
+//! database manipulations, ensuring consistent data access patterns and
+//! maintaining referential integrity across operations.
+//!
+//! Key Features:
+//! - User management (create, list, edit, remove, password changes)
+//! - Company management (create, list, edit, remove with cascading deletes)
+//! - Site management (create, list, edit, remove)
+//! - Device management (create, list, edit, remove with unique constraints)
+//! - Search functionality with regex and fixed-string support
+//! - Secure password prompting without echo
+//! - Cascading deletes to maintain data consistency
+//! - Interactive confirmation prompts for destructive operations
+//!
+//! For detailed usage information and available commands, run with --help.
 
 mod admin_cli {
     pub mod company_commands;
@@ -32,13 +31,15 @@ mod admin_cli {
     pub mod utils;
 }
 
-use admin_cli::company_commands::{CompanyAction, handle_company_command_with_conn};
-use admin_cli::device_commands::{DeviceAction, handle_device_command_with_conn};
-use admin_cli::role_commands::{RoleAction, handle_role_command_with_conn};
-use admin_cli::scheduler_commands::{SchedulerCommand, handle_scheduler_command};
-use admin_cli::site_commands::{SiteAction, handle_site_command_with_conn};
-use admin_cli::user_commands::{UserAction, handle_user_command_with_conn};
-use admin_cli::utils::{establish_connection, get_or_create_admin_user};
+use admin_cli::{
+    company_commands::{CompanyAction, handle_company_command_with_conn},
+    device_commands::{DeviceAction, handle_device_command_with_conn},
+    role_commands::{RoleAction, handle_role_command_with_conn},
+    scheduler_commands::{SchedulerCommand, handle_scheduler_command},
+    site_commands::{SiteAction, handle_site_command_with_conn},
+    user_commands::{UserAction, handle_user_command_with_conn},
+    utils::{establish_connection, get_or_create_admin_user},
+};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 
@@ -54,7 +55,7 @@ pub mod built_info {
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-    
+
     /// Show extended version information
     #[arg(long, action = clap::ArgAction::SetTrue)]
     version_info: bool,
@@ -176,7 +177,7 @@ async fn handle_system_command(action: SystemAction) -> Result<(), Box<dyn std::
         SystemAction::Status => {
             println!("System Status: OK");
             println!("Database: Connected");
-            
+
             // Try to get API server status
             match get_api_status().await {
                 Ok(api_status) => {
@@ -212,29 +213,31 @@ async fn get_api_status() -> Result<ApiStatus, Box<dyn std::error::Error>> {
 
 #[cfg(all(test, feature = "test-staging"))]
 mod tests {
-    use super::*;
-    use admin_cli::company_commands::{
-        company_add_impl, company_edit_impl, company_ls_impl, company_rm_impl,
-    };
-    use admin_cli::device_commands::{
-        device_add_impl, device_edit_impl, device_ls_impl, device_rm_impl,
-    };
-    use admin_cli::role_commands::{role_add_impl, role_ls_impl};
-    use admin_cli::site_commands::{site_add_impl, site_edit_impl, site_ls_impl, site_rm_impl};
-    use admin_cli::user_commands::{
-        add_user_impl, change_password_impl, hash_password, list_users_impl, remove_users_impl,
-        user_add_role_impl, user_edit_impl, user_rm_role_impl, user_set_roles_impl,
+    use admin_cli::{
+        company_commands::{company_add_impl, company_edit_impl, company_ls_impl, company_rm_impl},
+        device_commands::{device_add_impl, device_edit_impl, device_ls_impl, device_rm_impl},
+        role_commands::{role_add_impl, role_ls_impl},
+        site_commands::{site_add_impl, site_edit_impl, site_ls_impl, site_rm_impl},
+        user_commands::{
+            add_user_impl, change_password_impl, hash_password, list_users_impl, remove_users_impl,
+            user_add_role_impl, user_edit_impl, user_rm_role_impl, user_set_roles_impl,
+        },
     };
     use argon2::{Argon2, PasswordHash, PasswordVerifier};
-    use neems_api::models::{CompanyInput, DeviceInput};
-    use neems_api::orm::company::insert_company;
-    use neems_api::orm::company::{get_all_companies, get_company_by_id, get_company_by_name};
-    use neems_api::orm::device::{get_all_devices, get_device_by_id, get_devices_by_site, insert_device};
-    use neems_api::orm::role::get_all_roles;
-    use neems_api::orm::site::{get_all_sites, get_site_by_id, get_sites_by_company, insert_site};
     #[cfg(feature = "test-staging")]
     use neems_api::orm::testing::setup_test_db;
-    use neems_api::orm::user::{get_user, get_user_by_email, list_all_users};
+    use neems_api::{
+        models::{CompanyInput, DeviceInput},
+        orm::{
+            company::{get_all_companies, get_company_by_id, get_company_by_name, insert_company},
+            device::{get_all_devices, get_device_by_id, get_devices_by_site, insert_device},
+            role::get_all_roles,
+            site::{get_all_sites, get_site_by_id, get_sites_by_company, insert_site},
+            user::{get_user, get_user_by_email, list_all_users},
+        },
+    };
+
+    use super::*;
 
     #[test]
     fn test_handle_user_command_with_conn_add() {
@@ -277,8 +280,7 @@ mod tests {
         };
         handle_user_command_with_conn(&mut conn, create_action, 1).expect("Failed to create user");
 
-        let original_user =
-            get_user_by_email(&mut conn, "change_test@example.com")
+        let original_user = get_user_by_email(&mut conn, "change_test@example.com")
             .expect("Failed to get user")
             .expect("User should exist");
         let original_hash = original_user.password_hash.clone();
@@ -303,10 +305,7 @@ mod tests {
     fn test_handle_user_command_with_conn_list() {
         let mut conn = setup_test_db();
 
-        let action = UserAction::Ls {
-            search_term: None,
-            fixed_string: false,
-        };
+        let action = UserAction::Ls { search_term: None, fixed_string: false };
         let result = handle_user_command_with_conn(&mut conn, action, 1);
         assert!(result.is_ok());
     }
@@ -351,10 +350,7 @@ mod tests {
     fn test_handle_company_command_with_conn_ls() {
         let mut conn = setup_test_db();
 
-        let action = CompanyAction::Ls {
-            search_term: None,
-            fixed_string: false,
-        };
+        let action = CompanyAction::Ls { search_term: None, fixed_string: false };
         let result = handle_company_command_with_conn(&mut conn, action, 1);
         assert!(result.is_ok());
     }
@@ -363,9 +359,7 @@ mod tests {
     fn test_handle_company_command_with_conn_add() {
         let mut conn = setup_test_db();
 
-        let action = CompanyAction::Add {
-            name: "CLI Test Company".to_string(),
-        };
+        let action = CompanyAction::Add { name: "CLI Test Company".to_string() };
         let result = handle_company_command_with_conn(&mut conn, action, 1);
         assert!(result.is_ok());
 
@@ -472,11 +466,7 @@ mod tests {
         // Verify we can verify the password with the hash
         let argon2 = Argon2::default();
         let parsed_hash = PasswordHash::new(&hash).expect("Failed to parse hash");
-        assert!(
-            argon2
-                .verify_password(password.as_bytes(), &parsed_hash)
-                .is_ok()
-        );
+        assert!(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok());
     }
 
     #[test]
@@ -500,8 +490,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify user was created by fetching it
-        let created_user =
-            get_user_by_email(&mut conn, "test@example.com")
+        let created_user = get_user_by_email(&mut conn, "test@example.com")
             .expect("Failed to get created user")
             .expect("User should exist");
 
@@ -563,8 +552,7 @@ mod tests {
         )
         .expect("Failed to create user");
 
-        let original_user =
-            get_user_by_email(&mut conn, "test@example.com")
+        let original_user = get_user_by_email(&mut conn, "test@example.com")
             .expect("Failed to get user")
             .expect("User should exist");
         let original_hash = original_user.password_hash.clone();
@@ -579,8 +567,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify password was changed
-        let updated_user =
-            get_user_by_email(&mut conn, "test@example.com")
+        let updated_user = get_user_by_email(&mut conn, "test@example.com")
             .expect("Failed to get updated user")
             .expect("User should exist");
 
@@ -591,11 +578,7 @@ mod tests {
         let argon2 = Argon2::default();
         let parsed_hash =
             PasswordHash::new(&updated_user.password_hash).expect("Failed to parse new hash");
-        assert!(
-            argon2
-                .verify_password("new_password".as_bytes(), &parsed_hash)
-                .is_ok()
-        );
+        assert!(argon2.verify_password("new_password".as_bytes(), &parsed_hash).is_ok());
     }
 
     #[test]
@@ -885,8 +868,7 @@ mod tests {
         )
         .expect("Failed to create user");
 
-        let original_user =
-            get_user_by_email(&mut conn, "password_test@example.com")
+        let original_user = get_user_by_email(&mut conn, "password_test@example.com")
             .expect("Failed to get user")
             .expect("User should exist");
         let original_hash = original_user.password_hash.clone();
@@ -950,7 +932,8 @@ mod tests {
     fn test_company_ls_impl_with_search() {
         let mut conn = setup_test_db();
 
-        insert_company(&mut conn, "ACME Corp".to_string(), None).expect("Failed to create company 1");
+        insert_company(&mut conn, "ACME Corp".to_string(), None)
+            .expect("Failed to create company 1");
         insert_company(&mut conn, "Tech Solutions".to_string(), None)
             .expect("Failed to create company 2");
 
@@ -1116,10 +1099,10 @@ mod tests {
     fn test_site_ls_impl_with_company_filter() {
         let mut conn = setup_test_db();
 
-        let company1 =
-            insert_company(&mut conn, "Company 1".to_string(), None).expect("Failed to create company 1");
-        let company2 =
-            insert_company(&mut conn, "Company 2".to_string(), None).expect("Failed to create company 2");
+        let company1 = insert_company(&mut conn, "Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string(), None)
+            .expect("Failed to create company 2");
 
         insert_site(
             &mut conn,
@@ -1188,7 +1171,8 @@ mod tests {
         );
         assert!(result.is_ok());
 
-        // Try to create second site with same name in same company - should succeed gracefully
+        // Try to create second site with same name in same company - should succeed
+        // gracefully
         let result = site_add_impl(
             &mut conn,
             "Duplicate Site".to_string(),
@@ -1249,10 +1233,10 @@ mod tests {
     fn test_site_rm_impl_with_company_filter() {
         let mut conn = setup_test_db();
 
-        let company1 =
-            insert_company(&mut conn, "Company 1".to_string(), None).expect("Failed to create company 1");
-        let company2 =
-            insert_company(&mut conn, "Company 2".to_string(), None).expect("Failed to create company 2");
+        let company1 = insert_company(&mut conn, "Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string(), None)
+            .expect("Failed to create company 2");
 
         insert_site(
             &mut conn,
@@ -1276,14 +1260,8 @@ mod tests {
         .expect("Failed to create site 2");
 
         // Delete only from company1
-        let result = site_rm_impl(
-            &mut conn,
-            "Test Site".to_string(),
-            true,
-            true,
-            Some(company1.id),
-            1,
-        );
+        let result =
+            site_rm_impl(&mut conn, "Test Site".to_string(), true, true, Some(company1.id), 1);
         assert!(result.is_ok());
 
         let sites = get_all_sites(&mut conn).expect("Failed to get sites");
@@ -1295,10 +1273,10 @@ mod tests {
     fn test_user_edit_impl() {
         let mut conn = setup_test_db();
 
-        let company1 =
-            insert_company(&mut conn, "Company 1".to_string(), None).expect("Failed to create company 1");
-        let company2 =
-            insert_company(&mut conn, "Company 2".to_string(), None).expect("Failed to create company 2");
+        let company1 = insert_company(&mut conn, "Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string(), None)
+            .expect("Failed to create company 2");
 
         // Create a user
         add_user_impl(
@@ -1311,8 +1289,7 @@ mod tests {
         )
         .expect("Failed to create user");
 
-        let user =
-            get_user_by_email(&mut conn, "original@example.com")
+        let user = get_user_by_email(&mut conn, "original@example.com")
             .expect("Failed to get user")
             .expect("User should exist");
 
@@ -1355,14 +1332,8 @@ mod tests {
     fn test_user_edit_impl_nonexistent_user() {
         let mut conn = setup_test_db();
 
-        let result = user_edit_impl(
-            &mut conn,
-            99999,
-            Some("new@example.com".to_string()),
-            None,
-            None,
-            1,
-        );
+        let result =
+            user_edit_impl(&mut conn, 99999, Some("new@example.com".to_string()), None, None, 1);
         assert!(result.is_err());
     }
 
@@ -1419,10 +1390,10 @@ mod tests {
     fn test_site_edit_impl() {
         let mut conn = setup_test_db();
 
-        let company1 =
-            insert_company(&mut conn, "Company 1".to_string(), None).expect("Failed to create company 1");
-        let company2 =
-            insert_company(&mut conn, "Company 2".to_string(), None).expect("Failed to create company 2");
+        let company1 = insert_company(&mut conn, "Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string(), None)
+            .expect("Failed to create company 2");
 
         let site = insert_site(
             &mut conn,
@@ -1520,11 +1491,8 @@ mod tests {
     fn test_role_add_impl() {
         let mut conn = setup_test_db();
 
-        let result = role_add_impl(
-            &mut conn,
-            "Test Role".to_string(),
-            Some("A test role".to_string()),
-        );
+        let result =
+            role_add_impl(&mut conn, "Test Role".to_string(), Some("A test role".to_string()));
         assert!(result.is_ok());
 
         // Verify role was created
@@ -1549,14 +1517,10 @@ mod tests {
     fn test_user_add_role_impl() {
         let mut conn = setup_test_db();
 
-        let company = get_company_by_name(
-            &mut conn,
-            &CompanyInput {
-                name: "Newtown Energy".to_string(),
-            },
-        )
-        .expect("Failed to query company")
-        .expect("Newtown Energy company should exist");
+        let company =
+            get_company_by_name(&mut conn, &CompanyInput { name: "Newtown Energy".to_string() })
+                .expect("Failed to query company")
+                .expect("Newtown Energy company should exist");
 
         add_user_impl(
             &mut conn,
@@ -1576,14 +1540,10 @@ mod tests {
     fn test_user_set_roles_impl() {
         let mut conn = setup_test_db();
 
-        let company = get_company_by_name(
-            &mut conn,
-            &CompanyInput {
-                name: "Newtown Energy".to_string(),
-            },
-        )
-        .expect("Failed to query company")
-        .expect("Newtown Energy company should exist");
+        let company =
+            get_company_by_name(&mut conn, &CompanyInput { name: "Newtown Energy".to_string() })
+                .expect("Failed to query company")
+                .expect("Newtown Energy company should exist");
 
         add_user_impl(
             &mut conn,
@@ -1595,11 +1555,8 @@ mod tests {
         )
         .expect("Failed to create user");
 
-        let result = user_set_roles_impl(
-            &mut conn,
-            "test2@example.com",
-            "newtown-admin,newtown-staff",
-        );
+        let result =
+            user_set_roles_impl(&mut conn, "test2@example.com", "newtown-admin,newtown-staff");
         assert!(result.is_ok());
     }
 
@@ -1607,14 +1564,10 @@ mod tests {
     fn test_user_rm_role_impl_last_role_fails() {
         let mut conn = setup_test_db();
 
-        let company = get_company_by_name(
-            &mut conn,
-            &CompanyInput {
-                name: "Newtown Energy".to_string(),
-            },
-        )
-        .expect("Failed to query company")
-        .expect("Newtown Energy company should exist");
+        let company =
+            get_company_by_name(&mut conn, &CompanyInput { name: "Newtown Energy".to_string() })
+                .expect("Failed to query company")
+                .expect("Newtown Energy company should exist");
 
         add_user_impl(
             &mut conn,
@@ -1716,8 +1669,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input, Some(1))
-            .expect("Failed to create device");
+        insert_device(&mut conn, device_input, Some(1)).expect("Failed to create device");
 
         let action = DeviceAction::Rm {
             search_term: "Remove This".to_string(),
@@ -1763,8 +1715,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input1, None)
-            .expect("Failed to create device 1");
+        insert_device(&mut conn, device_input1, None).expect("Failed to create device 1");
 
         let device_input2 = DeviceInput {
             name: Some("Device 2".to_string()),
@@ -1777,8 +1728,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input2, None)
-            .expect("Failed to create device 2");
+        insert_device(&mut conn, device_input2, None).expect("Failed to create device 2");
 
         let result = device_ls_impl(&mut conn, None, false, None, None);
         assert!(result.is_ok());
@@ -1813,8 +1763,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input1, None)
-            .expect("Failed to create device 1");
+        insert_device(&mut conn, device_input1, None).expect("Failed to create device 1");
 
         let device_input2 = DeviceInput {
             name: Some("Battery System".to_string()),
@@ -1827,8 +1776,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input2, None)
-            .expect("Failed to create device 2");
+        insert_device(&mut conn, device_input2, None).expect("Failed to create device 2");
 
         let result = device_ls_impl(&mut conn, Some("Solar".to_string()), true, None, None);
         assert!(result.is_ok());
@@ -1877,8 +1825,7 @@ mod tests {
             company_id: company.id,
             site_id: site1.id,
         };
-        insert_device(&mut conn, device_input1, None)
-            .expect("Failed to create device A");
+        insert_device(&mut conn, device_input1, None).expect("Failed to create device A");
 
         let device_input2 = DeviceInput {
             name: Some("Device B".to_string()),
@@ -1891,8 +1838,7 @@ mod tests {
             company_id: company.id,
             site_id: site2.id,
         };
-        insert_device(&mut conn, device_input2, None)
-            .expect("Failed to create device B");
+        insert_device(&mut conn, device_input2, None).expect("Failed to create device B");
 
         let result = device_ls_impl(&mut conn, None, false, None, Some(site1.id));
         assert!(result.is_ok());
@@ -1969,7 +1915,8 @@ mod tests {
         let result = device_add_impl(&mut conn, device_input1, 1);
         assert!(result.is_ok());
 
-        // Try to create second device with same name in same site - should succeed gracefully
+        // Try to create second device with same name in same site - should succeed
+        // gracefully
         let device_input2 = DeviceInput {
             name: Some("Duplicate Device".to_string()),
             description: None,
@@ -2019,8 +1966,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input1, Some(1))
-            .expect("Failed to create device 1");
+        insert_device(&mut conn, device_input1, Some(1)).expect("Failed to create device 1");
 
         let device_input2 = DeviceInput {
             name: Some("Keep Me Device".to_string()),
@@ -2033,8 +1979,7 @@ mod tests {
             company_id: company.id,
             site_id: site.id,
         };
-        insert_device(&mut conn, device_input2, Some(1))
-            .expect("Failed to create device 2");
+        insert_device(&mut conn, device_input2, Some(1)).expect("Failed to create device 2");
 
         let result = device_rm_impl(&mut conn, "Delete Me".to_string(), true, true, None, None, 1);
         assert!(result.is_ok());
@@ -2089,8 +2034,8 @@ mod tests {
             company_id: company1.id,
             site_id: site1.id,
         };
-        let device = insert_device(&mut conn, device_input, Some(1))
-            .expect("Failed to create device");
+        let device =
+            insert_device(&mut conn, device_input, Some(1)).expect("Failed to create device");
 
         // Edit name and description
         let result = device_edit_impl(

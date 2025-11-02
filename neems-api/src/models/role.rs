@@ -1,7 +1,8 @@
-use crate::schema::roles;
 use diesel::{Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::schema::roles;
 
 #[derive(Queryable, Identifiable, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]

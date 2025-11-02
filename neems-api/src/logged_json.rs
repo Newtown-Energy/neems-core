@@ -4,11 +4,10 @@
 //! logs the parsed JSON data for debugging purposes. It's a drop-in replacement
 //! for Json<T> in your API endpoints.
 
-use rocket::serde::json::Json;
-use rocket::serde::{Deserialize, Serialize};
 use rocket::{
     Data, Request,
     data::{self, FromData},
+    serde::{Deserialize, Serialize, json::Json},
 };
 
 /// A wrapper around Rocket's Json that logs the request data.

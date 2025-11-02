@@ -1,8 +1,8 @@
-use crate::models::Role;
-use crate::schema::users;
 use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::{models::Role, schema::users};
 
 #[derive(Deserialize, Queryable, Identifiable, QueryableByName, Debug, Serialize, TS)]
 #[diesel(table_name = users)]
@@ -57,7 +57,7 @@ pub struct UserWithTimestamps {
     pub totp_secret: Option<String>,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
-    #[ts(type = "string")]  
+    #[ts(type = "string")]
     pub updated_at: chrono::NaiveDateTime,
 }
 
@@ -72,7 +72,7 @@ pub struct UserWithRolesAndTimestamps {
     pub totp_secret: Option<String>,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
-    #[ts(type = "string")]  
+    #[ts(type = "string")]
     pub updated_at: chrono::NaiveDateTime,
     pub roles: Vec<Role>,
 }

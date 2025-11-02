@@ -1,19 +1,16 @@
 //! Integration tests for CLI functionality
 
-use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
-use diesel_migrations::MigrationHarness;
-use neems_data::{MIGRATIONS, create_source, list_sources};
-use neems_data::models::{NewSource};
 use std::collections::HashMap;
+
+use diesel::{prelude::*, sqlite::SqliteConnection};
+use diesel_migrations::MigrationHarness;
+use neems_data::{MIGRATIONS, create_source, list_sources, models::NewSource};
 
 /// Helper function to set up an in-memory SQLite database for testing
 fn setup_test_db() -> SqliteConnection {
     let mut connection =
         SqliteConnection::establish(":memory:").expect("Failed to create in-memory db");
-    connection
-        .run_pending_migrations(MIGRATIONS)
-        .expect("Failed to run migrations");
+    connection.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
     connection
 }
 
@@ -24,7 +21,7 @@ fn test_new_source_creation_with_test_type() {
     // Test creating a ping source with arguments
     let mut args = HashMap::new();
     args.insert("target".to_string(), "example.com".to_string());
-    
+
     let new_source = NewSource {
         name: "test_ping".to_string(),
         description: Some("Test ping source".to_string()),
@@ -39,11 +36,10 @@ fn test_new_source_creation_with_test_type() {
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
     assert_eq!(created.name, "test_ping");
     assert_eq!(created.test_type, Some("ping".to_string()));
-    
+
     // Verify arguments were stored correctly
-    let stored_args: HashMap<String, String> = serde_json::from_str(
-        &created.arguments.unwrap()
-    ).unwrap();
+    let stored_args: HashMap<String, String> =
+        serde_json::from_str(&created.arguments.unwrap()).unwrap();
     assert_eq!(stored_args.get("target"), Some(&"example.com".to_string()));
 }
 
@@ -53,7 +49,7 @@ fn test_charging_state_source_with_battery_id() {
 
     let mut args = HashMap::new();
     args.insert("battery_id".to_string(), "battery1".to_string());
-    
+
     let new_source = NewSource {
         name: "test_battery".to_string(),
         description: Some("Test battery source".to_string()),
@@ -67,10 +63,9 @@ fn test_charging_state_source_with_battery_id() {
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
     assert_eq!(created.test_type, Some("charging_state".to_string()));
-    
-    let stored_args: HashMap<String, String> = serde_json::from_str(
-        &created.arguments.unwrap()
-    ).unwrap();
+
+    let stored_args: HashMap<String, String> =
+        serde_json::from_str(&created.arguments.unwrap()).unwrap();
     assert_eq!(stored_args.get("battery_id"), Some(&"battery1".to_string()));
 }
 
@@ -79,7 +74,7 @@ fn test_disk_space_source_no_args() {
     let mut conn = setup_test_db();
 
     let args: HashMap<String, String> = HashMap::new(); // Empty arguments
-    
+
     let new_source = NewSource {
         name: "test_disk".to_string(),
         description: Some("Test disk source".to_string()),
@@ -93,10 +88,9 @@ fn test_disk_space_source_no_args() {
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
     assert_eq!(created.test_type, Some("disk_space".to_string()));
-    
-    let stored_args: HashMap<String, String> = serde_json::from_str(
-        &created.arguments.unwrap()
-    ).unwrap();
+
+    let stored_args: HashMap<String, String> =
+        serde_json::from_str(&created.arguments.unwrap()).unwrap();
     assert!(stored_args.is_empty());
 }
 
@@ -116,7 +110,7 @@ fn test_list_sources_shows_test_type_and_args() {
         for (key, value) in args_vec {
             args.insert(key.to_string(), value.to_string());
         }
-        
+
         let new_source = NewSource {
             name: name.to_string(),
             description: Some(format!("Test {}", test_type)),
@@ -127,7 +121,7 @@ fn test_list_sources_shows_test_type_and_args() {
             site_id: None,
             company_id: None,
         };
-        
+
         create_source(&mut conn, new_source).expect("Failed to create source");
     }
 
@@ -139,23 +133,20 @@ fn test_list_sources_shows_test_type_and_args() {
         match source.name.as_str() {
             "ping_test" => {
                 assert_eq!(source.test_type, Some("ping".to_string()));
-                let args: HashMap<String, String> = serde_json::from_str(
-                    &source.arguments.unwrap()
-                ).unwrap();
+                let args: HashMap<String, String> =
+                    serde_json::from_str(&source.arguments.unwrap()).unwrap();
                 assert_eq!(args.get("target"), Some(&"example.com".to_string()));
             }
             "battery_test" => {
                 assert_eq!(source.test_type, Some("charging_state".to_string()));
-                let args: HashMap<String, String> = serde_json::from_str(
-                    &source.arguments.unwrap()
-                ).unwrap();
+                let args: HashMap<String, String> =
+                    serde_json::from_str(&source.arguments.unwrap()).unwrap();
                 assert_eq!(args.get("battery_id"), Some(&"main".to_string()));
             }
             "disk_test" => {
                 assert_eq!(source.test_type, Some("disk_space".to_string()));
-                let args: HashMap<String, String> = serde_json::from_str(
-                    &source.arguments.unwrap()
-                ).unwrap();
+                let args: HashMap<String, String> =
+                    serde_json::from_str(&source.arguments.unwrap()).unwrap();
                 assert!(args.is_empty());
             }
             _ => panic!("Unexpected source name: {}", source.name),
@@ -170,7 +161,7 @@ fn test_source_get_arguments_helper() {
     let mut expected_args = HashMap::new();
     expected_args.insert("target".to_string(), "test.com".to_string());
     expected_args.insert("timeout".to_string(), "5".to_string());
-    
+
     let new_source = NewSource {
         name: "test_multi_args".to_string(),
         description: Some("Test multiple arguments".to_string()),
@@ -183,7 +174,7 @@ fn test_source_get_arguments_helper() {
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
-    
+
     // Test the get_arguments helper method
     let parsed_args = created.get_arguments().expect("Failed to parse arguments");
     assert_eq!(parsed_args, expected_args);
@@ -205,7 +196,7 @@ fn test_invalid_json_arguments_handling() {
     };
 
     let created = create_source(&mut conn, new_source).expect("Failed to create source");
-    
+
     // The get_arguments method should return an error for invalid JSON
     let result = created.get_arguments();
     assert!(result.is_err());
@@ -227,14 +218,15 @@ fn test_legacy_and_new_format_coexistence() {
         company_id: None,
     };
 
-    let legacy_created = create_source(&mut conn, legacy_source).expect("Failed to create legacy source");
+    let legacy_created =
+        create_source(&mut conn, legacy_source).expect("Failed to create legacy source");
     assert_eq!(legacy_created.test_type, None);
     assert_eq!(legacy_created.arguments, None);
 
     // Create a new format source
     let mut args = HashMap::new();
     args.insert("target".to_string(), "example.com".to_string());
-    
+
     let new_source = NewSource {
         name: "new_source".to_string(),
         description: Some("New format source".to_string()),

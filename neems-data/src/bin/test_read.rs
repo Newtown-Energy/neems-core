@@ -1,5 +1,6 @@
-use neems_data::read_aggregated_data;
 use std::env;
+
+use neems_data::read_aggregated_data;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();

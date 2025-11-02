@@ -1,0 +1,84 @@
+name: Test
+
+on:
+  workflow_call:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  typescript-generation:
+    name: TypeScript Generation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "typescript"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 libsqlite3-dev
+
+      - name: Create output directory
+        run: mkdir -p neems-react/src/types/generated
+
+      - name: Run TypeScript generation
+        run: cargo test --features test-staging generate_typescript_types -- --nocapture
+        env:
+          NEEMS_TS_OUTPUT_DIR: neems-react/src/types/generated
+
+  unit-and-integration:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "test"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 libsqlite3-dev
+
+      - name: Install cargo-binstall
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+      - name: Install cargo-nextest
+        run: cargo binstall --no-confirm cargo-nextest
+
+      - name: Install diesel_cli
+        run: cargo install diesel_cli --no-default-features --features sqlite
+
+      - name: Build neems-admin
+        run: cargo build --bin neems-admin --features test-staging
+
+      - name: Create golden database
+        run: ./bin/create-golden-db.sh
+
+      - name: Run tests
+        run: cargo nextest run --profile ci --features fixphrase,test-staging --workspace
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: target/nextest/junit.xml
+          if-no-files-found: ignore

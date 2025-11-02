@@ -1,8 +1,9 @@
-use crate::schema::entity_activity;
 use chrono::NaiveDateTime;
 use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::schema::entity_activity;
 
 #[derive(Queryable, Identifiable, QueryableByName, Debug, Serialize, Deserialize, TS)]
 #[diesel(table_name = entity_activity)]

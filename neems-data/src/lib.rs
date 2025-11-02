@@ -1,17 +1,16 @@
-use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
-use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::env;
-use std::error::Error;
-use std::collections::HashSet;
-use std::sync::Arc;
-use tokio::task;
-use tokio::sync::{mpsc, Mutex};
-use collectors::DataCollector;
+use std::{collections::HashSet, env, error::Error, sync::Arc};
+
 use chrono::Local;
+use collectors::DataCollector;
+use diesel::{prelude::*, sqlite::SqliteConnection};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use futures_util::stream::StreamExt;
 use signal_hook::consts::SIGHUP;
 use signal_hook_tokio::Signals;
-use futures_util::stream::StreamExt;
+use tokio::{
+    sync::{Mutex, mpsc},
+    task,
+};
 
 pub mod collectors;
 pub mod models;
@@ -20,6 +19,11 @@ pub mod schema;
 pub use models::*;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+
+// Type aliases for complex return types
+pub type SourceReadings = Vec<(Source, Vec<Reading>)>;
+pub type SourceIdReadings = Vec<(i32, Vec<Reading>)>;
+pub type DataResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 pub struct DataAggregator {
     database_url: String,
@@ -52,7 +56,10 @@ impl DataAggregator {
         Ok(connection)
     }
 
-    pub async fn start_aggregation(&self, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn start_aggregation(
+        &self,
+        verbose: bool,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let database_url = self.database_url.clone();
 
         // Create a channel for collecting readings
@@ -62,13 +69,14 @@ impl DataAggregator {
         let pending_sources = Arc::new(Mutex::new(HashSet::<i32>::new()));
 
         // Start the writer task that batches writes every second
-        let writer_handle = Self::start_writer_task(database_url.clone(), rx, pending_sources.clone(), verbose);
+        let writer_handle =
+            Self::start_writer_task(database_url.clone(), rx, pending_sources.clone(), verbose);
 
         // Create a channel to notify reader tasks of source reloads
         let (reload_tx, reload_rx) = mpsc::channel(1);
 
         // Set up the SIGHUP signal handler
-        let signals = Signals::new(&[SIGHUP])?;
+        let signals = Signals::new([SIGHUP])?;
         let handle = signals.handle();
         let signals_task = tokio::spawn(async move {
             let mut signals = signals.fuse();
@@ -84,7 +92,8 @@ impl DataAggregator {
         });
 
         // Start the reader tasks
-        let reader_handle = Self::start_reader_tasks(database_url, tx, pending_sources, reload_rx, verbose);
+        let reader_handle =
+            Self::start_reader_tasks(database_url, tx, pending_sources, reload_rx, verbose);
 
         // Wait for both tasks
         tokio::try_join!(writer_handle, reader_handle)?;
@@ -184,32 +193,34 @@ impl DataAggregator {
     }
 
     async fn reload_sources(
-    database_url: &str,
-    verbose: bool,
-) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
-    let database_url = database_url.to_string();
-    let (active_sources, _db_path) = task::spawn_blocking({
-        move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
-            let mut connection = SqliteConnection::establish(&database_url)?;
+        database_url: &str,
+        verbose: bool,
+    ) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
+        let database_url = database_url.to_string();
+        let (active_sources, _db_path) = task::spawn_blocking({
+            move || -> Result<(Vec<Source>, String), Box<dyn Error + Send + Sync>> {
+                let mut connection = SqliteConnection::establish(&database_url)?;
 
-            use schema::sources::dsl::*;
-            let active_sources: Vec<Source> = sources
-                .filter(active.eq(true))
-                .select(Source::as_select())
-                .load(&mut connection)?;
+                use schema::sources::dsl::*;
+                let active_sources: Vec<Source> = sources
+                    .filter(active.eq(true))
+                    .select(Source::as_select())
+                    .load(&mut connection)?;
 
-            let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
+                let db_path =
+                    database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
 
-            Ok((active_sources, db_path))
+                Ok((active_sources, db_path))
+            }
+        })
+        .await??;
+
+        if verbose {
+            println!("Found {} active data sources to poll", active_sources.len());
         }
-    }).await??;
 
-    if verbose {
-        println!("Found {} active data sources to poll", active_sources.len());
+        Ok(active_sources)
     }
-
-    Ok(active_sources)
-}
 
     async fn start_reader_tasks(
         database_url: String,
@@ -218,7 +229,8 @@ impl DataAggregator {
         mut reload_rx: mpsc::Receiver<()>,
         verbose: bool,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let active_sources = Arc::new(Mutex::new(Self::reload_sources(&database_url, verbose).await?));
+        let active_sources =
+            Arc::new(Mutex::new(Self::reload_sources(&database_url, verbose).await?));
         let db_path = database_url.strip_prefix("sqlite://").unwrap_or(&database_url).to_string();
 
         loop {
@@ -252,7 +264,8 @@ impl DataAggregator {
                     // Skip if already running/pending write
                     if pending.contains(&source_id) {
                         if verbose {
-                            //println!("Skipping source '{}' (ID: {}) - write pending", source.name, source_id);
+                            // println!("Skipping source '{}' (ID: {}) - write
+                            // pending", source.name, source_id);
                         }
                         continue;
                     }
@@ -285,7 +298,8 @@ impl DataAggregator {
                                 .map_err(|e| format!("Failed to update last_run: {}", e))?;
                             Ok(())
                         }
-                    }).await;
+                    })
+                    .await;
 
                     if let Err(e) = update_result {
                         eprintln!("Failed to update last_run for source {}: {:?}", source_id, e);
@@ -303,7 +317,10 @@ impl DataAggregator {
 
                     task::spawn(async move {
                         if verbose {
-                            println!("Polling data source: {} (ID: {}) [interval: {}s]", source_name, source_id, interval_seconds);
+                            println!(
+                                "Polling data source: {} (ID: {}) [interval: {}s]",
+                                source_name, source_id, interval_seconds
+                            );
                         }
 
                         let collector = DataCollector::new(source_name.clone(), source_id);
@@ -311,7 +328,12 @@ impl DataAggregator {
                         match collector.collect().await {
                             Ok(data) => {
                                 if verbose {
-                                    println!("  → Collected data from {}: {}", source_name, serde_json::to_string_pretty(&data).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                                    println!(
+                                        "  → Collected data from {}: {}",
+                                        source_name,
+                                        serde_json::to_string_pretty(&data)
+                                            .unwrap_or_else(|_| "Invalid JSON".to_string())
+                                    );
                                 }
 
                                 match NewReading::with_json_data(source_id, &data) {
@@ -322,14 +344,20 @@ impl DataAggregator {
                                         };
 
                                         if let Err(e) = tx_clone.send(pending_reading) {
-                                            eprintln!("Failed to send reading for {}: {}", source_name, e);
+                                            eprintln!(
+                                                "Failed to send reading for {}: {}",
+                                                source_name, e
+                                            );
                                             // Remove from pending set if send failed
                                             let mut pending = pending_sources_clone.lock().await;
                                             pending.remove(&source_id);
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("Failed to create reading for {}: {}", source_name, e);
+                                        eprintln!(
+                                            "Failed to create reading for {}: {}",
+                                            source_name, e
+                                        );
                                         // Remove from pending set if reading creation failed
                                         let mut pending = pending_sources_clone.lock().await;
                                         pending.remove(&source_id);
@@ -359,9 +387,7 @@ pub fn insert_reading(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     use schema::readings;
 
-    diesel::insert_into(readings::table)
-        .values(&reading)
-        .execute(connection)?;
+    diesel::insert_into(readings::table).values(&reading).execute(connection)?;
 
     Ok(())
 }
@@ -373,15 +399,12 @@ pub fn insert_readings_batch(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     use schema::readings;
 
-    diesel::insert_into(readings::table)
-        .values(&readings)
-        .execute(connection)?;
+    diesel::insert_into(readings::table).values(&readings).execute(connection)?;
 
     Ok(())
 }
 
 /// Source Management Functions
-
 /// Create a new data source
 pub fn create_source(
     connection: &mut SqliteConnection,
@@ -389,9 +412,7 @@ pub fn create_source(
 ) -> Result<Source, Box<dyn Error + Send + Sync>> {
     use schema::sources;
 
-    diesel::insert_into(sources::table)
-        .values(&new_source)
-        .execute(connection)?;
+    diesel::insert_into(sources::table).values(&new_source).execute(connection)?;
 
     // Get the inserted source
     let source: Source = sources::table
@@ -403,7 +424,9 @@ pub fn create_source(
 }
 
 /// List all sources
-pub fn list_sources(connection: &mut SqliteConnection) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
+pub fn list_sources(
+    connection: &mut SqliteConnection,
+) -> Result<Vec<Source>, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
     let source_list = sources.select(Source::as_select()).load(connection)?;
@@ -439,10 +462,8 @@ pub fn update_source(
         .set(&updates)
         .execute(connection)?;
 
-    let updated_source = sources
-        .filter(id.eq(source_id))
-        .select(Source::as_select())
-        .first(connection)?;
+    let updated_source =
+        sources.filter(id.eq(source_id)).select(Source::as_select()).first(connection)?;
 
     Ok(updated_source)
 }
@@ -466,9 +487,7 @@ pub fn get_recent_readings(
 }
 
 /// Read aggregated data - main interface for neems-api
-pub fn read_aggregated_data(
-    database_path: Option<&str>,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+pub fn read_aggregated_data(database_path: Option<&str>) -> DataResult<SourceReadings> {
     let aggregator = DataAggregator::new(database_path);
     let mut connection = aggregator.establish_connection()?;
 
@@ -499,7 +518,7 @@ pub fn get_readings_by_name_pattern(
     connection: &mut SqliteConnection,
     pattern: &str,
     limit: i64,
-) -> Result<Vec<(Source, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+) -> DataResult<SourceReadings> {
     use schema::sources::dsl::*;
 
     // Get all sources matching the pattern
@@ -525,7 +544,7 @@ pub fn get_readings_by_source_ids(
     connection: &mut SqliteConnection,
     source_ids: &[i32],
     limit: i64,
-) -> Result<Vec<(i32, Vec<Reading>)>, Box<dyn Error + Send + Sync>> {
+) -> DataResult<SourceIdReadings> {
     let mut result = Vec::new();
 
     for &source_id in source_ids {
@@ -536,7 +555,8 @@ pub fn get_readings_by_source_ids(
     Ok(result)
 }
 
-/// Update the last_run timestamp for a source (called when test starts, not completes)
+/// Update the last_run timestamp for a source (called when test starts, not
+/// completes)
 pub fn update_last_run(
     connection: &mut SqliteConnection,
     source_id: i32,
@@ -558,8 +578,7 @@ pub fn delete_source(
 ) -> Result<usize, Box<dyn Error + Send + Sync>> {
     use schema::sources::dsl::*;
 
-    let deleted_count = diesel::delete(sources.filter(id.eq(source_id)))
-        .execute(connection)?;
+    let deleted_count = diesel::delete(sources.filter(id.eq(source_id))).execute(connection)?;
 
     Ok(deleted_count)
 }

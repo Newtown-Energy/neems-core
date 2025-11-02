@@ -28,8 +28,8 @@ pub fn get_devices_by_company(
         .load(conn)
 }
 
-/// Creates a new device in the database (timestamps handled automatically by database triggers)
-/// If name is not provided, it defaults to the device type
+/// Creates a new device in the database (timestamps handled automatically by
+/// database triggers) If name is not provided, it defaults to the device type
 pub fn insert_device(
     conn: &mut SqliteConnection,
     device_input: DeviceInput,
@@ -56,13 +56,13 @@ pub fn insert_device(
 
     // Return the inserted device
     let device = devices.order(id.desc()).select(Device::as_select()).first(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "devices", device.id, "create", user_id);
     }
-    
+
     Ok(device)
 }
 
@@ -72,7 +72,11 @@ pub fn get_device_by_id(
     device_id: i32,
 ) -> Result<Option<Device>, diesel::result::Error> {
     use crate::schema::devices::dsl::*;
-    devices.filter(id.eq(device_id)).select(Device::as_select()).first(conn).optional()
+    devices
+        .filter(id.eq(device_id))
+        .select(Device::as_select())
+        .first(conn)
+        .optional()
 }
 
 /// Gets a device by site ID and name (case-insensitive).
@@ -95,12 +99,14 @@ pub fn get_all_devices(conn: &mut SqliteConnection) -> Result<Vec<Device>, diese
     devices.order(id.asc()).select(Device::as_select()).load(conn)
 }
 
-/// Updates a device in the database (timestamps handled automatically by database triggers)
+/// Updates a device in the database (timestamps handled automatically by
+/// database triggers)
 pub fn update_device(
     conn: &mut SqliteConnection,
     device_id: i32,
     new_name: Option<String>,
-    new_description: Option<Option<String>>, // Double Option to distinguish between "don't change" and "set to null"
+    new_description: Option<Option<String>>, /* Double Option to distinguish between "don't
+                                              * change" and "set to null" */
     new_type: Option<String>,
     new_model: Option<String>,
     new_serial: Option<Option<String>>,
@@ -113,7 +119,8 @@ pub fn update_device(
     use crate::schema::devices::dsl::*;
 
     // First, get the current device to preserve existing values
-    let current_device = devices.filter(id.eq(device_id)).select(Device::as_select()).first(conn)?;
+    let current_device =
+        devices.filter(id.eq(device_id)).select(Device::as_select()).first(conn)?;
 
     // Update with new values or keep existing ones
     diesel::update(devices.filter(id.eq(device_id)))
@@ -132,13 +139,13 @@ pub fn update_device(
 
     // Return the updated device
     let device = devices.filter(id.eq(device_id)).select(Device::as_select()).first(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "devices", device_id, "update", user_id);
     }
-    
+
     Ok(device)
 }
 
@@ -150,15 +157,15 @@ pub fn delete_device(
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::devices::dsl::*;
     let result = diesel::delete(devices.filter(id.eq(device_id))).execute(conn)?;
-    
+
     // Update the trigger-created activity entry with user information
-    if result > 0 {
-        if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ = update_latest_activity_user(conn, "devices", device_id, "delete", user_id);
-        }
+    if result > 0
+        && let Some(user_id) = acting_user_id
+    {
+        use crate::orm::entity_activity::update_latest_activity_user;
+        let _ = update_latest_activity_user(conn, "devices", device_id, "delete", user_id);
     }
-    
+
     Ok(result)
 }
 
@@ -168,7 +175,7 @@ pub fn get_device_with_timestamps(
     device_id: i32,
 ) -> Result<Option<DeviceWithTimestamps>, diesel::result::Error> {
     use crate::orm::entity_activity;
-    
+
     // First get the device
     let device = match get_device_by_id(conn, device_id)? {
         Some(d) => d,
@@ -198,9 +205,7 @@ pub fn get_device_with_timestamps(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orm::testing::setup_test_db;
-    use crate::orm::company::insert_company;
-    use crate::orm::site::insert_site;
+    use crate::orm::{company::insert_company, site::insert_site, testing::setup_test_db};
 
     #[test]
     fn test_insert_device_with_all_fields() {
@@ -237,8 +242,7 @@ mod tests {
             site_id: site.id,
         };
 
-        let device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let device = insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         assert_eq!(device.name, "Solar Inverter 1");
         assert_eq!(device.description, Some("Main solar inverter for building A".to_string()));
@@ -282,8 +286,7 @@ mod tests {
             site_id: site.id,
         };
 
-        let device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let device = insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         assert_eq!(device.name, "Battery"); // Name should default to type
         assert_eq!(device.type_, "Battery");
@@ -320,8 +323,7 @@ mod tests {
             site_id: site.id,
         };
 
-        insert_device(&mut conn, device_input1, None)
-            .expect("Failed to insert first device");
+        insert_device(&mut conn, device_input1, None).expect("Failed to insert first device");
 
         // Try to insert device with same name at same site
         let device_input2 = DeviceInput {
@@ -401,8 +403,8 @@ mod tests {
             site_id: site.id,
         };
 
-        let created_device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let created_device =
+            insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         // Test getting existing device
         let retrieved_device = get_device_by_id(&mut conn, created_device.id)
@@ -447,16 +449,12 @@ mod tests {
             site_id: site.id,
         };
 
-        let created_device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let created_device =
+            insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         // Test case-insensitive lookup with different cases
-        let test_cases = vec![
-            "test device name",
-            "TEST DEVICE NAME",
-            "Test Device Name",
-            "tEsT dEvIcE nAmE",
-        ];
+        let test_cases =
+            vec!["test device name", "TEST DEVICE NAME", "Test Device Name", "tEsT dEvIcE nAmE"];
 
         for test_name in test_cases {
             let retrieved_device = get_device_by_site_and_name(&mut conn, site.id, test_name)
@@ -656,14 +654,16 @@ mod tests {
             site_id: site.id,
         };
 
-        let created_device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let created_device =
+            insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         // Get timestamps from activity log
-        let original_created_at = crate::orm::entity_activity::get_created_at(&mut conn, "devices", created_device.id)
-            .expect("Should have created timestamp");
-        let original_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "devices", created_device.id)
-            .expect("Should have updated timestamp");
+        let original_created_at =
+            crate::orm::entity_activity::get_created_at(&mut conn, "devices", created_device.id)
+                .expect("Should have created timestamp");
+        let original_updated_at =
+            crate::orm::entity_activity::get_updated_at(&mut conn, "devices", created_device.id)
+                .expect("Should have updated timestamp");
 
         // Wait a moment to ensure updated_at changes
         std::thread::sleep(std::time::Duration::from_millis(1100));
@@ -692,11 +692,13 @@ mod tests {
         assert_eq!(updated_device.serial, Some("SN123".to_string()));
 
         // Check timestamps from activity log
-        let new_created_at = crate::orm::entity_activity::get_created_at(&mut conn, "devices", created_device.id)
-            .expect("Should have created timestamp");
-        let new_updated_at = crate::orm::entity_activity::get_updated_at(&mut conn, "devices", created_device.id)
-            .expect("Should have updated timestamp");
-            
+        let new_created_at =
+            crate::orm::entity_activity::get_created_at(&mut conn, "devices", created_device.id)
+                .expect("Should have created timestamp");
+        let new_updated_at =
+            crate::orm::entity_activity::get_updated_at(&mut conn, "devices", created_device.id)
+                .expect("Should have updated timestamp");
+
         assert_eq!(new_created_at, original_created_at); // Should not change
         assert!(new_updated_at > original_updated_at); // Should be updated
     }
@@ -743,10 +745,10 @@ mod tests {
             site_id: site.id,
         };
 
-        let device1 = insert_device(&mut conn, device_input1, None)
-            .expect("Failed to insert device 1");
-        let device2 = insert_device(&mut conn, device_input2, None)
-            .expect("Failed to insert device 2");
+        let device1 =
+            insert_device(&mut conn, device_input1, None).expect("Failed to insert device 1");
+        let device2 =
+            insert_device(&mut conn, device_input2, None).expect("Failed to insert device 2");
 
         // Verify both devices exist
         let all_devices_before = get_all_devices(&mut conn).expect("Failed to get devices");
@@ -754,7 +756,8 @@ mod tests {
         assert!(all_devices_before.iter().any(|d| d.id == device2.id));
 
         // Delete one device
-        let deleted_count = delete_device(&mut conn, device1.id, None).expect("Failed to delete device");
+        let deleted_count =
+            delete_device(&mut conn, device1.id, None).expect("Failed to delete device");
         assert_eq!(deleted_count, 1);
 
         // Verify only one device remains
@@ -770,10 +773,10 @@ mod tests {
     #[test]
     fn test_device_with_timestamps() {
         let mut conn = setup_test_db();
-        
+
         let company = insert_company(&mut conn, "Timestamp Test Company".to_string(), None)
             .expect("Failed to insert company");
-        
+
         let site = insert_site(
             &mut conn,
             "Timestamp Test Site".to_string(),
@@ -798,24 +801,24 @@ mod tests {
         };
 
         let device = insert_device(&mut conn, device_input, None).unwrap();
-        
+
         // Get device with timestamps
         let device_with_timestamps = get_device_with_timestamps(&mut conn, device.id)
             .expect("Should get timestamps")
             .expect("Device should exist");
-            
+
         assert_eq!(device_with_timestamps.id, device.id);
         assert_eq!(device_with_timestamps.name, "Timestamp Test Device");
         assert_eq!(device_with_timestamps.type_, "Sensor");
         assert_eq!(device_with_timestamps.model, "Model A");
         assert_eq!(device_with_timestamps.company_id, company.id);
         assert_eq!(device_with_timestamps.site_id, site.id);
-        
+
         // Timestamps should be recent (within last few seconds)
         let now = chrono::Utc::now().naive_utc();
         let created_diff = (device_with_timestamps.created_at - now).num_seconds().abs();
         let updated_diff = (device_with_timestamps.updated_at - now).num_seconds().abs();
-        
+
         assert!(created_diff <= 5, "Created timestamp should be recent");
         assert!(updated_diff <= 5, "Updated timestamp should be recent");
     }
@@ -850,15 +853,13 @@ mod tests {
             site_id: site.id,
         };
 
-        let device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let device = insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         // Verify device exists
         assert!(get_device_by_id(&mut conn, device.id).unwrap().is_some());
 
         // Delete the site
-        crate::orm::site::delete_site(&mut conn, site.id, None)
-            .expect("Failed to delete site");
+        crate::orm::site::delete_site(&mut conn, site.id, None).expect("Failed to delete site");
 
         // Device should be gone due to cascade delete
         assert!(get_device_by_id(&mut conn, device.id).unwrap().is_none());
@@ -894,8 +895,7 @@ mod tests {
             site_id: site.id,
         };
 
-        let device = insert_device(&mut conn, device_input, None)
-            .expect("Failed to insert device");
+        let device = insert_device(&mut conn, device_input, None).expect("Failed to insert device");
 
         // Verify device exists
         assert!(get_device_by_id(&mut conn, device.id).unwrap().is_some());

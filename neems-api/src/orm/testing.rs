@@ -1,14 +1,15 @@
-#![cfg(feature = "test-staging")]
-
-use diesel::connection::SimpleConnection;
-use diesel::sqlite::SqliteConnection;
-use rocket::figment::{
-    util::map,
-    value::{Map, Value},
-};
-use rocket::{Build, Rocket, fairing::AdHoc};
-use rocket_sync_db_pools::diesel;
 use std::path::PathBuf;
+
+use diesel::{connection::SimpleConnection, sqlite::SqliteConnection};
+use rocket::{
+    Build, Rocket,
+    fairing::AdHoc,
+    figment::{
+        util::map,
+        value::{Map, Value},
+    },
+};
+use rocket_sync_db_pools::diesel;
 
 use super::db::{DbConn, run_pending_migrations, set_foreign_keys};
 use crate::admin_init_fairing::admin_init_fairing;
@@ -16,40 +17,45 @@ use crate::admin_init_fairing::admin_init_fairing;
 /// Creates a golden database template with all test data pre-populated.
 /// This is created once and then copied for each test that needs it.
 /// The golden database is identified by timestamp and located automatically.
-
-
-
-
-/// Gets the golden database path by finding the most recent timestamp-based golden database
+///
+/// Gets the golden database path by finding the most recent timestamp-based
+/// golden database
 fn get_golden_db_path() -> PathBuf {
     use std::fs;
-    
-    let target_dir = PathBuf::from("../target");
-    
-    if let Ok(entries) = fs::read_dir(&target_dir) {
-        let mut golden_dbs: Vec<PathBuf> = entries
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with("golden_test_") && name.ends_with(".db"))
-                    .unwrap_or(false)
-            })
-            .collect();
-            
-        // Sort by filename (which includes timestamp) to get the most recent
-        golden_dbs.sort();
-        
-        if let Some(latest) = golden_dbs.last() {
-            return latest.clone();
+
+    // Try multiple possible locations for the target directory
+    let possible_target_dirs = vec![
+        PathBuf::from("../target"),    // Running from neems-api/
+        PathBuf::from("target"),       // Running from workspace root
+        PathBuf::from("../../target"), // Running from nested test directory
+    ];
+
+    for target_dir in possible_target_dirs {
+        if let Ok(entries) = fs::read_dir(&target_dir) {
+            let mut golden_dbs: Vec<PathBuf> = entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.starts_with("golden_test_") && name.ends_with(".db"))
+                        .unwrap_or(false)
+                })
+                .collect();
+
+            // Sort by filename (which includes timestamp) to get the most recent
+            golden_dbs.sort();
+
+            if let Some(latest) = golden_dbs.last() {
+                return latest.clone();
+            }
         }
     }
-    
-    // Fallback: return a path that won't exist to trigger the error in fast_test_rocket
-    PathBuf::from("../target/golden_test_not_found.db")
-}
 
+    // Fallback: return a path that won't exist to trigger the error in
+    // fast_test_rocket
+    PathBuf::from("target/golden_test_not_found.db")
+}
 
 /// Configures SQLite with performance-optimized settings for testing.
 ///
@@ -80,9 +86,7 @@ fn set_sqlite_test_pragmas(conn: &mut diesel::SqliteConnection) {
 /// suitable only for testing environments.
 fn set_sqlite_test_pragmas_fairing() -> AdHoc {
     AdHoc::on_ignite("Set SQLite Test Pragmas", |rocket| async {
-        let conn = DbConn::get_one(&rocket)
-            .await
-            .expect("database connection for migration");
+        let conn = DbConn::get_one(&rocket).await.expect("database connection for migration");
         conn.run(|c| {
             set_sqlite_test_pragmas(c);
         })
@@ -91,14 +95,8 @@ fn set_sqlite_test_pragmas_fairing() -> AdHoc {
     })
 }
 
-
-
-
-
-
-
-
-/// Creates and configures a Rocket instance for testing with an in-memory SQLite database.
+/// Creates and configures a Rocket instance for testing with an in-memory
+/// SQLite database.
 ///
 /// The returned Rocket instance will have:
 /// - An in-memory SQLite database configured
@@ -123,16 +121,17 @@ pub fn test_rocket() -> Rocket<Build> {
 
     // Create database config map
     let mut databases = map!["sqlite_db" => db_config.clone()];
-    
+
     // Add site_db configuration when test-staging feature is enabled
     {
-        let site_unique_db_name = format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+        let site_unique_db_name =
+            format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
         let site_db_config: Map<_, Value> = map! {
             "url" => site_unique_db_name.into(),
             "pool_size" => 5.into(),
             "timeout" => 5.into(),
         };
-        databases.insert("site_db", site_db_config.into());
+        databases.insert("site_db", site_db_config);
     }
 
     // Merge DB config into Rocket's figment
@@ -150,26 +149,29 @@ pub fn test_rocket() -> Rocket<Build> {
     // {
     //     rocket = rocket.attach(test_data_init_fairing());
     // }
-    
+
     // Attach SiteDbConn fairing when test-staging feature is enabled
     {
-        rocket = rocket.attach(super::neems_data::db::SiteDbConn::fairing())
-                      .attach(super::neems_data::db::set_foreign_keys_fairing());
+        rocket = rocket
+            .attach(super::neems_data::db::SiteDbConn::fairing())
+            .attach(super::neems_data::db::set_foreign_keys_fairing())
+            .attach(super::neems_data::db::run_site_migrations_fairing());
     }
-    
+
     crate::mount_api_routes(rocket)
 }
 
-/// Creates a fast Rocket instance for testing by copying a pre-populated golden database.
-/// This is much faster than test_rocket() because it skips all the initialization fairings.
-/// 
+/// Creates a fast Rocket instance for testing by copying a pre-populated golden
+/// database. This is much faster than test_rocket() because it skips all the
+/// initialization fairings.
+///
 /// Use this for tests that don't need to modify the core test data structure.
 pub fn fast_test_rocket() -> Rocket<Build> {
     use uuid::Uuid;
-    
+
     // Get the golden database template
     let golden_db_path = get_golden_db_path();
-    
+
     // Check if golden database exists
     if !golden_db_path.exists() {
         panic!(
@@ -177,22 +179,27 @@ pub fn fast_test_rocket() -> Rocket<Build> {
             golden_db_path
         );
     }
-    
-    // Create a unique copy for this test in the workspace target directory
-    let test_db_path = PathBuf::from(format!("../target/test_db_{}.db", Uuid::new_v4()));
-    
-    // Copy the golden database - this creates a brand new file with no existing connections
-    std::fs::copy(&golden_db_path, &test_db_path)
-        .expect("Failed to copy golden database");
-    
+
+    // Create a unique copy for this test in the same directory as the golden
+    // database
+    let test_db_path = golden_db_path
+        .parent()
+        .expect("Golden DB should have a parent directory")
+        .join(format!("test_db_{}.db", Uuid::new_v4()));
+
+    // Copy the golden database - this creates a brand new file with no existing
+    // connections
+    std::fs::copy(&golden_db_path, &test_db_path).expect("Failed to copy golden database");
+
     // Verify the copied database exists
     if !test_db_path.exists() {
         panic!("Copied test database does not exist at: {:?}", test_db_path);
     }
-    
+
     println!("[fast-test] Copied golden DB to: {:?}", test_db_path);
-    
-    // Use the absolute path directly without file: prefix (like test_rocket uses bare paths)
+
+    // Use the absolute path directly without file: prefix (like test_rocket uses
+    // bare paths)
     let absolute_path = std::fs::canonicalize(&test_db_path)
         .expect("Failed to get absolute path for test database");
     let db_url = absolute_path.to_string_lossy().to_string();
@@ -202,38 +209,44 @@ pub fn fast_test_rocket() -> Rocket<Build> {
         "pool_size" => 5.into(),     // Match test_rocket exactly
         "timeout" => 5.into(),       // Match test_rocket timeout
     };
-    
+
     // Create site database config (using in-memory for fast tests)
-    let site_unique_db_name = format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
+    let site_unique_db_name =
+        format!("file:test_site_db_{}?mode=memory&cache=shared", Uuid::new_v4());
     let site_db_config: Map<_, Value> = map! {
         "url" => site_unique_db_name.into(),
         "pool_size" => 5.into(),
         "timeout" => 5.into(),
     };
-    
+
     // Create database config map with both main and site databases
     let databases = map![
         "sqlite_db" => db_config.clone(),
         "site_db" => site_db_config
     ];
-    
+
     // Merge DB config into Rocket's figment
     let figment = rocket::Config::figment().merge(("databases", databases));
-    
-    // Build the Rocket instance with minimal fairings (no initialization fairings needed!)
-    // The golden database is already fully set up, so we only need basic database connections
+
+    // Build the Rocket instance with minimal fairings (no initialization fairings
+    // needed!) The golden database is already fully set up, so we only need
+    // basic database connections. However, the site_db is in-memory, so we need
+    // to run migrations on it.
     let rocket = rocket::custom(figment)
         .attach(DbConn::fairing())
-        .attach(super::neems_data::db::SiteDbConn::fairing());
-        
+        .attach(super::neems_data::db::SiteDbConn::fairing())
+        .attach(super::neems_data::db::set_foreign_keys_fairing())
+        .attach(super::neems_data::db::run_site_migrations_fairing());
+
     crate::mount_api_routes(rocket)
 }
 
 /// Creates a synchronous in-memory SQLite database connection for unit tests.
 ///
-/// This function returns a `diesel::SqliteConnection` connected to an in-memory SQLite database,
-/// runs all embedded Diesel migrations, and enables foreign key support. This is ideal for
-/// direct Diesel queries in synchronous test code.
+/// This function returns a `diesel::SqliteConnection` connected to an in-memory
+/// SQLite database, runs all embedded Diesel migrations, and enables foreign
+/// key support. This is ideal for direct Diesel queries in synchronous test
+/// code.
 ///
 /// Each call to this function returns a new, independent in-memory database.
 pub fn setup_test_db() -> SqliteConnection {
@@ -246,31 +259,38 @@ pub fn setup_test_db() -> SqliteConnection {
     conn
 }
 
-/// A minimal async-compatible wrapper for a synchronous SQLite connection for unit testing.
+/// A minimal async-compatible wrapper for a synchronous SQLite connection for
+/// unit testing.
 ///
-/// This helper struct and function allow you to use your test database with code that expects
-/// a Rocket-style async `.run()` interface (such as functions that take a `DbConn`).
+/// This helper struct and function allow you to use your test database with
+/// code that expects a Rocket-style async `.run()` interface (such as functions
+/// that take a `DbConn`).
 ///
-/// Unlike `setup_test_db()`, which returns a synchronous Diesel connection for direct use,
-/// `setup_test_dbconn()` returns a `FakeDbConn` that can be used with async code expecting
-/// a `.run()` method.
+/// Unlike `setup_test_db()`, which returns a synchronous Diesel connection for
+/// direct use, `setup_test_dbconn()` returns a `FakeDbConn` that can be used
+/// with async code expecting a `.run()` method.
 ///
-/// Both use the same in-memory database if you only call `setup_test_db()` once and wrap the result.
-/// Each call to `setup_test_dbconn()` creates a new, independent in-memory database.
+/// Both use the same in-memory database if you only call `setup_test_db()` once
+/// and wrap the result. Each call to `setup_test_dbconn()` creates a new,
+/// independent in-memory database.
 pub struct FakeDbConn<'a>(pub &'a mut diesel::SqliteConnection);
 
 impl<'a> FakeDbConn<'a> {
-    /// Executes a closure with a mutable reference to the underlying SQLite connection.
+    /// Executes a closure with a mutable reference to the underlying SQLite
+    /// connection.
     ///
-    /// This method mimics the async `.run()` interface used by Rocket's database connections,
-    /// but operates synchronously for testing purposes.
+    /// This method mimics the async `.run()` interface used by Rocket's
+    /// database connections, but operates synchronously for testing
+    /// purposes.
     ///
     /// # Arguments
-    /// * `f` - A closure that takes a mutable reference to the SQLite connection
+    /// * `f` - A closure that takes a mutable reference to the SQLite
+    ///   connection
     ///
     /// # Safety
-    /// This uses unsafe code to convert an immutable reference to mutable, which is safe
-    /// in this controlled test environment where we know we have exclusive access.
+    /// This uses unsafe code to convert an immutable reference to mutable,
+    /// which is safe in this controlled test environment where we know we
+    /// have exclusive access.
     pub async fn run<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut diesel::SqliteConnection) -> R + Send + 'static,
@@ -286,13 +306,15 @@ impl<'a> FakeDbConn<'a> {
     }
 }
 
-/// Creates a `FakeDbConn` for async-style testing with the given SQLite connection.
+/// Creates a `FakeDbConn` for async-style testing with the given SQLite
+/// connection.
 ///
-/// This is useful for testing code that expects a Rocket-style `.run()` interface,
-/// but you want to use your in-memory test database.
+/// This is useful for testing code that expects a Rocket-style `.run()`
+/// interface, but you want to use your in-memory test database.
 ///
 /// # Arguments
-/// * `conn` - A mutable reference to a `diesel::SqliteConnection` (typically from `setup_test_db()`)
+/// * `conn` - A mutable reference to a `diesel::SqliteConnection` (typically
+///   from `setup_test_db()`)
 ///
 /// # Returns
 /// A `FakeDbConn` wrapping the provided connection
@@ -300,10 +322,11 @@ pub fn setup_test_dbconn<'a>(conn: &'a mut diesel::SqliteConnection) -> FakeDbCo
     FakeDbConn(conn)
 }
 
-/// Creates a minimal Rocket instance for testing APIs that don't require a database.
+/// Creates a minimal Rocket instance for testing APIs that don't require a
+/// database.
 ///
-/// This is useful for testing endpoints that don't need database access, avoiding
-/// potential database conflicts and improving test performance.
+/// This is useful for testing endpoints that don't need database access,
+/// avoiding potential database conflicts and improving test performance.
 ///
 /// The returned Rocket instance will have:
 /// - Only fixphrase API routes mounted (if fixphrase feature is enabled)

@@ -1,20 +1,23 @@
 //! API endpoints for user login and authentication.
 //!
-//! This module provides HTTP endpoints for user authentication, session management,
-//! and secure API access. It handles user login requests, generates session tokens,
-//! and provides authenticated endpoints.
+//! This module provides HTTP endpoints for user authentication, session
+//! management, and secure API access. It handles user login requests, generates
+//! session tokens, and provides authenticated endpoints.
 
-use crate::logged_json::LoggedJson;
-use rocket::response;
-use rocket::serde::{Deserialize, Serialize};
-use rocket::{Route, get, http::CookieJar, post, serde::json::Json};
+use rocket::{
+    Route, get,
+    http::CookieJar,
+    post, response,
+    serde::{Deserialize, Serialize, json::Json},
+};
 use ts_rs::TS;
 
-use crate::DbConn;
-use crate::orm::company::get_company_by_id;
-use crate::orm::login::process_login;
-use crate::orm::user_role::get_user_roles;
-use crate::session_guards::AuthenticatedUser;
+use crate::{
+    DbConn,
+    logged_json::LoggedJson,
+    orm::{company::get_company_by_id, login::process_login, user_role::get_user_roles},
+    session_guards::AuthenticatedUser,
+};
 
 /// Error response structure for authentication failures.
 #[derive(Serialize, TS)]
@@ -33,10 +36,12 @@ pub struct LoginSuccessResponse {
     pub roles: Vec<String>,
 }
 
-/// Creates a standardized user response structure for login and hello endpoints.
+/// Creates a standardized user response structure for login and hello
+/// endpoints.
 ///
 /// This function ensures both login and hello endpoints return exactly the same
-/// data structure for a given user, including user_id, email, company_name, and roles.
+/// data structure for a given user, including user_id, email, company_name, and
+/// roles.
 ///
 /// # Arguments
 /// * `db` - Database connection for fetching user roles and company information
@@ -58,10 +63,7 @@ async fn build_user_response(
 
     // Get company name
     let company_id = user.company_id;
-    let company_name = match db
-        .run(move |conn| get_company_by_id(conn, company_id))
-        .await
-    {
+    let company_name = match db.run(move |conn| get_company_by_id(conn, company_id)).await {
         Ok(Some(company)) => company.name,
         Ok(None) => "Unknown Company".to_string(),
         Err(_) => "Unknown Company".to_string(),
@@ -87,7 +89,8 @@ pub struct LoginRequest {
 ///
 /// - **URL:** `/api/1/login`
 /// - **Method:** `POST`
-/// - **Purpose:** Authenticates a user by email and password, and sets a secure session cookie
+/// - **Purpose:** Authenticates a user by email and password, and sets a secure
+///   session cookie
 /// - **Authentication:** None required
 ///
 /// This endpoint accepts user credentials via JSON, validates them against
@@ -121,7 +124,8 @@ pub struct LoginRequest {
 ///
 /// # Returns
 /// * `Ok(Status::Ok)` - Authentication successful, session cookie set
-/// * `Err(Custom<Json<ErrorResponse>>)` - Authentication failed with error details
+/// * `Err(Custom<Json<ErrorResponse>>)` - Authentication failed with error
+///   details
 ///
 /// # Security
 /// - Session cookies are HTTP-only, secure, and use SameSite=Lax
@@ -153,9 +157,7 @@ pub async fn login(
             Err(err_response) => Err(err_response),
         },
         Err(status) => {
-            let err_json = Json(ErrorResponse {
-                error: "Invalid credentials".to_string(),
-            });
+            let err_json = Json(ErrorResponse { error: "Invalid credentials".to_string() });
             Err(response::status::Custom(status, err_json))
         }
     }
@@ -165,7 +167,8 @@ pub async fn login(
 ///
 /// - **URL:** `/api/1/hello`
 /// - **Method:** `GET`
-/// - **Purpose:** Returns a greeting for authenticated users; useful for checking authentication status
+/// - **Purpose:** Returns a greeting for authenticated users; useful for
+///   checking authentication status
 /// - **Authentication:** Required
 ///
 /// This endpoint demonstrates authenticated API access by returning a

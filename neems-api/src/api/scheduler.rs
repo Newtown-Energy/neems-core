@@ -3,38 +3,44 @@
 //! This module provides HTTP endpoints for creating, updating, and managing
 //! scheduler scripts and overrides for site state management.
 
-use rocket::Route;
-use rocket::http::Status;
-use rocket::response::{self, status};
-use rocket::serde::json::Json;
-use serde::{Serialize, Deserialize};
-use ts_rs::TS;
 use chrono::NaiveDateTime;
+use rocket::{
+    Route,
+    http::Status,
+    response::{self, status},
+    serde::json::Json,
+};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-use crate::logged_json::LoggedJson;
-use crate::models::{
-    SchedulerScript, SchedulerScriptInput, UpdateSchedulerScriptRequest,
-    SchedulerOverride, SchedulerOverrideInput,
-    SiteState
+use crate::{
+    logged_json::LoggedJson,
+    models::{
+        SchedulerOverride, SchedulerOverrideInput, SchedulerScript, SchedulerScriptInput,
+        SiteState, UpdateSchedulerScriptRequest,
+    },
+    odata_query::{ODataCollectionResponse, ODataQuery, apply_select, build_context_url},
+    orm::{
+        DbConn,
+        scheduler::{SchedulerService, execute_scheduler_for_site, get_site_state_at_datetime},
+        scheduler_override::{
+            check_override_conflicts, get_all_scheduler_overrides, get_scheduler_overrides_by_site,
+            insert_scheduler_override,
+        },
+        scheduler_script::{
+            delete_scheduler_script, get_all_scheduler_scripts, get_scheduler_script_by_id,
+            get_scheduler_scripts_by_site, insert_scheduler_script, is_script_name_unique_in_site,
+            update_scheduler_script,
+        },
+        site::get_site_by_id,
+    },
+    session_guards::AuthenticatedUser,
 };
-use crate::odata_query::{ODataQuery, ODataCollectionResponse, build_context_url, apply_select};
-use crate::orm::DbConn;
-use crate::orm::scheduler_script::{
-    get_all_scheduler_scripts, get_scheduler_script_by_id, insert_scheduler_script,
-    update_scheduler_script, delete_scheduler_script, get_scheduler_scripts_by_site,
-    is_script_name_unique_in_site
-};
-use crate::orm::scheduler_override::{
-    get_all_scheduler_overrides, insert_scheduler_override, get_scheduler_overrides_by_site,
-    check_override_conflicts
-};
-use crate::orm::scheduler::{get_site_state_at_datetime, execute_scheduler_for_site, SchedulerService};
-use crate::orm::site::get_site_by_id;
-use crate::session_guards::AuthenticatedUser;
 
 // ========== AUTHORIZATION HELPERS ==========
 
-/// Check if a user can create/read/update/delete scheduler scripts for a specific site.
+/// Check if a user can create/read/update/delete scheduler scripts for a
+/// specific site.
 /// - newtown-admin and newtown-staff can access any site's scripts
 /// - Company admins can only access scripts for sites in their own company
 fn can_crud_scheduler_script(user: &AuthenticatedUser, site_company_id: i32) -> bool {
@@ -141,22 +147,22 @@ pub async fn create_scheduler_script(
 ) -> Result<status::Created<Json<SchedulerScript>>, response::status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         let script_input = new_script.into_inner();
-        
+
         // Check if the site exists and get its company_id
         let site_company_id = match get_site_company_id(conn, script_input.site_id) {
             Ok(company_id) => company_id,
             Err(error_msg) => {
-                let err = Json(ErrorResponse {
-                    error: error_msg,
-                });
+                let err = Json(ErrorResponse { error: error_msg });
                 return Err(response::status::Custom(Status::BadRequest, err));
             }
         };
 
-        // Check authorization - user must be able to create scripts for this site's company
+        // Check authorization - user must be able to create scripts for this site's
+        // company
         if !can_crud_scheduler_script(&auth_user, site_company_id) {
             let err = Json(ErrorResponse {
-                error: "Insufficient permissions to create scheduler scripts for this site".to_string(),
+                error: "Insufficient permissions to create scheduler scripts for this site"
+                    .to_string(),
             });
             return Err(response::status::Custom(Status::Forbidden, err));
         }
@@ -166,7 +172,10 @@ pub async fn create_scheduler_script(
             Ok(true) => {} // Name is unique, continue
             Ok(false) => {
                 let err = Json(ErrorResponse {
-                    error: format!("Script name '{}' already exists for this site", script_input.name),
+                    error: format!(
+                        "Script name '{}' already exists for this site",
+                        script_input.name
+                    ),
                 });
                 return Err(response::status::Custom(Status::Conflict, err));
             }
@@ -200,7 +209,8 @@ pub async fn create_scheduler_script(
 /// - **Method:** `GET`
 /// - **Purpose:** Retrieves all scheduler scripts
 /// - **Authentication:** Required
-/// - **Authorization:** Company admins can see scripts for their sites, newtown staff can see all
+/// - **Authorization:** Company admins can see scripts for their sites, newtown
+///   staff can see all
 #[get("/1/SchedulerScripts?<query..>")]
 pub async fn list_scheduler_scripts(
     db: DbConn,
@@ -210,61 +220,61 @@ pub async fn list_scheduler_scripts(
     // Validate query options
     query.validate().map_err(|_| Status::BadRequest)?;
 
-    let scripts = db.run(move |conn| {
-        // Get all scripts first
-        let all_scripts = get_all_scheduler_scripts(conn).map_err(|e| {
-            eprintln!("Error listing scheduler scripts: {:?}", e);
-            Status::InternalServerError
-        })?;
+    let scripts = db
+        .run(move |conn| {
+            // Get all scripts first
+            let all_scripts = get_all_scheduler_scripts(conn).map_err(|e| {
+                eprintln!("Error listing scheduler scripts: {:?}", e);
+                Status::InternalServerError
+            })?;
 
-        // Filter scripts based on user permissions
-        let mut filtered_scripts = Vec::new();
-        for script in all_scripts {
-            // Get the company_id for this script's site
-            match get_site_company_id(conn, script.site_id) {
-                Ok(site_company_id) => {
-                    // Only include scripts the user can view
-                    if can_view_scheduler_script(&auth_user, site_company_id) {
-                        filtered_scripts.push(script);
+            // Filter scripts based on user permissions
+            let mut filtered_scripts = Vec::new();
+            for script in all_scripts {
+                // Get the company_id for this script's site
+                match get_site_company_id(conn, script.site_id) {
+                    Ok(site_company_id) => {
+                        // Only include scripts the user can view
+                        if can_view_scheduler_script(&auth_user, site_company_id) {
+                            filtered_scripts.push(script);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Could not get company for site {} (script {}): {}",
+                            script.site_id, script.id, e
+                        );
+                        // Skip this script if we can't verify company ownership
                     }
                 }
-                Err(e) => {
-                    eprintln!("Warning: Could not get company for site {} (script {}): {}", 
-                        script.site_id, script.id, e);
-                    // Skip this script if we can't verify company ownership
-                }
             }
-        }
 
-        Ok(filtered_scripts)
-    })
-    .await?;
+            Ok(filtered_scripts)
+        })
+        .await?;
 
     let mut filtered_scripts = scripts;
 
     // Apply OData filtering if specified
     if let Some(filter_expr) = query.parse_filter() {
-        filtered_scripts = filtered_scripts
-            .into_iter()
-            .filter(|script| {
-                match &filter_expr.property.as_str() {
-                    &"name" => match &filter_expr.value {
-                        crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                            crate::odata_query::FilterOperator::Eq => script.name == *s,
-                            crate::odata_query::FilterOperator::Ne => script.name != *s,
-                            crate::odata_query::FilterOperator::Contains => script.name.contains(s),
-                            _ => true,
-                        },
+        filtered_scripts.retain(|script| {
+            match &filter_expr.property.as_str() {
+                &"name" => match &filter_expr.value {
+                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
+                        crate::odata_query::FilterOperator::Eq => script.name == *s,
+                        crate::odata_query::FilterOperator::Ne => script.name != *s,
+                        crate::odata_query::FilterOperator::Contains => script.name.contains(s),
                         _ => true,
                     },
-                    &"is_active" => match &filter_expr.value {
-                        crate::odata_query::FilterValue::Boolean(b) => script.is_active == *b,
-                        _ => true,
-                    },
-                    _ => true, // Unknown property, don't filter
-                }
-            })
-            .collect();
+                    _ => true,
+                },
+                &"is_active" => match &filter_expr.value {
+                    crate::odata_query::FilterValue::Boolean(b) => script.is_active == *b,
+                    _ => true,
+                },
+                _ => true, // Unknown property, don't filter
+            }
+        });
     }
 
     // Apply sorting if specified
@@ -310,15 +320,18 @@ pub async fn list_scheduler_scripts(
     let selected_scripts: Result<Vec<serde_json::Value>, _> = filtered_scripts
         .iter()
         .map(|script| {
-            let script_json = serde_json::to_value(script).map_err(|_| Status::InternalServerError)?;
-            apply_select(&script_json, select_props.as_deref()).map_err(|_| Status::InternalServerError)
+            let script_json =
+                serde_json::to_value(script).map_err(|_| Status::InternalServerError)?;
+            apply_select(&script_json, select_props.as_deref())
+                .map_err(|_| Status::InternalServerError)
         })
         .collect();
 
     let selected_scripts = selected_scripts.map_err(|_| Status::InternalServerError)?;
 
     // Build OData response
-    let context = build_context_url("http://localhost/api/1", "SchedulerScripts", select_props.as_deref());
+    let context =
+        build_context_url("http://localhost/api/1", "SchedulerScripts", select_props.as_deref());
     let mut response = ODataCollectionResponse::new(context, selected_scripts);
 
     // Add count if requested
@@ -436,7 +449,12 @@ pub async fn update_scheduler_script_endpoint(
             return Err(response::status::Custom(Status::Forbidden, err));
         }
 
-        match update_scheduler_script(conn, script_id, update_request.into_inner(), Some(auth_user.user.id)) {
+        match update_scheduler_script(
+            conn,
+            script_id,
+            update_request.into_inner(),
+            Some(auth_user.user.id),
+        ) {
             Ok(script) => Ok(Json(script)),
             Err(diesel::result::Error::NotFound) => {
                 let err = Json(ErrorResponse {
@@ -541,7 +559,8 @@ pub async fn create_scheduler_override(
     db: DbConn,
     new_override: LoggedJson<SchedulerOverrideInput>,
     auth_user: AuthenticatedUser,
-) -> Result<status::Created<Json<SchedulerOverride>>, response::status::Custom<Json<ErrorResponse>>> {
+) -> Result<status::Created<Json<SchedulerOverride>>, response::status::Custom<Json<ErrorResponse>>>
+{
     // Check authorization
     if !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"]) {
         let err = Json(ErrorResponse {
@@ -554,7 +573,7 @@ pub async fn create_scheduler_override(
         let override_input = new_override.into_inner();
 
         // Validate state value
-        if let Err(e) = SiteState::from_str(&override_input.state) {
+        if let Err(e) = override_input.state.parse::<SiteState>() {
             let err = Json(ErrorResponse {
                 error: format!("Invalid state value: {}", e),
             });
@@ -580,7 +599,10 @@ pub async fn create_scheduler_override(
             Ok(conflicts) => {
                 if !conflicts.is_empty() {
                     let err = Json(ErrorResponse {
-                        error: format!("Override conflicts with {} existing override(s)", conflicts.len()),
+                        error: format!(
+                            "Override conflicts with {} existing override(s)",
+                            conflicts.len()
+                        ),
                     });
                     return Err(response::status::Custom(Status::Conflict, err));
                 }
@@ -595,7 +617,12 @@ pub async fn create_scheduler_override(
         }
 
         // Create the override
-        match insert_scheduler_override(conn, override_input, auth_user.user.id, Some(auth_user.user.id)) {
+        match insert_scheduler_override(
+            conn,
+            override_input,
+            auth_user.user.id,
+            Some(auth_user.user.id),
+        ) {
             Ok(override_record) => Ok(status::Created::new("/").body(Json(override_record))),
             Err(e) => {
                 eprintln!("Error creating scheduler override: {:?}", e);
@@ -624,13 +651,14 @@ pub async fn list_scheduler_overrides(
     // Validate query options
     query.validate().map_err(|_| Status::BadRequest)?;
 
-    let overrides = db.run(|conn| {
-        get_all_scheduler_overrides(conn).map_err(|e| {
-            eprintln!("Error listing scheduler overrides: {:?}", e);
-            Status::InternalServerError
+    let overrides = db
+        .run(|conn| {
+            get_all_scheduler_overrides(conn).map_err(|e| {
+                eprintln!("Error listing scheduler overrides: {:?}", e);
+                Status::InternalServerError
+            })
         })
-    })
-    .await?;
+        .await?;
 
     // Apply OData filtering, sorting, etc. (similar to scripts)
     let mut filtered_overrides = overrides;
@@ -651,15 +679,18 @@ pub async fn list_scheduler_overrides(
     let selected_overrides: Result<Vec<serde_json::Value>, _> = filtered_overrides
         .iter()
         .map(|override_record| {
-            let override_json = serde_json::to_value(override_record).map_err(|_| Status::InternalServerError)?;
-            apply_select(&override_json, select_props.as_deref()).map_err(|_| Status::InternalServerError)
+            let override_json =
+                serde_json::to_value(override_record).map_err(|_| Status::InternalServerError)?;
+            apply_select(&override_json, select_props.as_deref())
+                .map_err(|_| Status::InternalServerError)
         })
         .collect();
 
     let selected_overrides = selected_overrides.map_err(|_| Status::InternalServerError)?;
 
     // Build OData response
-    let context = build_context_url("http://localhost/api/1", "SchedulerOverrides", select_props.as_deref());
+    let context =
+        build_context_url("http://localhost/api/1", "SchedulerOverrides", select_props.as_deref());
     let mut response = ODataCollectionResponse::new(context, selected_overrides);
 
     // Add count if requested
@@ -788,25 +819,28 @@ pub async fn validate_scheduler_script(
 
         // Validate the script
         match SchedulerService::new() {
-            Ok(service) => {
-                match service.validate_script(conn, &script, script.site_id) {
-                    Ok(validation_result) => {
-                        let response = ValidateScriptResponse {
-                            is_valid: validation_result.is_valid,
-                            error: validation_result.error,
-                            test_state: validation_result.test_execution.as_ref().map(|r| r.state.as_str().to_string()),
-                            execution_time_ms: validation_result.test_execution.map(|r| r.execution_time_ms),
-                        };
-                        Ok(Json(response))
-                    }
-                    Err(e) => {
-                        let err = Json(ErrorResponse {
-                            error: format!("Validation error: {}", e),
-                        });
-                        Err(response::status::Custom(Status::InternalServerError, err))
-                    }
+            Ok(service) => match service.validate_script(conn, &script, script.site_id) {
+                Ok(validation_result) => {
+                    let response = ValidateScriptResponse {
+                        is_valid: validation_result.is_valid,
+                        error: validation_result.error,
+                        test_state: validation_result
+                            .test_execution
+                            .as_ref()
+                            .map(|r| r.state.as_str().to_string()),
+                        execution_time_ms: validation_result
+                            .test_execution
+                            .map(|r| r.execution_time_ms),
+                    };
+                    Ok(Json(response))
                 }
-            }
+                Err(e) => {
+                    let err = Json(ErrorResponse {
+                        error: format!("Validation error: {}", e),
+                    });
+                    Err(response::status::Custom(Status::InternalServerError, err))
+                }
+            },
             Err(e) => {
                 let err = Json(ErrorResponse {
                     error: format!("Failed to create scheduler service: {}", e),
@@ -835,27 +869,25 @@ pub async fn execute_site_scheduler(
         .and_then(|req| req.datetime)
         .or_else(|| Some(chrono::Utc::now().naive_utc()));
 
-    db.run(move |conn| {
-        match execute_scheduler_for_site(conn, site_id, datetime) {
-            Ok(result) => {
-                let response = ExecuteSchedulerResponse {
-                    state: result.state.as_str().to_string(),
-                    source: match result.source {
-                        crate::orm::scheduler::StateSource::Override(id) => format!("override:{}", id),
-                        crate::orm::scheduler::StateSource::Script(id) => format!("script:{}", id),
-                        crate::orm::scheduler::StateSource::Default => "default".to_string(),
-                    },
-                    execution_time_ms: result.execution_time_ms,
-                    error: result.error,
-                };
-                Ok(Json(response))
-            }
-            Err(e) => {
-                let err = Json(ErrorResponse {
-                    error: format!("Scheduler execution error: {}", e),
-                });
-                Err(response::status::Custom(Status::InternalServerError, err))
-            }
+    db.run(move |conn| match execute_scheduler_for_site(conn, site_id, datetime) {
+        Ok(result) => {
+            let response = ExecuteSchedulerResponse {
+                state: result.state.as_str().to_string(),
+                source: match result.source {
+                    crate::orm::scheduler::StateSource::Override(id) => format!("override:{}", id),
+                    crate::orm::scheduler::StateSource::Script(id) => format!("script:{}", id),
+                    crate::orm::scheduler::StateSource::Default => "default".to_string(),
+                },
+                execution_time_ms: result.execution_time_ms,
+                error: result.error,
+            };
+            Ok(Json(response))
+        }
+        Err(e) => {
+            let err = Json(ErrorResponse {
+                error: format!("Scheduler execution error: {}", e),
+            });
+            Err(response::status::Custom(Status::InternalServerError, err))
         }
     })
     .await
@@ -880,7 +912,8 @@ pub async fn get_site_state(
             Ok(dt) => dt,
             Err(_) => {
                 let err = Json(ErrorResponse {
-                    error: "Invalid datetime format. Use ISO 8601 format: YYYY-MM-DDTHH:MM:SS".to_string(),
+                    error: "Invalid datetime format. Use ISO 8601 format: YYYY-MM-DDTHH:MM:SS"
+                        .to_string(),
                 });
                 return Err(response::status::Custom(Status::BadRequest, err));
             }
@@ -889,29 +922,27 @@ pub async fn get_site_state(
         chrono::Utc::now().naive_utc()
     };
 
-    db.run(move |conn| {
-        match get_site_state_at_datetime(conn, site_id, query_datetime) {
-            Ok(result) => {
-                let response = SiteStateResponse {
-                    site_id,
-                    state: result.state.as_str().to_string(),
-                    datetime: query_datetime,
-                    source: match result.source {
-                        crate::orm::scheduler::StateSource::Override(id) => format!("override:{}", id),
-                        crate::orm::scheduler::StateSource::Script(id) => format!("script:{}", id),
-                        crate::orm::scheduler::StateSource::Default => "default".to_string(),
-                    },
-                    execution_time_ms: result.execution_time_ms,
-                    error: result.error,
-                };
-                Ok(Json(response))
-            }
-            Err(e) => {
-                let err = Json(ErrorResponse {
-                    error: format!("Error getting site state: {}", e),
-                });
-                Err(response::status::Custom(Status::InternalServerError, err))
-            }
+    db.run(move |conn| match get_site_state_at_datetime(conn, site_id, query_datetime) {
+        Ok(result) => {
+            let response = SiteStateResponse {
+                site_id,
+                state: result.state.as_str().to_string(),
+                datetime: query_datetime,
+                source: match result.source {
+                    crate::orm::scheduler::StateSource::Override(id) => format!("override:{}", id),
+                    crate::orm::scheduler::StateSource::Script(id) => format!("script:{}", id),
+                    crate::orm::scheduler::StateSource::Default => "default".to_string(),
+                },
+                execution_time_ms: result.execution_time_ms,
+                error: result.error,
+            };
+            Ok(Json(response))
+        }
+        Err(e) => {
+            let err = Json(ErrorResponse {
+                error: format!("Error getting site state: {}", e),
+            });
+            Err(response::status::Custom(Status::InternalServerError, err))
         }
     })
     .await
@@ -926,15 +957,12 @@ pub fn routes() -> Vec<Route> {
         get_scheduler_script,
         update_scheduler_script_endpoint,
         delete_scheduler_script_endpoint,
-        
         // SchedulerOverride CRUD
         create_scheduler_override,
         list_scheduler_overrides,
-        
         // Navigation properties
         get_site_scheduler_scripts,
         get_site_scheduler_overrides,
-        
         // Custom actions
         validate_scheduler_script,
         execute_site_scheduler,

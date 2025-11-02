@@ -1,12 +1,17 @@
+use std::io::{self, Write};
+
 use clap::Subcommand;
 use diesel::sqlite::SqliteConnection;
-use neems_api::orm::company::get_company_by_id;
-use crate::admin_cli::utils::resolve_company_id;
-use neems_api::orm::site::{
-    delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id, get_sites_by_company, insert_site, update_site,
+use neems_api::orm::{
+    company::get_company_by_id,
+    site::{
+        delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id,
+        get_sites_by_company, insert_site, update_site,
+    },
 };
 use regex::Regex;
-use std::io::{self, Write};
+
+use crate::admin_cli::utils::resolve_company_id;
 
 #[derive(Subcommand)]
 pub enum SiteAction {
@@ -76,11 +81,7 @@ pub fn handle_site_command_with_conn(
     admin_user_id: i32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
-        SiteAction::Ls {
-            search_term,
-            fixed_string,
-            company_id,
-        } => {
+        SiteAction::Ls { search_term, fixed_string, company_id } => {
             let resolved_company_id = if let Some(company_str) = company_id {
                 Some(resolve_company_id(conn, &company_str)?)
             } else {
@@ -96,7 +97,15 @@ pub fn handle_site_command_with_conn(
             company_id,
         } => {
             let resolved_company_id = resolve_company_id(conn, &company_id)?;
-            site_add_impl(conn, name, address, latitude, longitude, resolved_company_id, admin_user_id)?;
+            site_add_impl(
+                conn,
+                name,
+                address,
+                latitude,
+                longitude,
+                resolved_company_id,
+                admin_user_id,
+            )?;
         }
         SiteAction::Rm {
             search_term,
@@ -124,7 +133,16 @@ pub fn handle_site_command_with_conn(
             } else {
                 None
             };
-            site_edit_impl(conn, id, name, address, latitude, longitude, resolved_company_id, admin_user_id)?;
+            site_edit_impl(
+                conn,
+                id,
+                name,
+                address,
+                latitude,
+                longitude,
+                resolved_company_id,
+                admin_user_id,
+            )?;
         }
     }
     Ok(())
@@ -144,17 +162,11 @@ pub fn site_ls_impl(
 
     let filtered_sites = if let Some(term) = search_term {
         if fixed_string {
-            sites
-                .into_iter()
-                .filter(|site| site.name.contains(&term))
-                .collect::<Vec<_>>()
+            sites.into_iter().filter(|site| site.name.contains(&term)).collect::<Vec<_>>()
         } else {
             let regex = Regex::new(&term)
                 .map_err(|e| format!("Invalid regex pattern '{}': {}", term, e))?;
-            sites
-                .into_iter()
-                .filter(|site| regex.is_match(&site.name))
-                .collect::<Vec<_>>()
+            sites.into_iter().filter(|site| regex.is_match(&site.name)).collect::<Vec<_>>()
         }
     } else {
         sites
@@ -191,24 +203,19 @@ pub fn site_add_impl(
         println!("Name: {}", existing_site.name);
         println!("Address: {}", existing_site.address);
         println!("Company ID: {}", existing_site.company_id);
-        println!(
-            "Coordinates: ({}, {})",
-            existing_site.latitude, existing_site.longitude
-        );
+        println!("Coordinates: ({}, {})", existing_site.latitude, existing_site.longitude);
         return Ok(());
     }
 
-    let created_site = insert_site(conn, name, address, latitude, longitude, company_id, Some(admin_user_id))?;
+    let created_site =
+        insert_site(conn, name, address, latitude, longitude, company_id, Some(admin_user_id))?;
 
     println!("Site created successfully!");
     println!("ID: {}", created_site.id);
     println!("Name: {}", created_site.name);
     println!("Address: {}", created_site.address);
     println!("Company ID: {}", created_site.company_id);
-    println!(
-        "Coordinates: ({}, {})",
-        created_site.latitude, created_site.longitude
-    );
+    println!("Coordinates: ({}, {})", created_site.latitude, created_site.longitude);
 
     Ok(())
 }
@@ -235,10 +242,7 @@ pub fn site_rm_impl(
     } else {
         let regex = Regex::new(&search_term)
             .map_err(|e| format!("Invalid regex pattern '{}': {}", search_term, e))?;
-        sites
-            .into_iter()
-            .filter(|site| regex.is_match(&site.name))
-            .collect::<Vec<_>>()
+        sites.into_iter().filter(|site| regex.is_match(&site.name)).collect::<Vec<_>>()
     };
 
     if matching_sites.is_empty() {
@@ -246,10 +250,7 @@ pub fn site_rm_impl(
         return Ok(());
     }
 
-    println!(
-        "Found {} site(s) matching the search term:",
-        matching_sites.len()
-    );
+    println!("Found {} site(s) matching the search term:", matching_sites.len());
     for site in &matching_sites {
         println!(
             "  ID: {}, Name: {}, Address: {}, Company ID: {}",
@@ -286,10 +287,8 @@ pub fn site_rm_impl(
                 }
             }
             Err(e) => {
-                errors.push(format!(
-                    "Failed to delete site {} (ID: {}): {}",
-                    site.name, site.id, e
-                ));
+                errors
+                    .push(format!("Failed to delete site {} (ID: {}): {}", site.name, site.id, e));
             }
         }
     }
@@ -359,10 +358,7 @@ pub fn site_edit_impl(
     println!("Name: {}", updated_site.name);
     println!("Address: {}", updated_site.address);
     println!("Company ID: {}", updated_site.company_id);
-    println!(
-        "Coordinates: ({}, {})",
-        updated_site.latitude, updated_site.longitude
-    );
+    println!("Coordinates: ({}, {})", updated_site.latitude, updated_site.longitude);
 
     Ok(())
 }
