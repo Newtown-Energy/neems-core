@@ -2,34 +2,57 @@
 
 This document contains important instructions for AI agents (like Claude Code) working on the NEEMS Core project.
 
+**IMPORTANT: This file should be regularly updated as you learn new patterns, workflows, or project-specific conventions. When you discover something important about how this project works, update this file to capture that knowledge for future sessions.**
+
 ## Critical Rules
 
 ### Docker Usage
 
 **ALWAYS run commands inside Docker containers, NEVER on the host machine.**
 
-- Use `docker exec neems-api <command>` for neems-api related commands
-- Use `docker exec neems-data <command>` for neems-data related commands
-- Check running containers with `docker ps`
+This project uses `../devenv` to coordinate Docker containers. The devenv directory is located one level up from the neems-core directory.
+
+**You MUST use `docker compose exec` from the devenv directory, NOT `docker exec`.**
+
+Key points:
+- All commands must be run via `docker compose exec` from `/Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv`
+- Use `cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api <command>`
+- The Docker Compose configuration is in `../devenv/docker-compose.yml`
 - Never run cargo, tests, or build commands directly on the host
+- Check container status with `cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose ps`
 
 **Examples:**
 
 ✅ **Correct:**
 ```bash
-docker exec neems-api /usr/src/app/bin/dosh lint-clippy
-docker exec neems-api /usr/src/app/bin/dosh test
-docker exec neems-api cargo build
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh lint-clippy
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh test
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api cargo build
 ```
 
 ❌ **Incorrect:**
 ```bash
-./bin/dosh lint-clippy  # DO NOT run on host
-cargo test              # DO NOT run on host
-cargo build             # DO NOT run on host
+docker exec neems-api /usr/src/app/bin/dosh lint-clippy  # Wrong - use docker compose exec
+./bin/dosh lint-clippy  # Wrong - DO NOT run on host
+cargo test              # Wrong - DO NOT run on host
+cargo build             # Wrong - DO NOT run on host
+cargo fmt               # Wrong - DO NOT run on host
 ```
 
-**Exception:** You can run `cargo fmt` on the host to format code, as it only modifies files and doesn't require compilation.
+### Docker Tooling Setup
+
+The Docker containers include all necessary Rust development tools:
+- `clippy` - for linting
+- `rustfmt` - for code formatting
+- `rust-src` - for enhanced IDE support and development
+
+These components are installed via `rustup component add clippy rustfmt rust-src` in the Dockerfiles for both `neems-api` and `neems-data` services.
+
+If you need to rebuild the containers to pick up Dockerfile changes:
+```bash
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose build neems-api neems-data
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose up -d neems-api neems-data
+```
 
 ## Project Structure
 
@@ -43,26 +66,26 @@ This is a Rust workspace with multiple crates:
 
 ### Linting
 
-Run lints inside docker:
+Run lints inside docker (from devenv directory):
 ```bash
-docker exec neems-api /usr/src/app/bin/dosh lint
-docker exec neems-api /usr/src/app/bin/dosh lint-clippy
-docker exec neems-api /usr/src/app/bin/dosh lint-format
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh lint
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh lint-clippy
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh lint-format
 ```
 
 ### Testing
 
-Run tests inside docker:
+Run tests inside docker (from devenv directory):
 ```bash
-docker exec neems-api /usr/src/app/bin/dosh test
-docker exec neems-api /usr/src/app/bin/dosh nextest
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh test
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh nextest
 ```
 
 ### Building
 
-Build inside docker:
+Build inside docker (from devenv directory):
 ```bash
-docker exec neems-api /usr/src/app/bin/dosh build
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh build
 ```
 
 ## Temporarily Allowed Clippy Lints
@@ -90,6 +113,7 @@ The project uses GitHub Actions for CI/CD:
 
 ## Code Style
 
-- Use `cargo fmt` for code formatting
-- Run clippy for linting: `docker exec neems-api /usr/src/app/bin/dosh lint-clippy`
+- Format code: `cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api cargo fmt`
+- Run clippy for linting: `cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh lint-clippy`
+- Run all linting: `cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api /usr/src/app/bin/dosh lint`
 - Follow Rust standard naming conventions

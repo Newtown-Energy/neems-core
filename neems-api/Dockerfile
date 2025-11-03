@@ -1,12 +1,16 @@
 # Development Dockerfile for neems-api with live reload
 FROM rustlang/rust:nightly-bookworm
 
-# Install sqlite3 and cargo-watch for live reload
+# Install Rust tooling components (clippy, rustfmt, rust-src)
+RUN rustup component add clippy rustfmt rust-src
+
+# Install sqlite3, cargo-watch for live reload, and diesel_cli for migrations
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && cargo install cargo-watch
+    && cargo install cargo-watch \
+    && cargo install diesel_cli --no-default-features --features sqlite
 
 # Set working directory
 WORKDIR /usr/src/app
