@@ -4,10 +4,11 @@ FROM rustlang/rust:nightly-bookworm
 # Install Rust tooling components (clippy, rustfmt, rust-src)
 RUN rustup component add clippy rustfmt rust-src
 
-# Install sqlite3 and cargo-watch for live reload
+# Install system dependencies and cargo-watch for live reload
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/* \
     && cargo install cargo-watch
 
