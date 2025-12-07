@@ -13,8 +13,6 @@ pub mod login;
 pub mod logout;
 pub mod odata;
 pub mod role;
-pub mod schedule_command;
-pub mod scheduler;
 pub mod secure_test;
 pub mod site;
 pub mod status;
@@ -34,7 +32,6 @@ pub fn routes() -> Vec<Route> {
     let mut routes = Vec::new();
     #[cfg(feature = "fixphrase")]
     routes.extend(fixphrase::routes());
-    routes.extend(schedule_command::routes());
     routes.extend(company::routes());
     routes.extend(data::routes());
     routes.extend(device::routes());
@@ -42,7 +39,6 @@ pub fn routes() -> Vec<Route> {
     routes.extend(logout::routes());
     routes.extend(odata::routes());
     routes.extend(role::routes());
-    routes.extend(scheduler::routes());
     routes.extend(secure_test::routes());
     routes.extend(site::routes());
     routes.extend(status::routes());

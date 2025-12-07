@@ -130,38 +130,6 @@ mod tests {
         ReadingsResponse::export().expect("Failed to export ReadingsResponse type");
         ReadingsQuery::export().expect("Failed to export ReadingsQuery type");
 
-        // Scheduler model types
-        SchedulerScript::export().expect("Failed to export SchedulerScript type");
-        SchedulerScriptInput::export().expect("Failed to export SchedulerScriptInput type");
-        UpdateSchedulerScriptRequest::export()
-            .expect("Failed to export UpdateSchedulerScriptRequest type");
-        SchedulerScriptWithTimestamps::export()
-            .expect("Failed to export SchedulerScriptWithTimestamps type");
-
-        SchedulerOverride::export().expect("Failed to export SchedulerOverride type");
-        SchedulerOverrideInput::export().expect("Failed to export SchedulerOverrideInput type");
-        UpdateSchedulerOverrideRequest::export()
-            .expect("Failed to export UpdateSchedulerOverrideRequest type");
-        SchedulerOverrideWithTimestamps::export()
-            .expect("Failed to export SchedulerOverrideWithTimestamps type");
-        SiteState::export().expect("Failed to export SiteState type");
-
-        SchedulerExecution::export().expect("Failed to export SchedulerExecution type");
-        SchedulerExecutionInput::export().expect("Failed to export SchedulerExecutionInput type");
-
-        // Scheduler API types
-        use crate::api::scheduler::{
-            ErrorResponse as SchedulerErrorResponse, ExecuteSchedulerRequest,
-            ExecuteSchedulerResponse, SiteStateResponse, ValidateScriptRequest,
-            ValidateScriptResponse,
-        };
-        SchedulerErrorResponse::export().expect("Failed to export scheduler::ErrorResponse type");
-        ValidateScriptRequest::export().expect("Failed to export ValidateScriptRequest type");
-        ValidateScriptResponse::export().expect("Failed to export ValidateScriptResponse type");
-        ExecuteSchedulerRequest::export().expect("Failed to export ExecuteSchedulerRequest type");
-        ExecuteSchedulerResponse::export().expect("Failed to export ExecuteSchedulerResponse type");
-        SiteStateResponse::export().expect("Failed to export SiteStateResponse type");
-
         // Neems-data model types
         neems_data::models::Source::export()
             .expect("Failed to export neems_data::models::Source type");
