@@ -1,6 +1,18 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    application_rules (id) {
+        id -> Integer,
+        template_id -> Integer,
+        rule_type -> Text,
+        days_of_week -> Nullable<Text>,
+        specific_dates -> Nullable<Text>,
+        override_reason -> Nullable<Text>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     companies (id) {
         id -> Integer,
         name -> Text,
@@ -64,6 +76,39 @@ diesel::table! {
 }
 
 diesel::table! {
+    schedule_commands (id) {
+        id -> Integer,
+        site_id -> Integer,
+        #[sql_name = "type"]
+        type_ -> Text,
+        parameters -> Nullable<Text>,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
+    schedule_template_entries (id) {
+        id -> Integer,
+        template_id -> Integer,
+        execution_offset_seconds -> Integer,
+        schedule_command_id -> Integer,
+        is_active -> Bool,
+    }
+}
+
+diesel::table! {
+    schedule_templates (id) {
+        id -> Integer,
+        site_id -> Integer,
+        name -> Text,
+        description -> Nullable<Text>,
+        is_active -> Bool,
+        created_at -> Timestamp,
+        is_default -> Bool,
+    }
+}
+
+diesel::table! {
     sessions (id) {
         id -> Text,
         user_id -> Integer,
@@ -101,8 +146,13 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(application_rules -> schedule_templates (template_id));
 diesel::joinable!(devices -> companies (company_id));
 diesel::joinable!(devices -> sites (site_id));
+diesel::joinable!(schedule_commands -> sites (site_id));
+diesel::joinable!(schedule_template_entries -> schedule_commands (schedule_command_id));
+diesel::joinable!(schedule_template_entries -> schedule_templates (template_id));
+diesel::joinable!(schedule_templates -> sites (site_id));
 diesel::joinable!(sessions -> users (user_id));
 diesel::joinable!(sites -> companies (company_id));
 diesel::joinable!(user_roles -> roles (role_id));
@@ -110,12 +160,16 @@ diesel::joinable!(user_roles -> users (user_id));
 diesel::joinable!(users -> companies (company_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    application_rules,
     companies,
     deleted_companies,
     deleted_users,
     devices,
     entity_activity,
     roles,
+    schedule_commands,
+    schedule_template_entries,
+    schedule_templates,
     sessions,
     sites,
     user_roles,

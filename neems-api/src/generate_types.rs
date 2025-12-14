@@ -62,8 +62,10 @@ mod tests {
         // Import all the types to trigger their generation
         use crate::{
             api::{
+                application_rule::ErrorResponse as ApplicationRuleErrorResponse,
                 company::ErrorResponse as CompanyErrorResponse,
                 login::{ErrorResponse as LoginErrorResponse, LoginSuccessResponse},
+                schedule_library::ErrorResponse as ScheduleLibraryErrorResponse,
                 site::{CreateSiteRequest, ErrorResponse as SiteErrorResponse, UpdateSiteRequest},
                 user::{
                     AddUserRoleRequest, CreateUserWithRolesRequest,
@@ -135,6 +137,31 @@ mod tests {
             .expect("Failed to export neems_data::models::Source type");
         neems_data::models::Reading::export()
             .expect("Failed to export neems_data::models::Reading type");
+
+        // Schedule Library types
+        CommandType::export().expect("Failed to export CommandType type");
+        ScheduleCommandDto::export().expect("Failed to export ScheduleCommandDto type");
+        ScheduleLibraryItem::export().expect("Failed to export ScheduleLibraryItem type");
+        CreateLibraryItemRequest::export().expect("Failed to export CreateLibraryItemRequest type");
+        CreateCommandRequest::export().expect("Failed to export CreateCommandRequest type");
+        UpdateLibraryItemRequest::export().expect("Failed to export UpdateLibraryItemRequest type");
+        CloneLibraryItemRequest::export().expect("Failed to export CloneLibraryItemRequest type");
+        ScheduleLibraryErrorResponse::export()
+            .expect("Failed to export schedule_library::ErrorResponse type");
+
+        // Application Rule types
+        RuleType::export().expect("Failed to export RuleType type");
+        ApplicationRule::export().expect("Failed to export ApplicationRule type");
+        CreateApplicationRuleRequest::export()
+            .expect("Failed to export CreateApplicationRuleRequest type");
+        EffectiveScheduleResponse::export()
+            .expect("Failed to export EffectiveScheduleResponse type");
+        CalendarDaySchedule::export().expect("Failed to export CalendarDaySchedule type");
+        CalendarScheduleMatch::export().expect("Failed to export CalendarScheduleMatch type");
+        CalendarDayScheduleMatches::export()
+            .expect("Failed to export CalendarDayScheduleMatches type");
+        ApplicationRuleErrorResponse::export()
+            .expect("Failed to export application_rule::ErrorResponse type");
 
         println!("TypeScript types generated successfully in {:?}", output_dir);
     }
