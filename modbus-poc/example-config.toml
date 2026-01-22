@@ -1,0 +1,164 @@
+# Example Modbus Configuration for NEEMS
+# This file defines the tag mappings for a site's RTAC connections
+
+site_id = "site-001"
+name = "Example Solar Farm"
+
+# =============================================================================
+# RTAC Connection 1: Main Battery System
+# =============================================================================
+[[connections]]
+id = "rtac-main"
+name = "Main RTAC"
+host = "127.0.0.1"  # Replace with actual RTAC IP
+port = 5502         # Using mock server port for testing (standard is 502)
+timeout_ms = 5000
+
+# -----------------------------------------------------------------------------
+# Battery 1 Tags
+# -----------------------------------------------------------------------------
+[[connections.tags]]
+name = "battery1_soc"
+description = "Battery 1 State of Charge"
+equipment_id = "battery-1"
+unit_id = 1
+address = 0
+register_type = "holding_register"
+data_type = "uint16"
+scale = 0.1        # Raw value 500 = 50.0%
+offset = 0.0
+units = "%"
+writable = false
+
+[[connections.tags]]
+name = "battery1_voltage"
+description = "Battery 1 DC Bus Voltage"
+equipment_id = "battery-1"
+unit_id = 1
+address = 1
+register_type = "holding_register"
+data_type = "uint16"
+scale = 0.1        # Raw value 4800 = 480.0V
+offset = 0.0
+units = "V"
+writable = false
+
+[[connections.tags]]
+name = "battery1_current"
+description = "Battery 1 DC Current (positive = charging)"
+equipment_id = "battery-1"
+unit_id = 1
+address = 2
+register_type = "holding_register"
+data_type = "int16"
+scale = 0.1        # Raw value 1000 = 100.0A
+offset = 0.0
+units = "A"
+writable = false
+
+[[connections.tags]]
+name = "battery1_power"
+description = "Battery 1 Power (positive = charging)"
+equipment_id = "battery-1"
+unit_id = 1
+address = 3
+register_type = "holding_register"
+data_type = "int16"
+scale = 1.0        # Raw value in kW
+offset = 0.0
+units = "kW"
+writable = false
+
+[[connections.tags]]
+name = "battery1_temperature"
+description = "Battery 1 Average Cell Temperature"
+equipment_id = "battery-1"
+unit_id = 1
+address = 4
+register_type = "holding_register"
+data_type = "int16"
+scale = 0.1        # Raw value 250 = 25.0°C
+offset = 0.0
+units = "°C"
+writable = false
+
+# -----------------------------------------------------------------------------
+# Battery 1 Control Tags (Writable)
+# -----------------------------------------------------------------------------
+[[connections.tags]]
+name = "battery1_power_setpoint"
+description = "Battery 1 Power Setpoint (positive = charge, negative = discharge)"
+equipment_id = "battery-1"
+unit_id = 1
+address = 100
+register_type = "holding_register"
+data_type = "int16"
+scale = 1.0
+offset = 0.0
+units = "kW"
+writable = true
+min_value = -500.0  # Max discharge
+max_value = 500.0   # Max charge
+
+[[connections.tags]]
+name = "battery1_enable"
+description = "Battery 1 Enable/Disable"
+equipment_id = "battery-1"
+unit_id = 1
+address = 101
+register_type = "coil"
+data_type = "bool"
+writable = true
+
+# -----------------------------------------------------------------------------
+# Inverter Tags
+# -----------------------------------------------------------------------------
+[[connections.tags]]
+name = "inverter1_ac_power"
+description = "Inverter 1 AC Power Output"
+equipment_id = "inverter-1"
+unit_id = 1
+address = 200
+register_type = "holding_register"
+data_type = "int32"
+word_order = "big_endian"
+scale = 0.001      # Raw value in W, display in kW
+offset = 0.0
+units = "kW"
+writable = false
+
+[[connections.tags]]
+name = "inverter1_frequency"
+description = "Inverter 1 AC Frequency"
+equipment_id = "inverter-1"
+unit_id = 1
+address = 202
+register_type = "holding_register"
+data_type = "uint16"
+scale = 0.01       # Raw value 6000 = 60.00 Hz
+offset = 0.0
+units = "Hz"
+writable = false
+
+# =============================================================================
+# RTAC Connection 2: Solar Array (Example of second connection)
+# =============================================================================
+# [[connections]]
+# id = "rtac-solar"
+# name = "Solar RTAC"
+# host = "192.168.1.101"
+# port = 502
+# timeout_ms = 5000
+#
+# [[connections.tags]]
+# name = "solar_power"
+# description = "Total Solar Array Power"
+# equipment_id = "solar-array-1"
+# unit_id = 1
+# address = 0
+# register_type = "input_register"  # Solar data is typically read-only
+# data_type = "uint32"
+# word_order = "big_endian"
+# scale = 0.001
+# units = "kW"
+# writable = false

@@ -1,0 +1,16 @@
+[package]
+name = "modbus-poc"
+version = "0.1.0"
+edition = "2024"
+description = "Proof of concept for Modbus TCP communication with SEL-RTAC"
+
+[[bin]]
+name = "modbus-poc"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tokio-modbus = { workspace = true }
+toml = { workspace = true }
