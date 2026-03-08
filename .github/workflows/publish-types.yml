@@ -1,0 +1,110 @@
+name: TypeScript Types Package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-version:
+    name: Check package version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.check.outputs.new_version }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: neems-api/Cargo.toml
+
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' neems-api/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Cargo version: $VERSION"
+
+      - name: Check published version
+        id: check
+        run: |
+          PUBLISHED=$(npm view @newtown-energy/types version 2>/dev/null || echo "0.0.0")
+          if [ "$VERSION" = "$PUBLISHED" ]; then
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION already published"
+          else
+            echo "new_version=true" >> "$GITHUB_OUTPUT"
+            echo "New version detected: $VERSION (published: $PUBLISHED)"
+          fi
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+  build-and-publish:
+    name: Publish${{ github.ref != 'refs/heads/main' && ' (dry run)' || '' }}
+    needs: check-version
+    if: needs.check-version.outputs.new_version == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "typescript"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 libsqlite3-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Create npm-build directory
+        run: mkdir -p npm-build/src
+
+      - name: Generate TypeScript types
+        run: cargo test --features test-staging generate_typescript_types -- --nocapture
+        env:
+          NEEMS_TS_OUTPUT_DIR: ${{ github.workspace }}/npm-build/src
+
+      - name: Scaffold package
+        run: |
+          # Copy template files
+          cp npm/tsconfig.json npm-build/tsconfig.json
+          cp npm/README.md npm-build/README.md
+
+          # Generate package.json with correct version
+          sed "s/0.0.0-replaced-at-build-time/${{ needs.check-version.outputs.version }}/" \
+            npm/package.template.json > npm-build/package.json
+
+          # Generate barrel index.ts
+          cd npm-build/src
+          echo "// Auto-generated barrel file — do not edit" > index.ts
+          for f in *.ts; do
+            if [ "$f" != "index.ts" ]; then
+              echo "export * from './${f%.ts}';" >> index.ts
+            fi
+          done
+
+      - name: Install dependencies and compile
+        working-directory: npm-build
+        run: |
+          npm install
+          npx tsc
+
+      - name: Publish${{ github.ref != 'refs/heads/main' && ' (dry run)' || '' }}
+        working-directory: npm-build
+        run: npm publish --access public ${{ github.ref == 'refs/heads/main' && '--provenance' || '--dry-run' }}
