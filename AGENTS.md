@@ -110,6 +110,48 @@ The project uses GitHub Actions for CI/CD:
 - `.github/workflows/ci.yml` - Main CI workflow
 - `.github/workflows/test.yml` - Test workflow (called by ci.yml)
 - `.github/workflows/lint.yml` - Lint workflow (called by ci.yml)
+- `.github/workflows/publish-types.yml` - Builds `@newtown-energy/types` on PRs (dry-run), publishes on push to main
+
+## npm Types Package (`@newtown-energy/types`)
+
+TypeScript types are auto-generated from Rust structs via `ts-rs`. On merge to `main`, the `.github/workflows/publish-types.yml` workflow publishes them to npmjs.com as `@newtown-energy/types`.
+
+### How it works
+
+The workflow has two jobs: **build** (runs on all PRs and main) and **publish** (runs only on main when the version has changed). Template files live in `npm/`:
+- `npm/package.template.json` — package.json template (version placeholder replaced at build time)
+- `npm/tsconfig.json` — TypeScript compiler config
+
+The build job generates types via `cargo test`, scaffolds the package from templates, generates a barrel `index.ts`, and compiles with `tsc`. On PRs this serves as a dry-run to catch build failures before merge.
+
+Publishing uses npm's OIDC trusted publishing (no tokens or secrets needed). The trusted publisher is configured on npmjs.com to authorize this workflow.
+
+### Version bumping
+
+The npm package version comes from `neems-api/Cargo.toml`. When changing types:
+- **Bump the version in `neems-api/Cargo.toml`** in the same PR that changes types
+- **Patch** (0.1.4 → 0.1.5): compatible additions (new optional fields, new types)
+- **Minor** (0.1.x → 0.2.0): new types or endpoints that don't break existing consumers
+- **Major** (0.x → 1.0): breaking changes (renamed/removed fields, changed type shapes)
+
+### Local development workflow
+
+When developing backend + frontend simultaneously, the published npm package will be out of date. Two approaches:
+
+**Direct generation (current behavior):** The `docker-entrypoint.sh` runs `cargo watch` to generate types directly into `../../react/src/types/generated`. If the frontend imports from this local path, no changes are needed.
+
+**npm link (when frontend imports from `@newtown-energy/types`):**
+```bash
+# In neems-core container: generate and build the package
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api bash -c "NEEMS_TS_OUTPUT_DIR=npm-build/src cargo test --features test-staging generate_typescript_types"
+# Then on the host, generate scaffolding and build:
+cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/neems-core/npm-build
+# (create package.json, tsconfig.json, barrel index.ts as the CI workflow does)
+npm install && npx tsc && npm link
+
+# In neems-react:
+npm link @newtown-energy/types
+```
 
 ## Code Style
 

@@ -1,0 +1,16 @@
+{
+  "name": "@newtown-energy/types",
+  "version": "0.0.0-replaced-at-build-time",
+  "description": "TypeScript types for the Newtown Energy Management System API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Newtown-Energy/neems-core.git"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
