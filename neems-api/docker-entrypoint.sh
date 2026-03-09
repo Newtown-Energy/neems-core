@@ -18,12 +18,17 @@ echo "Setting up demo data..."
 export NEEMS_ADMIN_BIN=/usr/src/app/target/debug/neems-admin
 /usr/src/app/bin/setup-demo-data || echo "Demo data setup failed or already complete"
 
+# Generate TypeScript types synchronously on startup (before neems-react starts)
+echo "Generating TypeScript types (initial)..."
+cargo test --features test-staging generate_typescript_types --quiet || true
+/usr/src/app/bin/build-local-types-package.sh "$NEEMS_TS_OUTPUT_DIR"
+
 # Run TypeScript generation in the background, watching for Rust file changes
 cargo watch \
   --features test-staging \
   -w neems-api/src \
   -w neems-data/src \
-  -s 'cargo test --features test-staging generate_typescript_types --quiet' &
+  -s 'cargo test --features test-staging generate_typescript_types --quiet && /usr/src/app/bin/build-local-types-package.sh "${NEEMS_TS_OUTPUT_DIR}"' &
 
 # Run the main API server with live reload
 exec cargo watch \

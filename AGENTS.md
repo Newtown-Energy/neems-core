@@ -136,22 +136,12 @@ The npm package version comes from `neems-api/Cargo.toml`. When changing types:
 
 ### Local development workflow
 
-When developing backend + frontend simultaneously, the published npm package will be out of date. Two approaches:
+When developing backend + frontend simultaneously, the published npm package will be out of date. The Docker dev environment handles this automatically:
 
-**Direct generation (current behavior):** The `docker-entrypoint.sh` runs `cargo watch` to generate types directly into `../../react/src/types/generated`. If the frontend imports from this local path, no changes are needed.
-
-**npm link (when frontend imports from `@newtown-energy/types`):**
-```bash
-# In neems-core container: generate and build the package
-cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker compose exec neems-api bash -c "NEEMS_TS_OUTPUT_DIR=npm-build/src cargo test --features test-staging generate_typescript_types"
-# Then on the host, generate scaffolding and build:
-cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/neems-core/npm-build
-# (create package.json, tsconfig.json, barrel index.ts as the CI workflow does)
-npm install && npx tsc && npm link
-
-# In neems-react:
-npm link @newtown-energy/types
-```
+- On startup, `docker-entrypoint.sh` generates TypeScript types and builds a local `@newtown-energy/types` package in `local-types/` (at the project root)
+- `cargo watch` regenerates types whenever Rust source files change, then rebuilds the local package via `bin/build-local-types-package.sh`
+- The neems-react container uses `bun link` to symlink `node_modules/@newtown-energy/types` to the shared `local-types/` directory, so imports resolve to the local build automatically
+- No manual `npm link` or other steps are needed
 
 ## Code Style
 
