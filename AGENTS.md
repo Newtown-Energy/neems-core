@@ -114,17 +114,17 @@ The project uses GitHub Actions for CI/CD:
 
 ## npm Types Package (`@newtown-energy/types`)
 
-TypeScript types are auto-generated from Rust structs via `ts-rs`. On merge to `main`, the `.github/workflows/publish-types.yml` workflow publishes them to npmjs.com as `@newtown-energy/types`.
+TypeScript types are auto-generated from Rust structs via `ts-rs`. On merge to `main`, the `.github/workflows/publish-types.yml` workflow publishes them to GitHub Packages (`npm.pkg.github.com`) as `@newtown-energy/types`.
 
 ### How it works
 
-The workflow has two jobs: **build** (runs on all PRs and main) and **publish** (runs only on main when the version has changed). Template files live in `npm/`:
+The workflow has two jobs: **check-version** (determines if a new version needs publishing) and **build-and-publish** (runs only when the version has changed). Template files live in `npm/`:
 - `npm/package.template.json` — package.json template (version placeholder replaced at build time)
 - `npm/tsconfig.json` — TypeScript compiler config
 
 The build job generates types via `cargo test`, scaffolds the package from templates, generates a barrel `index.ts`, and compiles with `tsc`. On PRs this serves as a dry-run to catch build failures before merge.
 
-Publishing uses npm's OIDC trusted publishing (no tokens or secrets needed). The trusted publisher is configured on npmjs.com to authorize this workflow.
+Publishing uses the `GITHUB_TOKEN` which is automatically available in GitHub Actions. The package is published as a **public package** to GitHub Packages, so no authentication is required to install it.
 
 ### Version bumping
 

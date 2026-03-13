@@ -31,7 +31,10 @@ jobs:
       - name: Check published version
         id: check
         run: |
-          PUBLISHED=$(npm view @newtown-energy/types version 2>/dev/null || echo "0.0.0")
+          # Query GitHub Packages API for published versions
+          # Handle cases: package doesn't exist (error object), no versions (empty array), or has versions (array)
+          PUBLISHED=$(curl -s "https://api.github.com/orgs/Newtown-Energy/packages/npm/@newtown-energy%2Ftypes/versions" \
+            -H "Accept: application/vnd.github+json" | jq -r 'if type == "array" and length > 0 then .[0].name else "0.0.0" end')
           if [ "$VERSION" = "$PUBLISHED" ]; then
             echo "new_version=false" >> "$GITHUB_OUTPUT"
             echo "Version $VERSION already published"
@@ -48,7 +51,8 @@ jobs:
     if: needs.check-version.outputs.new_version == 'true'
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -70,7 +74,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: ".node-version"
-          registry-url: "https://registry.npmjs.org"
+          registry-url: "https://npm.pkg.github.com"
 
       - name: Create npm-build directory
         run: mkdir -p npm-build/src
@@ -107,4 +111,6 @@ jobs:
 
       - name: Publish${{ github.ref != 'refs/heads/main' && ' (dry run)' || '' }}
         working-directory: npm-build
-        run: npm publish --access public ${{ github.ref == 'refs/heads/main' && '--provenance' || '--dry-run' }}
+        run: npm publish --access public ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
