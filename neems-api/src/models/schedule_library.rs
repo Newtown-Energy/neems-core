@@ -35,6 +35,8 @@ pub struct ScheduleCommand {
     #[serde(rename = "type")]
     pub type_: String,
     pub parameters: Option<String>,
+    pub duration_seconds: Option<i32>,
+    pub target_soc_percent: Option<i32>,
     pub is_active: bool,
 }
 
@@ -45,6 +47,8 @@ pub struct NewScheduleCommand {
     pub site_id: i32,
     pub type_: String,
     pub parameters: Option<String>,
+    pub duration_seconds: Option<i32>,
+    pub target_soc_percent: Option<i32>,
     pub is_active: bool,
 }
 
@@ -69,8 +73,8 @@ pub struct ScheduleTemplate {
     pub name: String,
     pub description: Option<String>,
     pub is_active: bool,
-    pub created_at: chrono::NaiveDateTime,
     pub is_default: bool,
+    pub created_at: chrono::NaiveDateTime,
 }
 
 /// Insertable struct for creating new schedule templates
@@ -129,6 +133,8 @@ pub struct ScheduleCommandDto {
     pub id: i32,
     pub execution_offset_seconds: i32,
     pub command_type: CommandType,
+    pub duration_seconds: Option<i32>,
+    pub target_soc_percent: Option<i32>,
 }
 
 /// A schedule library item (template with embedded commands)
@@ -159,6 +165,8 @@ pub struct CreateLibraryItemRequest {
 pub struct CreateCommandRequest {
     pub execution_offset_seconds: i32,
     pub command_type: CommandType,
+    pub duration_seconds: Option<i32>,
+    pub target_soc_percent: Option<i32>,
 }
 
 /// Request to update a library item

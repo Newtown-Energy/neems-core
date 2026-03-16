@@ -434,3 +434,345 @@ async fn test_list_library_items() {
     // Should have at least 4 items (3 created + 1 auto-created default)
     assert!(items.len() >= 4);
 }
+
+// ============================================================================
+// Tests for duration_seconds and target_soc_percent fields
+// ============================================================================
+
+#[rocket::async_test]
+async fn test_create_command_with_duration_and_target_soc() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Full Command Test",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "charge",
+                "duration_seconds": 3600,
+                "target_soc_percent": 80
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+    let item: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    assert_eq!(item.commands.len(), 1);
+    assert_eq!(item.commands[0].duration_seconds, Some(3600));
+    assert_eq!(item.commands[0].target_soc_percent, Some(80));
+}
+
+#[rocket::async_test]
+async fn test_create_command_with_only_duration() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Duration Only Test",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "discharge",
+                "duration_seconds": 7200
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+    let item: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    assert_eq!(item.commands[0].duration_seconds, Some(7200));
+    assert_eq!(item.commands[0].target_soc_percent, None);
+}
+
+#[rocket::async_test]
+async fn test_create_command_with_only_target_soc() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "SOC Only Test",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "trickle_charge",
+                "target_soc_percent": 100
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+    let item: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    assert_eq!(item.commands[0].duration_seconds, None);
+    assert_eq!(item.commands[0].target_soc_percent, Some(100));
+}
+
+#[rocket::async_test]
+async fn test_create_command_invalid_duration_zero() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Invalid Duration Zero",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "charge",
+                "duration_seconds": 0
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::InternalServerError);
+}
+
+#[rocket::async_test]
+async fn test_create_command_invalid_duration_negative() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Invalid Duration Negative",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "charge",
+                "duration_seconds": -100
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::InternalServerError);
+}
+
+#[rocket::async_test]
+async fn test_create_command_invalid_soc_over_100() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Invalid SOC Over 100",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "charge",
+                "target_soc_percent": 150
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::InternalServerError);
+}
+
+#[rocket::async_test]
+async fn test_create_command_invalid_soc_negative() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Invalid SOC Negative",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "charge",
+                "target_soc_percent": -10
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::InternalServerError);
+}
+
+#[rocket::async_test]
+async fn test_create_command_soc_boundary_values() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Test SOC = 0 (valid)
+    let new_item = json!({
+        "name": "SOC Zero Test",
+        "commands": [
+            {
+                "execution_offset_seconds": 28800,
+                "command_type": "discharge",
+                "target_soc_percent": 0
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+    let item: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+    assert_eq!(item.commands[0].target_soc_percent, Some(0));
+
+    // Test SOC = 100 (valid)
+    let new_item = json!({
+        "name": "SOC Hundred Test",
+        "commands": [
+            {
+                "execution_offset_seconds": 32400,
+                "command_type": "charge",
+                "target_soc_percent": 100
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+    let item: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+    assert_eq!(item.commands[0].target_soc_percent, Some(100));
+}
+
+#[rocket::async_test]
+async fn test_clone_preserves_duration_and_soc() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Create an item with duration and SOC
+    let new_item = json!({
+        "name": "Clone Source With Fields",
+        "commands": [
+            {
+                "execution_offset_seconds": 10800,
+                "command_type": "charge",
+                "duration_seconds": 5400,
+                "target_soc_percent": 90
+            }
+        ]
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+    let created: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    // Clone it
+    let clone_request = json!({
+        "name": "Cloned With Fields"
+    });
+
+    let url = format!("/api/1/ScheduleLibraryItems/{}/Clone", created.id);
+    let response = client
+        .post(&url)
+        .cookie(admin_cookie.clone())
+        .json(&clone_request)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Created);
+    let cloned: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    // Verify fields are preserved
+    assert_eq!(cloned.commands.len(), 1);
+    assert_eq!(cloned.commands[0].duration_seconds, Some(5400));
+    assert_eq!(cloned.commands[0].target_soc_percent, Some(90));
+}
+
+#[rocket::async_test]
+async fn test_update_preserves_duration_and_soc() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // Create an item
+    let new_item = json!({
+        "name": "Update Fields Test",
+        "commands": []
+    });
+
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin_cookie.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+    let created: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    // Update with duration and SOC
+    let update = json!({
+        "commands": [
+            {
+                "execution_offset_seconds": 43200,
+                "command_type": "discharge",
+                "duration_seconds": 1800,
+                "target_soc_percent": 20
+            }
+        ]
+    });
+
+    let url = format!("/api/1/ScheduleLibraryItems/{}", created.id);
+    let response = client.put(&url).cookie(admin_cookie.clone()).json(&update).dispatch().await;
+
+    assert_eq!(response.status(), Status::Ok);
+    let updated: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    assert_eq!(updated.commands.len(), 1);
+    assert_eq!(updated.commands[0].duration_seconds, Some(1800));
+    assert_eq!(updated.commands[0].target_soc_percent, Some(20));
+}
