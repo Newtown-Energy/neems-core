@@ -82,6 +82,8 @@ diesel::table! {
         #[sql_name = "type"]
         type_ -> Text,
         parameters -> Nullable<Text>,
+        duration_seconds -> Nullable<Integer>,
+        target_soc_percent -> Nullable<Integer>,
         is_active -> Bool,
     }
 }
@@ -103,8 +105,8 @@ diesel::table! {
         name -> Text,
         description -> Nullable<Text>,
         is_active -> Bool,
-        created_at -> Timestamp,
         is_default -> Bool,
+        created_at -> Timestamp,
     }
 }
 

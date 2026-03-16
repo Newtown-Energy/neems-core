@@ -60,11 +60,16 @@ pub fn create_library_item(
         // 4. For each command, create command + entry
         let mut created_commands = Vec::new();
         for cmd_req in request.commands.iter() {
+            // Validate command
+            validate_command(cmd_req)?;
+
             // Insert command
             let new_cmd = NewScheduleCommand {
                 site_id,
                 type_: cmd_req.command_type.as_str().to_string(),
                 parameters: None,
+                duration_seconds: cmd_req.duration_seconds,
+                target_soc_percent: cmd_req.target_soc_percent,
                 is_active: true,
             };
 
@@ -90,6 +95,8 @@ pub fn create_library_item(
                 id: cmd_id,
                 execution_offset_seconds: cmd_req.execution_offset_seconds,
                 command_type: cmd_req.command_type.clone(),
+                duration_seconds: cmd_req.duration_seconds,
+                target_soc_percent: cmd_req.target_soc_percent,
             });
         }
 
@@ -119,23 +126,30 @@ pub fn get_library_item(
     let template = schedule_templates::table.find(item_id).first::<ScheduleTemplate>(conn)?;
 
     // Get entries with commands (JOIN)
-    let entries_with_commands: Vec<(ScheduleTemplateEntry, String)> =
+    let entries_with_commands: Vec<(ScheduleTemplateEntry, String, Option<i32>, Option<i32>)> =
         schedule_template_entries::table
             .inner_join(schedule_commands::table)
             .filter(schedule_template_entries::template_id.eq(item_id))
             .filter(schedule_template_entries::is_active.eq(true))
             .order_by(schedule_template_entries::execution_offset_seconds.asc())
-            .select((ScheduleTemplateEntry::as_select(), schedule_commands::type_))
+            .select((
+                ScheduleTemplateEntry::as_select(),
+                schedule_commands::type_,
+                schedule_commands::duration_seconds,
+                schedule_commands::target_soc_percent,
+            ))
             .load(conn)?;
 
     // Map to ScheduleCommandDto
     let commands: Result<Vec<ScheduleCommandDto>, String> = entries_with_commands
         .into_iter()
-        .map(|(entry, type_str)| {
+        .map(|(entry, type_str, duration_seconds, target_soc_percent)| {
             Ok(ScheduleCommandDto {
                 id: entry.id,
                 execution_offset_seconds: entry.execution_offset_seconds,
                 command_type: CommandType::from_str(&type_str)?,
+                duration_seconds,
+                target_soc_percent,
             })
         })
         .collect();
@@ -221,6 +235,11 @@ pub fn update_library_item(
         if let Some(commands) = request.commands {
             validate_execution_offsets(&commands)?;
 
+            // Validate each command
+            for cmd_req in commands.iter() {
+                validate_command(cmd_req)?;
+            }
+
             // Get existing entries
             let existing_entries: Vec<ScheduleTemplateEntry> = schedule_template_entries::table
                 .filter(schedule_template_entries::template_id.eq(item_id))
@@ -247,6 +266,8 @@ pub fn update_library_item(
                     site_id: current.site_id,
                     type_: cmd_req.command_type.as_str().to_string(),
                     parameters: None,
+                    duration_seconds: cmd_req.duration_seconds,
+                    target_soc_percent: cmd_req.target_soc_percent,
                     is_active: true,
                 };
 
@@ -319,7 +340,7 @@ pub fn clone_library_item(
     // Get original item
     let original = get_library_item(conn, item_id)?;
 
-    // Create new item with same commands
+    // Create new item with same commands (preserving duration and target SOC)
     let create_request = CreateLibraryItemRequest {
         name: new_name,
         description: new_description,
@@ -329,6 +350,8 @@ pub fn clone_library_item(
             .map(|cmd| CreateCommandRequest {
                 execution_offset_seconds: cmd.execution_offset_seconds,
                 command_type: cmd.command_type,
+                duration_seconds: cmd.duration_seconds,
+                target_soc_percent: cmd.target_soc_percent,
             })
             .collect(),
     };
@@ -474,6 +497,33 @@ fn validate_execution_offsets(
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "Duplicate execution times are not allowed",
+                ),
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validates duration_seconds and target_soc_percent for a command
+fn validate_command(cmd: &CreateCommandRequest) -> Result<(), diesel::result::Error> {
+    if let Some(duration) = cmd.duration_seconds {
+        if duration <= 0 {
+            return Err(diesel::result::Error::DeserializationError(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "duration_seconds must be positive",
+                ),
+            )));
+        }
+    }
+
+    if let Some(soc) = cmd.target_soc_percent {
+        if !(0..=100).contains(&soc) {
+            return Err(diesel::result::Error::DeserializationError(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "target_soc_percent must be between 0 and 100",
                 ),
             )));
         }
