@@ -39,6 +39,11 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// Default ramp duration in seconds (120 = 2 minutes)
+fn default_ramp_duration() -> i32 {
+    120
+}
+
 /// Request payload for creating a new site
 #[derive(Deserialize, Serialize, TS)]
 #[ts(export)]
@@ -48,6 +53,8 @@ pub struct CreateSiteRequest {
     pub latitude: f64,
     pub longitude: f64,
     pub company_id: i32,
+    #[serde(default = "default_ramp_duration")]
+    pub ramp_duration_seconds: i32,
 }
 
 /// Request payload for updating a site (all fields optional)
@@ -59,6 +66,7 @@ pub struct UpdateSiteRequest {
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub company_id: Option<i32>,
+    pub ramp_duration_seconds: Option<i32>,
 }
 
 /// Helper function to check if user can perform CRUD operations on a site
@@ -164,6 +172,7 @@ pub async fn create_site(
                     new_site.latitude,
                     new_site.longitude,
                     new_site.company_id,
+                    new_site.ramp_duration_seconds,
                     Some(auth_user.user.id),
                 )
                 .map(|site| status::Created::new("/").body(Json(site)))
@@ -351,6 +360,7 @@ pub async fn update_site_endpoint(
                     update_data.latitude,
                     update_data.longitude,
                     update_data.company_id,
+                    update_data.ramp_duration_seconds,
                     Some(auth_user.user.id),
                 )
                 .map(Json)

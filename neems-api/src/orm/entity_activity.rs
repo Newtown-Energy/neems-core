@@ -393,6 +393,7 @@ pub fn test_all_triggers_comprehensive(
         40.7128,
         -74.0060,
         created_company.id,
+        120,
         None,
     )?;
 
@@ -409,6 +410,7 @@ pub fn test_all_triggers_comprehensive(
         conn,
         created_site.id,
         Some("Updated Site Name".to_string()),
+        None,
         None,
         None,
         None,

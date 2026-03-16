@@ -25,7 +25,8 @@ pub struct Site {
     pub address: String,
     pub latitude: f64,
     pub longitude: f64,
-    pub company_id: i32, // Foreign key to Company
+    pub company_id: i32,            // Foreign key to Company
+    pub ramp_duration_seconds: i32, // Time to ramp from 0 to full power (default 120s)
 }
 
 #[derive(Insertable)]
@@ -36,6 +37,7 @@ pub struct NewSite {
     pub latitude: f64,
     pub longitude: f64,
     pub company_id: i32,
+    pub ramp_duration_seconds: i32,
 }
 
 // For API inputs and validation
@@ -47,6 +49,7 @@ pub struct SiteInput {
     pub latitude: f64,
     pub longitude: f64,
     pub company_id: i32,
+    pub ramp_duration_seconds: i32,
 }
 
 // Response struct that includes computed timestamps from activity log
@@ -59,6 +62,7 @@ pub struct SiteWithTimestamps {
     pub latitude: f64,
     pub longitude: f64,
     pub company_id: i32,
+    pub ramp_duration_seconds: i32,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
     #[ts(type = "string")]

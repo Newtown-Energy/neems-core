@@ -221,6 +221,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -270,6 +271,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -307,6 +309,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -349,6 +352,7 @@ mod tests {
             40.7589,
             -73.9851,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert second site");
@@ -387,6 +391,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -433,6 +438,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -484,6 +490,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site 1");
@@ -495,6 +502,7 @@ mod tests {
             40.7589,
             -73.9851,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site 2");
@@ -569,6 +577,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             None,
         )
         .expect("Failed to insert site 1");
@@ -580,6 +589,7 @@ mod tests {
             41.0,
             -75.0,
             company2.id,
+            120,
             None,
         )
         .expect("Failed to insert site 2");
@@ -638,6 +648,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -717,6 +728,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -784,6 +796,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -837,6 +850,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -879,6 +893,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
