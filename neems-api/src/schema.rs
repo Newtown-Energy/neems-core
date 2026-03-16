@@ -128,6 +128,7 @@ diesel::table! {
         latitude -> Double,
         longitude -> Double,
         company_id -> Integer,
+        ramp_duration_seconds -> Integer,
     }
 }
 

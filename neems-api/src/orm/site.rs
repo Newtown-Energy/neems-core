@@ -24,6 +24,7 @@ pub fn insert_site(
     site_latitude: f64,
     site_longitude: f64,
     site_company_id: i32,
+    site_ramp_duration_seconds: i32,
     acting_user_id: Option<i32>,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
@@ -34,6 +35,7 @@ pub fn insert_site(
         latitude: site_latitude,
         longitude: site_longitude,
         company_id: site_company_id,
+        ramp_duration_seconds: site_ramp_duration_seconds,
     };
 
     diesel::insert_into(sites).values(&new_site).execute(conn)?;
@@ -66,7 +68,7 @@ pub fn get_site_by_company_and_name(
     site_name: &str,
 ) -> Result<Option<Site>, diesel::result::Error> {
     // Use raw SQL for case-insensitive comparison
-    diesel::sql_query("SELECT id, name, address, latitude, longitude, company_id FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)")
+    diesel::sql_query("SELECT id, name, address, latitude, longitude, company_id, ramp_duration_seconds FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)")
         .bind::<diesel::sql_types::Integer, _>(site_company_id)
         .bind::<diesel::sql_types::Text, _>(site_name)
         .get_result::<Site>(conn)
@@ -89,6 +91,7 @@ pub fn update_site(
     new_latitude: Option<f64>,
     new_longitude: Option<f64>,
     new_company_id: Option<i32>,
+    new_ramp_duration_seconds: Option<i32>,
     acting_user_id: Option<i32>,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
@@ -104,6 +107,8 @@ pub fn update_site(
             latitude.eq(new_latitude.unwrap_or(current_site.latitude)),
             longitude.eq(new_longitude.unwrap_or(current_site.longitude)),
             company_id.eq(new_company_id.unwrap_or(current_site.company_id)),
+            ramp_duration_seconds
+                .eq(new_ramp_duration_seconds.unwrap_or(current_site.ramp_duration_seconds)),
         ))
         .execute(conn)?;
 
@@ -163,6 +168,7 @@ pub fn get_site_with_timestamps(
         latitude: site.latitude,
         longitude: site.longitude,
         company_id: site.company_id,
+        ramp_duration_seconds: site.ramp_duration_seconds,
         created_at,
         updated_at,
     }))
@@ -188,6 +194,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site 1");
@@ -199,6 +206,7 @@ mod tests {
             40.7589,
             -73.9851,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site 2");
@@ -224,6 +232,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -233,6 +242,7 @@ mod tests {
         assert_eq!(site.latitude, 40.7128);
         assert_eq!(site.longitude, -74.0060);
         assert_eq!(site.company_id, company.id);
+        assert_eq!(site.ramp_duration_seconds, 120);
         assert!(site.id > 0);
     }
 
@@ -250,6 +260,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -285,6 +296,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             None,
         )
         .expect("Failed to insert site 1");
@@ -295,6 +307,7 @@ mod tests {
             41.0,
             -75.0,
             company2.id,
+            120,
             None,
         )
         .expect("Failed to insert site 2");
@@ -305,6 +318,7 @@ mod tests {
             42.0,
             -76.0,
             company1.id,
+            120,
             None,
         )
         .expect("Failed to insert site 3");
@@ -334,6 +348,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             None,
         )
         .expect("Failed to insert site");
@@ -360,6 +375,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("Failed to update site");
 
@@ -368,6 +384,7 @@ mod tests {
         assert_eq!(updated_site.latitude, 40.0);
         assert_eq!(updated_site.longitude, -74.0);
         assert_eq!(updated_site.company_id, company1.id);
+        assert_eq!(updated_site.ramp_duration_seconds, 120); // Should remain unchanged
 
         // Check timestamps from activity log
         let new_created_at =
@@ -389,6 +406,7 @@ mod tests {
             Some(41.0),
             Some(-75.0),
             Some(company2.id),
+            Some(180),
             None,
         )
         .expect("Failed to fully update site");
@@ -398,14 +416,24 @@ mod tests {
         assert_eq!(fully_updated_site.latitude, 41.0);
         assert_eq!(fully_updated_site.longitude, -75.0);
         assert_eq!(fully_updated_site.company_id, company2.id);
+        assert_eq!(fully_updated_site.ramp_duration_seconds, 180);
     }
 
     #[test]
     fn test_update_nonexistent_site() {
         let mut conn = setup_test_db();
 
-        let result =
-            update_site(&mut conn, 99999, Some("Test".to_string()), None, None, None, None, None);
+        let result = update_site(
+            &mut conn,
+            99999,
+            Some("Test".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
 
         assert!(result.is_err());
     }
@@ -424,6 +452,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site 1");
@@ -434,6 +463,7 @@ mod tests {
             41.0,
             -75.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site 2");
@@ -480,6 +510,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .unwrap();
@@ -495,6 +526,7 @@ mod tests {
         assert_eq!(site_with_timestamps.latitude, 40.7128);
         assert_eq!(site_with_timestamps.longitude, -74.0060);
         assert_eq!(site_with_timestamps.company_id, company.id);
+        assert_eq!(site_with_timestamps.ramp_duration_seconds, 120);
 
         // Timestamps should be recent (within last few seconds)
         let now = chrono::Utc::now().naive_utc();
@@ -520,6 +552,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to insert site");

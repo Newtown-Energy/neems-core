@@ -207,8 +207,16 @@ pub fn site_add_impl(
         return Ok(());
     }
 
-    let created_site =
-        insert_site(conn, name, address, latitude, longitude, company_id, Some(admin_user_id))?;
+    let created_site = insert_site(
+        conn,
+        name,
+        address,
+        latitude,
+        longitude,
+        company_id,
+        120, // Default ramp duration
+        Some(admin_user_id),
+    )?;
 
     println!("Site created successfully!");
     println!("ID: {}", created_site.id);
@@ -350,6 +358,7 @@ pub fn site_edit_impl(
         new_latitude,
         new_longitude,
         new_company_id,
+        None, // ramp_duration_seconds - not modified by admin CLI
         Some(admin_user_id),
     )?;
 

@@ -429,6 +429,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site");
@@ -1034,6 +1035,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site 1");
@@ -1044,6 +1046,7 @@ mod tests {
             41.0,
             -75.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site 2");
@@ -1066,6 +1069,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site 1");
@@ -1076,6 +1080,7 @@ mod tests {
             41.0,
             -75.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site 2");
@@ -1103,6 +1108,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site A");
@@ -1113,6 +1119,7 @@ mod tests {
             41.0,
             -75.0,
             company2.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site B");
@@ -1196,6 +1203,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site");
@@ -1206,6 +1214,7 @@ mod tests {
             41.0,
             -75.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site");
@@ -1237,6 +1246,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site 1");
@@ -1247,6 +1257,7 @@ mod tests {
             41.0,
             -75.0,
             company2.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site 2");
@@ -1394,6 +1405,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site");
@@ -1471,6 +1483,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             Some(1),
         )
         .expect("Failed to create site");
@@ -1608,6 +1621,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -1646,6 +1660,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -1692,6 +1707,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -1740,6 +1756,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -1791,6 +1808,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site 1");
@@ -1802,6 +1820,7 @@ mod tests {
             41.0,
             -75.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site 2");
@@ -1850,6 +1869,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -1888,6 +1908,7 @@ mod tests {
             40.7128,
             -74.0060,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -1943,6 +1964,7 @@ mod tests {
             40.0,
             -74.0,
             company.id,
+            120,
             None,
         )
         .expect("Failed to create site");
@@ -2000,6 +2022,7 @@ mod tests {
             40.0,
             -74.0,
             company1.id,
+            120,
             None,
         )
         .expect("Failed to create site 1");
@@ -2011,6 +2034,7 @@ mod tests {
             41.0,
             -75.0,
             company2.id,
+            120,
             None,
         )
         .expect("Failed to create site 2");
