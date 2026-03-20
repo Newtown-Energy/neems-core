@@ -12,6 +12,8 @@ jobs:
   check-version:
     name: Check package version
     runs-on: ubuntu-latest
+    permissions:
+      packages: read
     outputs:
       new_version: ${{ steps.check.outputs.new_version }}
       version: ${{ steps.version.outputs.version }}
@@ -33,8 +35,9 @@ jobs:
         run: |
           # Query GitHub Packages API for published versions
           # Handle cases: package doesn't exist (error object), no versions (empty array), or has versions (array)
-          PUBLISHED=$(curl -s "https://api.github.com/orgs/Newtown-Energy/packages/npm/@newtown-energy%2Ftypes/versions" \
-            -H "Accept: application/vnd.github+json" | jq -r 'if type == "array" and length > 0 then .[0].name else "0.0.0" end')
+          PUBLISHED=$(curl -s "https://api.github.com/orgs/Newtown-Energy/packages/npm/types/versions" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" | jq -r 'if type == "array" and length > 0 then .[0].name else "0.0.0" end')
           if [ "$VERSION" = "$PUBLISHED" ]; then
             echo "new_version=false" >> "$GITHUB_OUTPUT"
             echo "Version $VERSION already published"
