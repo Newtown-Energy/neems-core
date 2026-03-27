@@ -12,7 +12,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
-use super::state::RtacReading;
+use super::{alarm_definitions::ALARM_REGISTER_COUNT, state::RtacReading};
 
 /// Configuration for the storage writer task
 #[derive(Debug, Clone)]
@@ -78,7 +78,7 @@ impl From<RtacReading> for StorageReading {
             "current_a": reading.current_a,
             "temperature_c": reading.temperature_c,
             "grid_frequency_hz": reading.grid_frequency_hz,
-            "alarm_flags": reading.alarm_flags,
+            "alarm_registers": reading.alarm_registers,
             "sequence": reading.sequence,
         });
 
@@ -180,8 +180,16 @@ impl DataSampler {
         // Use the mode from the last reading (can't average enums)
         let mode = self.readings.last()?.mode.clone();
 
-        // OR all alarm flags together (any alarm that was active during the period)
-        let alarm_flags = self.readings.iter().fold(0u16, |acc, r| acc | r.alarm_flags);
+        // OR all alarm registers together (any alarm that was active during the period)
+        let alarm_registers = self.readings.iter().fold(
+            [0u16; ALARM_REGISTER_COUNT],
+            |mut acc, r| {
+                for (i, reg) in acc.iter_mut().enumerate() {
+                    *reg |= r.alarm_registers[i];
+                }
+                acc
+            },
+        );
 
         // Use the sequence of the last reading
         let sequence = self.readings.last()?.sequence;
@@ -197,7 +205,7 @@ impl DataSampler {
             current_a,
             temperature_c,
             grid_frequency_hz,
-            alarm_flags,
+            alarm_registers,
             sequence,
         })
     }
@@ -340,7 +348,7 @@ mod tests {
             current_a: 100.0,
             temperature_c: 25.0,
             grid_frequency_hz: 60.0,
-            alarm_flags: 0,
+            alarm_registers: [0u16; ALARM_REGISTER_COUNT],
             sequence,
         }
     }

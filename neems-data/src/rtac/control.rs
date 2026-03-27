@@ -192,10 +192,11 @@ impl<S: ScheduleProvider> ControlLogicTask<S> {
 
         // Check if system is available for commands
         if !current_state.is_available_for_commands() {
-            if current_state.alarms.emergency_stop {
+            if current_state.alarms.is_estop_active() {
                 warn!("System in emergency stop, skipping command evaluation");
             } else if current_state.alarms.has_critical_alarm() {
-                warn!(alarms = ?current_state.alarms.active_alarms(), "Critical alarm active, skipping command evaluation");
+                let active: Vec<_> = current_state.alarms.active_alarms().iter().map(|a| a.qualified_name()).collect();
+                warn!(alarms = ?active, "Critical alarm active, skipping command evaluation");
             }
 
             // Ensure no commands are issued while the system is unavailable
@@ -439,7 +440,10 @@ mod tests {
         assert_eq!(pending.source_id, Some(42));
     }
 
-    use super::super::state::ConnectionStatus;
+    use super::super::{
+        alarm_definitions::{ESTOP_ALARM_NUM, T1_TEMP_TRIP_ALARM_NUM},
+        state::ConnectionStatus,
+    };
 
     fn create_test_task(
         config: ControlConfig,
@@ -558,7 +562,7 @@ mod tests {
         // Second evaluation: emergency stop is triggered
         {
             let mut s = state.write().await;
-            s.alarms.emergency_stop = true;
+            s.alarms.set_alarm_num(ESTOP_ALARM_NUM, true);
         }
         task.evaluate().await.unwrap();
 
@@ -591,10 +595,10 @@ mod tests {
         task.evaluate().await.unwrap();
         assert_eq!(task.last_command_id, Some(1));
 
-        // Second evaluation: critical alarm (over_temperature) is triggered
+        // Second evaluation: critical alarm (transformer 1 trip, level 2) is triggered
         {
             let mut s = state.write().await;
-            s.alarms.over_temperature = true;
+            s.alarms.set_alarm_num(T1_TEMP_TRIP_ALARM_NUM, true);
         }
         task.evaluate().await.unwrap();
 

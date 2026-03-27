@@ -16,6 +16,7 @@ use tokio::{
 use tracing::{debug, error, info, trace, warn};
 
 use super::{
+    alarm_definitions::ALARM_DEFINITIONS,
     alarms::Alarm,
     modbus_client::{ModbusClient, ModbusClientConfig},
     protocol::ParsedStatus,
@@ -226,7 +227,7 @@ impl ModbusWorker {
                     current = status.current_a,
                     temp = status.temperature_c,
                     frequency = status.grid_frequency_hz,
-                    alarms = status.alarm_flags,
+                    alarm_registers = ?status.alarm_registers,
                     "Raw status values"
                 );
 
@@ -288,7 +289,7 @@ impl ModbusWorker {
         state.current_a = status.current_a;
         state.temperature_c = status.temperature_c;
         state.grid_frequency_hz = status.grid_frequency_hz;
-        state.alarms = AlarmFlags::from_register(status.alarm_flags);
+        state.alarms = AlarmFlags::from_registers(&status.alarm_registers);
         state.connection_status = ConnectionStatus::Connected;
         state.sequence = self.sequence;
     }
@@ -302,97 +303,36 @@ impl ModbusWorker {
 
     /// Check for alarm changes and send new alarms to the handler
     async fn check_alarms(&mut self, status: &ParsedStatus) {
-        let new_flags = AlarmFlags::from_register(status.alarm_flags);
+        let new_flags = AlarmFlags::from_registers(&status.alarm_registers);
 
-        // Check each alarm flag for changes (became active)
-        self.check_alarm_change(
-            "emergency_stop",
-            self.last_alarm_flags.emergency_stop,
-            new_flags.emergency_stop,
-        )
-        .await;
-        self.check_alarm_change(
-            "over_temperature",
-            self.last_alarm_flags.over_temperature,
-            new_flags.over_temperature,
-        )
-        .await;
-        self.check_alarm_change(
-            "under_temperature",
-            self.last_alarm_flags.under_temperature,
-            new_flags.under_temperature,
-        )
-        .await;
-        self.check_alarm_change(
-            "over_voltage",
-            self.last_alarm_flags.over_voltage,
-            new_flags.over_voltage,
-        )
-        .await;
-        self.check_alarm_change(
-            "under_voltage",
-            self.last_alarm_flags.under_voltage,
-            new_flags.under_voltage,
-        )
-        .await;
-        self.check_alarm_change(
-            "over_current",
-            self.last_alarm_flags.over_current,
-            new_flags.over_current,
-        )
-        .await;
-        self.check_alarm_change(
-            "communication_fault",
-            self.last_alarm_flags.communication_fault,
-            new_flags.communication_fault,
-        )
-        .await;
-        self.check_alarm_change("bms_fault", self.last_alarm_flags.bms_fault, new_flags.bms_fault)
-            .await;
-        self.check_alarm_change(
-            "inverter_fault",
-            self.last_alarm_flags.inverter_fault,
-            new_flags.inverter_fault,
-        )
-        .await;
-        self.check_alarm_change(
-            "grid_fault",
-            self.last_alarm_flags.grid_fault,
-            new_flags.grid_fault,
-        )
-        .await;
-        self.check_alarm_change(
-            "isolation_fault",
-            self.last_alarm_flags.isolation_fault,
-            new_flags.isolation_fault,
-        )
-        .await;
-        self.check_alarm_change(
-            "cooling_fault",
-            self.last_alarm_flags.cooling_fault,
-            new_flags.cooling_fault,
-        )
-        .await;
+        for def in ALARM_DEFINITIONS {
+            let was_active = self.last_alarm_flags.is_alarm_active(def);
+            let is_active = new_flags.is_alarm_active(def);
 
-        self.last_alarm_flags = new_flags;
-    }
-
-    /// Check if a specific alarm changed and send notification if it became
-    /// active
-    async fn check_alarm_change(&self, name: &'static str, was_active: bool, is_active: bool) {
-        if !was_active && is_active {
-            // Alarm became active
-            let alarm = Alarm::new(name);
-            if let Err(e) = self.channels.alarm_tx.send(alarm) {
-                error!(alarm = name, error = %e, "Failed to send alarm notification");
-            }
-        } else if was_active && !is_active {
-            // Alarm cleared
-            let alarm = Alarm::cleared(name);
-            if let Err(e) = self.channels.alarm_tx.send(alarm) {
-                error!(alarm = name, error = %e, "Failed to send alarm cleared notification");
+            if !was_active && is_active {
+                let alarm = Alarm::new(def);
+                if let Err(e) = self.channels.alarm_tx.send(alarm) {
+                    error!(
+                        alarm = def.name,
+                        alarm_num = def.alarm_num,
+                        error = %e,
+                        "Failed to send alarm notification"
+                    );
+                }
+            } else if was_active && !is_active {
+                let alarm = Alarm::cleared(def);
+                if let Err(e) = self.channels.alarm_tx.send(alarm) {
+                    error!(
+                        alarm = def.name,
+                        alarm_num = def.alarm_num,
+                        error = %e,
+                        "Failed to send alarm cleared notification"
+                    );
+                }
             }
         }
+
+        self.last_alarm_flags = new_flags;
     }
 
     /// Send current state to storage

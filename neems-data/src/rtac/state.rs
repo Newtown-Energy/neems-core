@@ -6,7 +6,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::protocol::{CommandType, OperatingMode};
+use super::{
+    alarm_definitions::{
+        AlarmDefinition, AlarmZone, ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM,
+    },
+    protocol::{CommandType, OperatingMode},
+};
 
 /// Connection status for the Modbus TCP connection
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,164 +29,99 @@ pub enum ConnectionStatus {
 
 /// Alarm flags from the RTAC
 ///
-/// Each flag represents a specific alarm condition that can be active.
-/// Multiple alarms can be active simultaneously.
+/// Stores the raw 22-register alarm bitfield read from the RTAC.
+/// Each register holds up to 16 alarm bits. Use alarm definitions to
+/// interpret individual bits.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlarmFlags {
-    /// Emergency stop activated
-    pub emergency_stop: bool,
-    /// Over-temperature condition
-    pub over_temperature: bool,
-    /// Under-temperature condition
-    pub under_temperature: bool,
-    /// Over-voltage condition
-    pub over_voltage: bool,
-    /// Under-voltage condition
-    pub under_voltage: bool,
-    /// Over-current condition
-    pub over_current: bool,
-    /// Communication fault with battery modules
-    pub communication_fault: bool,
-    /// Battery management system fault
-    pub bms_fault: bool,
-    /// Inverter fault
-    pub inverter_fault: bool,
-    /// Grid fault detected
-    pub grid_fault: bool,
-    /// System isolation fault
-    pub isolation_fault: bool,
-    /// Fan or cooling system fault
-    pub cooling_fault: bool,
+    /// Raw alarm register values
+    pub registers: [u16; ALARM_REGISTER_COUNT],
 }
 
 impl AlarmFlags {
+    /// Parse alarm flags from a slice of register values
+    pub fn from_registers(registers: &[u16; ALARM_REGISTER_COUNT]) -> Self {
+        Self { registers: *registers }
+    }
+
+    /// Convert alarm flags to the register array
+    pub fn to_registers(&self) -> [u16; ALARM_REGISTER_COUNT] {
+        self.registers
+    }
+
+    /// Check whether a specific alarm definition is active
+    pub fn is_alarm_active(&self, def: &AlarmDefinition) -> bool {
+        (self.registers[def.register_index] >> def.bit) & 1 != 0
+    }
+
+    /// Check whether a specific alarm number is active
+    pub fn is_alarm_num_active(&self, alarm_num: u16) -> bool {
+        ALARM_DEFINITIONS
+            .iter()
+            .find(|d| d.alarm_num == alarm_num)
+            .is_some_and(|d| self.is_alarm_active(d))
+    }
+
+    /// Set an alarm by alarm number (for testing)
+    pub fn set_alarm_num(&mut self, alarm_num: u16, active: bool) {
+        if let Some(def) = ALARM_DEFINITIONS.iter().find(|d| d.alarm_num == alarm_num) {
+            if active {
+                self.registers[def.register_index] |= 1 << def.bit;
+            } else {
+                self.registers[def.register_index] &= !(1 << def.bit);
+            }
+        }
+    }
+
+    /// Returns true if the emergency stop alarm (104) is active
+    pub fn is_estop_active(&self) -> bool {
+        self.is_alarm_num_active(ESTOP_ALARM_NUM)
+    }
+
     /// Returns true if any alarm is active
     pub fn has_any_alarm(&self) -> bool {
-        self.emergency_stop
-            || self.over_temperature
-            || self.under_temperature
-            || self.over_voltage
-            || self.under_voltage
-            || self.over_current
-            || self.communication_fault
-            || self.bms_fault
-            || self.inverter_fault
-            || self.grid_fault
-            || self.isolation_fault
-            || self.cooling_fault
+        self.registers.iter().any(|&r| r != 0)
     }
 
-    /// Returns true if any critical alarm is active (requires immediate
-    /// attention)
+    /// Returns true if any alarm at level 1 or 2 is active (emergency or high)
     pub fn has_critical_alarm(&self) -> bool {
-        self.emergency_stop
-            || self.over_temperature
-            || self.over_voltage
-            || self.over_current
-            || self.bms_fault
-            || self.inverter_fault
+        ALARM_DEFINITIONS
+            .iter()
+            .filter(|d| d.level <= 2)
+            .any(|d| self.is_alarm_active(d))
     }
 
-    /// Returns a list of active alarm names
-    pub fn active_alarms(&self) -> Vec<&'static str> {
-        let mut alarms = Vec::new();
-        if self.emergency_stop {
-            alarms.push("emergency_stop");
-        }
-        if self.over_temperature {
-            alarms.push("over_temperature");
-        }
-        if self.under_temperature {
-            alarms.push("under_temperature");
-        }
-        if self.over_voltage {
-            alarms.push("over_voltage");
-        }
-        if self.under_voltage {
-            alarms.push("under_voltage");
-        }
-        if self.over_current {
-            alarms.push("over_current");
-        }
-        if self.communication_fault {
-            alarms.push("communication_fault");
-        }
-        if self.bms_fault {
-            alarms.push("bms_fault");
-        }
-        if self.inverter_fault {
-            alarms.push("inverter_fault");
-        }
-        if self.grid_fault {
-            alarms.push("grid_fault");
-        }
-        if self.isolation_fault {
-            alarms.push("isolation_fault");
-        }
-        if self.cooling_fault {
-            alarms.push("cooling_fault");
-        }
-        alarms
+    /// Returns true if any level-1 alarm (emergency / fire) is active
+    pub fn has_emergency_alarm(&self) -> bool {
+        ALARM_DEFINITIONS
+            .iter()
+            .filter(|d| d.level == 1)
+            .any(|d| self.is_alarm_active(d))
     }
 
-    /// Parse alarm flags from a 16-bit register value
-    pub fn from_register(value: u16) -> Self {
-        Self {
-            emergency_stop: (value & 0x0001) != 0,
-            over_temperature: (value & 0x0002) != 0,
-            under_temperature: (value & 0x0004) != 0,
-            over_voltage: (value & 0x0008) != 0,
-            under_voltage: (value & 0x0010) != 0,
-            over_current: (value & 0x0020) != 0,
-            communication_fault: (value & 0x0040) != 0,
-            bms_fault: (value & 0x0080) != 0,
-            inverter_fault: (value & 0x0100) != 0,
-            grid_fault: (value & 0x0200) != 0,
-            isolation_fault: (value & 0x0400) != 0,
-            cooling_fault: (value & 0x0800) != 0,
-        }
+    /// Returns a list of active alarm definitions
+    pub fn active_alarms(&self) -> Vec<&'static AlarmDefinition> {
+        ALARM_DEFINITIONS
+            .iter()
+            .filter(|d| self.is_alarm_active(d))
+            .collect()
     }
 
-    /// Convert alarm flags to a 16-bit register value
-    pub fn to_register(&self) -> u16 {
-        let mut value = 0u16;
-        if self.emergency_stop {
-            value |= 0x0001;
+    /// Returns active alarm definitions filtered by zone
+    pub fn active_alarms_in_zone(&self, zone: AlarmZone) -> Vec<&'static AlarmDefinition> {
+        ALARM_DEFINITIONS
+            .iter()
+            .filter(|d| d.zone == zone && self.is_alarm_active(d))
+            .collect()
+    }
+
+    /// OR two alarm flag sets together (used for decimation)
+    pub fn bitwise_or(&self, other: &AlarmFlags) -> AlarmFlags {
+        let mut result = [0u16; ALARM_REGISTER_COUNT];
+        for (i, reg) in result.iter_mut().enumerate() {
+            *reg = self.registers[i] | other.registers[i];
         }
-        if self.over_temperature {
-            value |= 0x0002;
-        }
-        if self.under_temperature {
-            value |= 0x0004;
-        }
-        if self.over_voltage {
-            value |= 0x0008;
-        }
-        if self.under_voltage {
-            value |= 0x0010;
-        }
-        if self.over_current {
-            value |= 0x0020;
-        }
-        if self.communication_fault {
-            value |= 0x0040;
-        }
-        if self.bms_fault {
-            value |= 0x0080;
-        }
-        if self.inverter_fault {
-            value |= 0x0100;
-        }
-        if self.grid_fault {
-            value |= 0x0200;
-        }
-        if self.isolation_fault {
-            value |= 0x0400;
-        }
-        if self.cooling_fault {
-            value |= 0x0800;
-        }
-        value
+        AlarmFlags { registers: result }
     }
 }
 
@@ -247,7 +187,7 @@ impl RtacState {
 
     /// Check if the system is available for commands
     pub fn is_available_for_commands(&self) -> bool {
-        self.is_healthy() && !self.alarms.emergency_stop
+        self.is_healthy() && !self.alarms.is_estop_active()
     }
 }
 
@@ -272,8 +212,8 @@ pub struct RtacReading {
     pub temperature_c: f32,
     /// Grid frequency in Hz
     pub grid_frequency_hz: f32,
-    /// Active alarm flags as bitmask
-    pub alarm_flags: u16,
+    /// Active alarm flags as register array
+    pub alarm_registers: [u16; ALARM_REGISTER_COUNT],
     /// Sequence number
     pub sequence: u64,
 }
@@ -289,7 +229,7 @@ impl From<&RtacState> for RtacReading {
             current_a: state.current_a,
             temperature_c: state.temperature_c,
             grid_frequency_hz: state.grid_frequency_hz,
-            alarm_flags: state.alarms.to_register(),
+            alarm_registers: state.alarms.to_registers(),
             sequence: state.sequence,
         }
     }
@@ -384,51 +324,82 @@ impl PendingCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rtac::alarm_definitions::{ESTOP_ALARM_NUM, FIRE_ALARM_NUM};
 
     #[test]
-    fn test_alarm_flags_from_register() {
-        let flags = AlarmFlags::from_register(0x0000);
+    fn test_alarm_flags_default_empty() {
+        let flags = AlarmFlags::default();
         assert!(!flags.has_any_alarm());
+        assert!(!flags.has_critical_alarm());
+        assert!(!flags.is_estop_active());
+    }
 
-        let flags = AlarmFlags::from_register(0x0001);
-        assert!(flags.emergency_stop);
+    #[test]
+    fn test_alarm_flags_estop() {
+        let mut flags = AlarmFlags::default();
+        flags.set_alarm_num(ESTOP_ALARM_NUM, true);
+        assert!(flags.is_estop_active());
+        assert!(flags.has_any_alarm());
+        assert!(flags.has_critical_alarm()); // level 2
+
+        flags.set_alarm_num(ESTOP_ALARM_NUM, false);
+        assert!(!flags.is_estop_active());
+    }
+
+    #[test]
+    fn test_alarm_flags_fire_alarm() {
+        let mut flags = AlarmFlags::default();
+        flags.set_alarm_num(FIRE_ALARM_NUM, true);
+        assert!(flags.has_emergency_alarm());
         assert!(flags.has_critical_alarm());
-
-        let flags = AlarmFlags::from_register(0x0fff);
-        assert!(flags.emergency_stop);
-        assert!(flags.over_temperature);
-        assert!(flags.under_temperature);
-        assert!(flags.over_voltage);
-        assert!(flags.under_voltage);
-        assert!(flags.over_current);
-        assert!(flags.communication_fault);
-        assert!(flags.bms_fault);
-        assert!(flags.inverter_fault);
-        assert!(flags.grid_fault);
-        assert!(flags.isolation_fault);
-        assert!(flags.cooling_fault);
     }
 
     #[test]
     fn test_alarm_flags_roundtrip() {
-        let original = AlarmFlags {
-            emergency_stop: true,
-            over_temperature: false,
-            under_temperature: true,
-            over_voltage: false,
-            under_voltage: true,
-            over_current: false,
-            communication_fault: true,
-            bms_fault: false,
-            inverter_fault: true,
-            grid_fault: false,
-            isolation_fault: true,
-            cooling_fault: false,
-        };
+        let mut flags = AlarmFlags::default();
+        flags.set_alarm_num(1, true); // loss_fiber
+        flags.set_alarm_num(104, true); // estop
+        flags.set_alarm_num(401, true); // fire_alarm
+        flags.set_alarm_num(601, true); // mp1a loss_of_comms
 
-        let register = original.to_register();
-        let restored = AlarmFlags::from_register(register);
-        assert_eq!(original, restored);
+        let regs = flags.to_registers();
+        let restored = AlarmFlags::from_registers(&regs);
+        assert_eq!(flags, restored);
+
+        assert!(restored.is_alarm_num_active(1));
+        assert!(restored.is_alarm_num_active(104));
+        assert!(restored.is_alarm_num_active(401));
+        assert!(restored.is_alarm_num_active(601));
+        assert!(!restored.is_alarm_num_active(2));
+    }
+
+    #[test]
+    fn test_alarm_flags_active_alarms() {
+        let mut flags = AlarmFlags::default();
+        flags.set_alarm_num(1, true);
+        flags.set_alarm_num(2, true);
+        flags.set_alarm_num(104, true);
+
+        let active = flags.active_alarms();
+        assert_eq!(active.len(), 3);
+
+        let names: Vec<_> = active.iter().map(|a| a.name).collect();
+        assert!(names.contains(&"loss_fiber"));
+        assert!(names.contains(&"loss_cellular"));
+        assert!(names.contains(&"estop"));
+    }
+
+    #[test]
+    fn test_alarm_flags_bitwise_or() {
+        let mut a = AlarmFlags::default();
+        a.set_alarm_num(1, true);
+
+        let mut b = AlarmFlags::default();
+        b.set_alarm_num(104, true);
+
+        let combined = a.bitwise_or(&b);
+        assert!(combined.is_alarm_num_active(1));
+        assert!(combined.is_alarm_num_active(104));
     }
 
     #[test]
@@ -440,11 +411,16 @@ mod tests {
         assert!(state.is_healthy());
         assert!(state.is_available_for_commands());
 
-        state.alarms.emergency_stop = true;
+        // Estop makes unavailable
+        state.alarms.set_alarm_num(ESTOP_ALARM_NUM, true);
         assert!(!state.is_healthy());
         assert!(!state.is_available_for_commands());
 
-        state.alarms.emergency_stop = false;
+        // Clear estop, set a level-4 alarm (should still be healthy)
+        state.alarms.set_alarm_num(ESTOP_ALARM_NUM, false);
+        state.alarms.set_alarm_num(2, true); // loss_cellular, level 4
+        assert!(state.is_healthy());
+
         state.connection_status = ConnectionStatus::Disconnected;
         assert!(!state.is_healthy());
     }

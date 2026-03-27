@@ -7,6 +7,7 @@
 //! - Enabling reactive control where write operations adjust based on read
 //!   values
 
+pub mod alarm_definitions;
 pub mod alarms;
 pub mod control;
 pub mod modbus_client;
@@ -15,6 +16,7 @@ pub mod state;
 pub mod storage;
 pub mod worker;
 
+pub use alarm_definitions::{AlarmDefinition, AlarmZone, ALARM_REGISTER_COUNT};
 pub use alarms::{Alarm, AlarmHandlerTask, AlarmSeverity};
 pub use control::ControlLogicTask;
 pub use modbus_client::ModbusClient;

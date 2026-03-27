@@ -7,6 +7,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::alarm_definitions::ALARM_REGISTER_COUNT;
+
 /// Operating modes for the battery energy storage system
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatingMode {
@@ -161,11 +163,11 @@ impl RegisterMap {
     /// Grid frequency in centihertz (e.g., 6000 = 60.00 Hz)
     pub const STATUS_GRID_FREQUENCY: u16 = 7;
 
-    /// Alarm flags (bitfield)
-    pub const STATUS_ALARMS: u16 = 8;
+    /// First alarm register (start of 22-register alarm block)
+    pub const STATUS_ALARMS_START: u16 = 8;
 
-    /// Number of registers to read for status (all status registers)
-    pub const STATUS_READ_COUNT: u16 = 9;
+    /// Number of registers to read for status (8 base + 22 alarm registers)
+    pub const STATUS_READ_COUNT: u16 = 8 + ALARM_REGISTER_COUNT as u16;
 
     // === Write Registers (Holding Registers, Function Code 6/16) ===
 
@@ -261,18 +263,23 @@ pub struct ParsedStatus {
     pub current_a: f32,
     pub temperature_c: f32,
     pub grid_frequency_hz: f32,
-    pub alarm_flags: u16,
+    /// Raw alarm register values (22 registers, one per alarm zone group)
+    pub alarm_registers: [u16; ALARM_REGISTER_COUNT],
 }
 
 impl ParsedStatus {
     /// Parse status from a slice of register values
     ///
     /// Expects registers in order: mode, soc, power_high, power_low, voltage,
-    /// current, temperature, grid_frequency, alarms
+    /// current, temperature, grid_frequency, followed by 22 alarm registers
     pub fn from_registers(registers: &[u16]) -> Option<Self> {
         if registers.len() < RegisterMap::STATUS_READ_COUNT as usize {
             return None;
         }
+
+        let mut alarm_registers = [0u16; ALARM_REGISTER_COUNT];
+        alarm_registers
+            .copy_from_slice(&registers[8..8 + ALARM_REGISTER_COUNT]);
 
         Some(Self {
             mode: OperatingMode::from_register(registers[0]),
@@ -282,7 +289,7 @@ impl ParsedStatus {
             current_a: parse_current(registers[5]),
             temperature_c: parse_temperature(registers[6]),
             grid_frequency_hz: parse_grid_frequency(registers[7]),
-            alarm_flags: registers[8],
+            alarm_registers,
         })
     }
 }
@@ -385,7 +392,7 @@ mod tests {
 
     #[test]
     fn test_parsed_status() {
-        let registers = vec![
+        let mut registers = vec![
             1,     // Mode: Charging
             5000,  // SOC: 50%
             0,     // Power high
@@ -394,8 +401,9 @@ mod tests {
             1000,  // Current: 100A
             250,   // Temperature: 25C
             6000,  // Grid frequency: 60Hz
-            0,     // No alarms
         ];
+        // Append 22 alarm registers (all zeros = no alarms)
+        registers.extend(std::iter::repeat_n(0u16, ALARM_REGISTER_COUNT));
 
         let status = ParsedStatus::from_registers(&registers).unwrap();
         assert_eq!(status.mode, OperatingMode::Charging);
@@ -405,5 +413,18 @@ mod tests {
         assert_eq!(status.current_a, 100.0);
         assert_eq!(status.temperature_c, 25.0);
         assert_eq!(status.grid_frequency_hz, 60.0);
+        assert_eq!(status.alarm_registers, [0u16; ALARM_REGISTER_COUNT]);
+    }
+
+    #[test]
+    fn test_parsed_status_with_alarms() {
+        let mut registers = vec![0u16; 8]; // base status registers
+        let mut alarm_regs = [0u16; ALARM_REGISTER_COUNT];
+        // Set bit 3 in register 1 (estop, alarm 104)
+        alarm_regs[1] = 0x0008;
+        registers.extend_from_slice(&alarm_regs);
+
+        let status = ParsedStatus::from_registers(&registers).unwrap();
+        assert_eq!(status.alarm_registers[1], 0x0008);
     }
 }
