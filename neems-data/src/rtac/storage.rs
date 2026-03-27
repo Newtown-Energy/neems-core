@@ -5,7 +5,7 @@
 //! - Batches readings for efficient database writes
 //! - Supports configurable sample rates and decimation
 
-use std::time::Duration;
+use std::{collections::VecDeque, time::Duration};
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -87,18 +87,23 @@ impl From<RtacReading> for StorageReading {
 }
 
 /// In-memory storage backend for testing
+///
+/// Uses `VecDeque` for O(1) removal of oldest readings when at capacity.
 pub struct InMemoryStorage {
-    readings: Vec<StorageReading>,
+    readings: VecDeque<StorageReading>,
     max_readings: usize,
 }
 
 impl InMemoryStorage {
     pub fn new(max_readings: usize) -> Self {
-        Self { readings: Vec::new(), max_readings }
+        Self {
+            readings: VecDeque::with_capacity(max_readings),
+            max_readings,
+        }
     }
 
-    pub fn readings(&self) -> &[StorageReading] {
-        &self.readings
+    pub fn readings(&self) -> impl Iterator<Item = &StorageReading> {
+        self.readings.iter()
     }
 
     pub fn len(&self) -> usize {
@@ -121,10 +126,10 @@ impl StorageBackend for InMemoryStorage {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for reading in readings {
             if self.readings.len() >= self.max_readings {
-                // Remove oldest reading
-                self.readings.remove(0);
+                // Remove oldest reading (O(1) with VecDeque)
+                self.readings.pop_front();
             }
-            self.readings.push(reading);
+            self.readings.push_back(reading);
         }
         Ok(())
     }

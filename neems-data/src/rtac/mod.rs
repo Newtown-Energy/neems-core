@@ -23,4 +23,4 @@ pub use modbus_client::ModbusClient;
 pub use protocol::{CommandType, OperatingMode, RegisterMap};
 pub use state::{AlarmFlags, ConnectionStatus, PendingCommand, RtacReading, RtacState};
 pub use storage::{DataSampler, StorageWriterTask};
-pub use worker::{ModbusWorker, RtacConfig};
+pub use worker::{ModbusWorker, RtacConfig, ShutdownReason};

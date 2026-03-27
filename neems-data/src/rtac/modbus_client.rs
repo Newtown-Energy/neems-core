@@ -308,7 +308,11 @@ impl ModbusClient {
 
         match self.read_status().await {
             Ok(status) => Ok(status),
-            Err(ModbusError::ReadFailed(_) | ModbusError::NotConnected) => {
+            Err(
+                ModbusError::ReadFailed(_)
+                | ModbusError::NotConnected
+                | ModbusError::OperationTimeout,
+            ) => {
                 // Try to reconnect and read again
                 self.reconnect().await?;
                 self.read_status().await
@@ -328,7 +332,11 @@ impl ModbusClient {
 
         match self.write_command(command).await {
             Ok(()) => Ok(()),
-            Err(ModbusError::WriteFailed(_) | ModbusError::NotConnected) => {
+            Err(
+                ModbusError::WriteFailed(_)
+                | ModbusError::NotConnected
+                | ModbusError::OperationTimeout,
+            ) => {
                 // Try to reconnect and write again
                 self.reconnect().await?;
                 self.write_command(command).await

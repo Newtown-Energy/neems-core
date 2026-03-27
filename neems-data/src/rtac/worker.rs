@@ -15,6 +15,17 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
+/// Reason for worker shutdown
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownReason {
+    /// Shutdown was requested via the shutdown channel
+    Requested,
+    /// Storage channel was closed
+    StorageChannelClosed,
+    /// Alarm channel was closed
+    AlarmChannelClosed,
+}
+
 use super::{
     alarm_definitions::ALARM_DEFINITIONS,
     alarms::Alarm,
@@ -89,6 +100,8 @@ pub struct WorkerChannels {
     pub storage_tx: mpsc::Sender<RtacReading>,
     /// Sender for alarms to alarm handler task
     pub alarm_tx: mpsc::UnboundedSender<Alarm>,
+    /// Receiver for shutdown signal (any value triggers shutdown)
+    pub shutdown_rx: watch::Receiver<bool>,
 }
 
 /// Statistics for the worker
@@ -146,8 +159,12 @@ impl ModbusWorker {
 
     /// Run the worker loop
     ///
-    /// This is the main entry point that runs the 10Hz loop.
-    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// This is the main entry point that runs the 10Hz loop. The loop will
+    /// continue until a shutdown signal is received or a critical channel
+    /// is closed.
+    ///
+    /// Returns the reason for shutdown.
+    pub async fn run(&mut self) -> Result<ShutdownReason, Box<dyn std::error::Error + Send + Sync>> {
         info!(address = %self.config.rtac_address, "Starting Modbus worker");
 
         // Initial connection
@@ -159,25 +176,46 @@ impl ModbusWorker {
         let mut interval = self.create_interval();
 
         loop {
-            interval.tick().await;
-            self.tick_count += 1;
+            tokio::select! {
+                // Check for shutdown signal
+                result = self.channels.shutdown_rx.changed() => {
+                    match result {
+                        Ok(()) => {
+                            if *self.channels.shutdown_rx.borrow() {
+                                info!("Shutdown signal received, stopping worker");
+                                return Ok(ShutdownReason::Requested);
+                            }
+                        }
+                        Err(_) => {
+                            // Sender dropped, treat as shutdown
+                            info!("Shutdown channel closed, stopping worker");
+                            return Ok(ShutdownReason::Requested);
+                        }
+                    }
+                }
 
-            // Perform read operation (every tick = 10Hz)
-            let read_success = self.perform_read().await;
+                // Regular tick processing
+                _ = interval.tick() => {
+                    self.tick_count += 1;
 
-            // Perform write operation (every Nth tick = 2Hz)
-            if self.tick_count.is_multiple_of(self.config.write_every_n_ticks as u64) {
-                self.perform_write().await;
-            }
+                    // Perform read operation (every tick = 10Hz)
+                    let read_success = self.perform_read().await;
 
-            // Log stats periodically (every 10 seconds at 10Hz = every 100 ticks)
-            if self.tick_count.is_multiple_of(100) {
-                self.log_stats();
-            }
+                    // Perform write operation (every Nth tick = 2Hz)
+                    if self.tick_count.is_multiple_of(self.config.write_every_n_ticks as u64) {
+                        self.perform_write().await;
+                    }
 
-            // If read failed due to connection issue, try to reconnect
-            if !read_success && !self.client.is_connected() {
-                self.handle_reconnection().await;
+                    // Log stats periodically (every 10 seconds at 10Hz = every 100 ticks)
+                    if self.tick_count.is_multiple_of(100) {
+                        self.log_stats();
+                    }
+
+                    // If read failed due to connection issue, try to reconnect
+                    if !read_success && !self.client.is_connected() {
+                        self.handle_reconnection().await;
+                    }
+                }
             }
         }
     }
@@ -397,17 +435,23 @@ impl ModbusWorker {
 }
 
 /// Create the channels needed for the worker
+///
+/// Returns the worker channels and a shutdown sender. Send `true` to the
+/// shutdown sender to request graceful shutdown.
 pub fn create_worker_channels(
     command_rx: watch::Receiver<Option<PendingCommand>>,
     storage_tx: mpsc::Sender<RtacReading>,
     alarm_tx: mpsc::UnboundedSender<Alarm>,
-) -> WorkerChannels {
-    WorkerChannels {
+) -> (WorkerChannels, watch::Sender<bool>) {
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let channels = WorkerChannels {
         state: Arc::new(RwLock::new(RtacState::default())),
         command_rx,
         storage_tx,
         alarm_tx,
-    }
+        shutdown_rx,
+    };
+    (channels, shutdown_tx)
 }
 
 #[cfg(test)]
