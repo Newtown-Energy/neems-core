@@ -126,6 +126,18 @@ mod tests {
         use crate::api::role::UpdateRoleRequest;
         UpdateRoleRequest::export().expect("Failed to export UpdateRoleRequest type");
 
+        // Alarm API types
+        use crate::api::alarm::{
+            ActiveAlarmDto, ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse,
+            AlarmSeverityDto, AlarmZoneDto,
+        };
+        AlarmSeverityDto::export().expect("Failed to export AlarmSeverityDto type");
+        AlarmZoneDto::export().expect("Failed to export AlarmZoneDto type");
+        AlarmDefinitionDto::export().expect("Failed to export AlarmDefinitionDto type");
+        ActiveAlarmDto::export().expect("Failed to export ActiveAlarmDto type");
+        ActiveAlarmsResponse::export().expect("Failed to export ActiveAlarmsResponse type");
+        AlarmDefinitionsResponse::export().expect("Failed to export AlarmDefinitionsResponse type");
+
         // Data API types
         use crate::api::data::{DataSourcesResponse, ReadingsQuery, ReadingsResponse};
         DataSourcesResponse::export().expect("Failed to export DataSourcesResponse type");

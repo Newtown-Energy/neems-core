@@ -14,6 +14,7 @@ use tokio::{
 
 pub mod collectors;
 pub mod models;
+pub mod rtac;
 pub mod schema;
 
 pub use models::*;

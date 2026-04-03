@@ -31,6 +31,10 @@ serde_json = { workspace = true }
 signal-hook = { workspace = true }
 signal-hook-tokio = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tokio-modbus = "0.14"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 ts-rs = { workspace = true }
 
 [dev-dependencies]

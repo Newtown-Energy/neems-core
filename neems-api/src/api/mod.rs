@@ -4,6 +4,7 @@
 //! and provides a unified interface for collecting all routes for registration
 //! with the Rocket web framework.
 
+pub mod alarm;
 pub mod application_rule;
 pub mod company;
 pub mod data;
@@ -34,6 +35,7 @@ pub fn routes() -> Vec<Route> {
     let mut routes = Vec::new();
     #[cfg(feature = "fixphrase")]
     routes.extend(fixphrase::routes());
+    routes.extend(alarm::routes());
     routes.extend(application_rule::routes());
     routes.extend(company::routes());
     routes.extend(data::routes());
