@@ -195,7 +195,12 @@ impl<S: ScheduleProvider> ControlLogicTask<S> {
             if current_state.alarms.is_estop_active() {
                 warn!("System in emergency stop, skipping command evaluation");
             } else if current_state.alarms.has_critical_alarm() {
-                let active: Vec<_> = current_state.alarms.active_alarms().iter().map(|a| a.qualified_name()).collect();
+                let active: Vec<_> = current_state
+                    .alarms
+                    .active_alarms()
+                    .iter()
+                    .map(|a| a.qualified_name())
+                    .collect();
                 warn!(alarms = ?active, "Critical alarm active, skipping command evaluation");
             }
 

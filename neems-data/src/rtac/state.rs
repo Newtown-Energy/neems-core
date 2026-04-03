@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     alarm_definitions::{
-        AlarmDefinition, AlarmZone, ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM,
+        ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone, ESTOP_ALARM_NUM,
     },
     protocol::{CommandType, OperatingMode},
 };
@@ -101,10 +101,7 @@ impl AlarmFlags {
 
     /// Returns a list of active alarm definitions
     pub fn active_alarms(&self) -> Vec<&'static AlarmDefinition> {
-        ALARM_DEFINITIONS
-            .iter()
-            .filter(|d| self.is_alarm_active(d))
-            .collect()
+        ALARM_DEFINITIONS.iter().filter(|d| self.is_alarm_active(d)).collect()
     }
 
     /// Returns active alarm definitions filtered by zone

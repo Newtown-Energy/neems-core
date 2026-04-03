@@ -16,7 +16,7 @@ pub mod state;
 pub mod storage;
 pub mod worker;
 
-pub use alarm_definitions::{AlarmDefinition, AlarmZone, ALARM_REGISTER_COUNT};
+pub use alarm_definitions::{ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone};
 pub use alarms::{Alarm, AlarmHandlerTask, AlarmSeverity};
 pub use control::ControlLogicTask;
 pub use modbus_client::ModbusClient;

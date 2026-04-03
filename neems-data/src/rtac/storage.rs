@@ -186,15 +186,13 @@ impl DataSampler {
         let mode = self.readings.last()?.mode.clone();
 
         // OR all alarm registers together (any alarm that was active during the period)
-        let alarm_registers = self.readings.iter().fold(
-            [0u16; ALARM_REGISTER_COUNT],
-            |mut acc, r| {
+        let alarm_registers =
+            self.readings.iter().fold([0u16; ALARM_REGISTER_COUNT], |mut acc, r| {
                 for (i, reg) in acc.iter_mut().enumerate() {
                     *reg |= r.alarm_registers[i];
                 }
                 acc
-            },
-        );
+            });
 
         // Use the sequence of the last reading
         let sequence = self.readings.last()?.sequence;

@@ -278,8 +278,7 @@ impl ParsedStatus {
         }
 
         let mut alarm_registers = [0u16; ALARM_REGISTER_COUNT];
-        alarm_registers
-            .copy_from_slice(&registers[8..8 + ALARM_REGISTER_COUNT]);
+        alarm_registers.copy_from_slice(&registers[8..8 + ALARM_REGISTER_COUNT]);
 
         Some(Self {
             mode: OperatingMode::from_register(registers[0]),

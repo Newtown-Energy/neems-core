@@ -164,7 +164,9 @@ impl ModbusWorker {
     /// is closed.
     ///
     /// Returns the reason for shutdown.
-    pub async fn run(&mut self) -> Result<ShutdownReason, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn run(
+        &mut self,
+    ) -> Result<ShutdownReason, Box<dyn std::error::Error + Send + Sync>> {
         info!(address = %self.config.rtac_address, "Starting Modbus worker");
 
         // Initial connection
