@@ -129,7 +129,8 @@ mod tests {
         // Alarm API types
         use crate::api::alarm::{
             ActiveAlarmDto, ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse,
-            AlarmSeverityDto, AlarmZoneDto,
+            AlarmHistoryEntry, AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto,
+            AlarmZoneDto,
         };
         AlarmSeverityDto::export().expect("Failed to export AlarmSeverityDto type");
         AlarmZoneDto::export().expect("Failed to export AlarmZoneDto type");
@@ -137,6 +138,9 @@ mod tests {
         ActiveAlarmDto::export().expect("Failed to export ActiveAlarmDto type");
         ActiveAlarmsResponse::export().expect("Failed to export ActiveAlarmsResponse type");
         AlarmDefinitionsResponse::export().expect("Failed to export AlarmDefinitionsResponse type");
+        AlarmHistoryEntry::export().expect("Failed to export AlarmHistoryEntry type");
+        AlarmHistoryResponse::export().expect("Failed to export AlarmHistoryResponse type");
+        AlarmHistoryQuery::export().expect("Failed to export AlarmHistoryQuery type");
 
         // Data API types
         use crate::api::data::{DataSourcesResponse, ReadingsQuery, ReadingsResponse};
