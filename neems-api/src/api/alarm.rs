@@ -246,13 +246,15 @@ pub async fn get_alarm_definitions(_user: AuthenticatedUser) -> Json<AlarmDefini
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AlarmHistoryEntry {
-    /// ISO 8601 timestamp (UTC) of the reading in which the transition was observed.
+    /// ISO 8601 timestamp (UTC) of the reading in which the transition was
+    /// observed.
     pub timestamp: String,
     pub alarm_num: u16,
     pub zone: AlarmZoneDto,
     pub name: String,
     pub severity: AlarmSeverityDto,
-    /// `true` if the alarm became active at this reading, `false` if it cleared.
+    /// `true` if the alarm became active at this reading, `false` if it
+    /// cleared.
     pub active: bool,
 }
 
@@ -275,7 +277,8 @@ pub struct AlarmHistoryQuery {
     pub from: Option<String>,
     /// ISO 8601 timestamp — end of the range (inclusive).
     pub to: Option<String>,
-    /// Comma-separated list of alarm_num values to filter on. Omitted = all alarms.
+    /// Comma-separated list of alarm_num values to filter on. Omitted = all
+    /// alarms.
     pub alarm_nums: Option<String>,
 }
 
@@ -289,15 +292,17 @@ fn parse_alarm_nums_filter(raw: &str) -> HashSet<u16> {
 
 /// Get alarm status transitions over a date range.
 ///
-/// - **URL:** `/api/1/Alarms/History?from=<ISO8601>&to=<ISO8601>&alarm_nums=<u16,u16,...>`
+/// - **URL:** `/api/1/Alarms/History?from=<ISO8601>&to=<ISO8601>&
+///   alarm_nums=<u16,u16,...>`
 /// - **Method:** `GET`
 /// - **Authentication:** Required
 ///
-/// Walks readings in `[from, to]`, decodes each reading's alarm register bitfield, and
-/// emits a transition entry each time a given alarm's active bit flips relative to the
-/// prior reading in range. Does not seed a baseline from before `from`, so a transition
-/// that occurred right before the range start won't appear — extend the range to
-/// capture it, or cross-reference with `/Alarms/Active` for current state.
+/// Walks readings in `[from, to]`, decodes each reading's alarm register
+/// bitfield, and emits a transition entry each time a given alarm's active bit
+/// flips relative to the prior reading in range. Does not seed a baseline from
+/// before `from`, so a transition that occurred right before the range start
+/// won't appear — extend the range to capture it, or cross-reference with
+/// `/Alarms/Active` for current state.
 #[get("/1/Alarms/History?<query..>")]
 pub async fn get_alarm_history(
     query: AlarmHistoryQuery,
@@ -311,7 +316,8 @@ pub async fn get_alarm_history(
     if from_dt > to_dt {
         return Err(Status::BadRequest);
     }
-    let alarm_filter: Option<HashSet<u16>> = query.alarm_nums.as_deref().map(parse_alarm_nums_filter);
+    let alarm_filter: Option<HashSet<u16>> =
+        query.alarm_nums.as_deref().map(parse_alarm_nums_filter);
 
     let from_naive = from_dt.naive_utc();
     let to_naive = to_dt.naive_utc();
@@ -337,7 +343,9 @@ pub async fn get_alarm_history(
     let mut prev_flags: Option<AlarmFlags> = None;
 
     for reading in &readings {
-        let Some(regs) = parse_alarm_registers(&reading.data) else { continue };
+        let Some(regs) = parse_alarm_registers(&reading.data) else {
+            continue;
+        };
         let flags = AlarmFlags::from_registers(&regs);
 
         if let Some(prev) = &prev_flags {
