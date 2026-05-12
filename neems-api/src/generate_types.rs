@@ -62,7 +62,10 @@ mod tests {
         // Import all the types to trigger their generation
         use crate::{
             api::{
-                application_rule::ErrorResponse as ApplicationRuleErrorResponse,
+                application_rule::{
+                    ErrorResponse as ApplicationRuleErrorResponse, SeasonFillRequest,
+                    SeasonFillResponse,
+                },
                 company::ErrorResponse as CompanyErrorResponse,
                 login::{ErrorResponse as LoginErrorResponse, LoginSuccessResponse},
                 schedule_library::ErrorResponse as ScheduleLibraryErrorResponse,
@@ -179,6 +182,8 @@ mod tests {
             .expect("Failed to export CalendarDayScheduleMatches type");
         ApplicationRuleErrorResponse::export()
             .expect("Failed to export application_rule::ErrorResponse type");
+        SeasonFillRequest::export().expect("Failed to export SeasonFillRequest type");
+        SeasonFillResponse::export().expect("Failed to export SeasonFillResponse type");
 
         println!("TypeScript types generated successfully in {:?}", output_dir);
     }

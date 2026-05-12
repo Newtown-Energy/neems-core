@@ -463,3 +463,71 @@ async fn test_effective_schedule_invalid_date_format() {
 
     assert_eq!(response.status(), Status::BadRequest);
 }
+
+#[rocket::async_test]
+async fn test_season_fill_creates_specific_date_rule_excluding_holidays() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let item = create_library_item(&client, &admin_cookie, "Peak Season Schedule").await;
+
+    let body = json!({
+        "start_date": "2026-06-24",
+        "end_date": "2026-09-15",
+        "weekdays_only": true,
+        "exclude_us_federal_holidays": true,
+        "exclude_dates": []
+    });
+
+    let url = format!("/api/1/ScheduleLibraryItems/{}/ApplicationRules/SeasonFill", item.id);
+    let response = client.post(&url).cookie(admin_cookie.clone()).json(&body).dispatch().await;
+
+    assert_eq!(response.status(), Status::Created);
+    let payload: serde_json::Value = response.into_json().await.expect("valid JSON");
+    let applied: Vec<String> = payload["applied_dates"]
+        .as_array()
+        .expect("applied_dates array")
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+
+    // Jul 4 2026 falls on Saturday and is *not* a weekday so weekday-only
+    // already excludes it; the observed-Friday Jul 3 is the one we expect
+    // the holiday filter to drop.
+    assert!(
+        !applied.contains(&"2026-07-03".to_string()),
+        "observed Jul 4 should be excluded"
+    );
+    // Labor Day 2026 is Monday Sep 7.
+    assert!(!applied.contains(&"2026-09-07".to_string()), "Labor Day should be excluded");
+    // A non-holiday weekday inside the window should be present.
+    assert!(applied.contains(&"2026-07-06".to_string()));
+    // Weekends always excluded with weekdays_only.
+    assert!(!applied.contains(&"2026-07-04".to_string()));
+    assert!(!applied.contains(&"2026-07-05".to_string()));
+
+    // Sanity check: each kept date is a weekday in range.
+    for date_str in &applied {
+        let d: chrono::NaiveDate = date_str.parse().unwrap();
+        use chrono::Datelike;
+        assert!(d.weekday().num_days_from_monday() < 5, "{} should be a weekday", date_str);
+        assert!(d >= chrono::NaiveDate::from_ymd_opt(2026, 6, 24).unwrap());
+        assert!(d <= chrono::NaiveDate::from_ymd_opt(2026, 9, 15).unwrap());
+    }
+}
+
+#[rocket::async_test]
+async fn test_season_fill_rejects_inverted_range() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let item = create_library_item(&client, &admin_cookie, "Bad Range").await;
+
+    let body = json!({
+        "start_date": "2026-09-15",
+        "end_date": "2026-06-24",
+    });
+    let url = format!("/api/1/ScheduleLibraryItems/{}/ApplicationRules/SeasonFill", item.id);
+    let response = client.post(&url).cookie(admin_cookie).json(&body).dispatch().await;
+    assert_eq!(response.status(), Status::BadRequest);
+}

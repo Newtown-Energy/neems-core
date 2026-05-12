@@ -158,6 +158,78 @@ pub fn get_application_rules_for_site(
         .collect()
 }
 
+/// Compute the list of dates that satisfy a season-fill request without
+/// touching the database. Exposed for the API layer so it can preview the
+/// fill, and for tests.
+pub fn season_fill_dates(
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    weekdays_only: bool,
+    exclude_holidays: bool,
+    extra_excludes: &[chrono::NaiveDate],
+) -> Vec<chrono::NaiveDate> {
+    use std::collections::BTreeSet;
+
+    use chrono::{Datelike, Duration, Weekday};
+
+    if start_date > end_date {
+        return Vec::new();
+    }
+
+    let mut skip: BTreeSet<chrono::NaiveDate> = extra_excludes.iter().copied().collect();
+    if exclude_holidays {
+        for h in crate::orm::holidays::us_federal_holidays_in_range(start_date, end_date) {
+            skip.insert(h);
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut d = start_date;
+    while d <= end_date {
+        let is_weekend = matches!(d.weekday(), Weekday::Sat | Weekday::Sun);
+        let excluded_by_weekend = weekdays_only && is_weekend;
+        if !excluded_by_weekend && !skip.contains(&d) {
+            out.push(d);
+        }
+        d += Duration::days(1);
+    }
+    out
+}
+
+/// Create a single `specific_date` application rule containing every date
+/// in `[start_date, end_date]` that passes the wizard's filters
+/// (weekdays-only, exclude federal holidays, plus any caller-supplied
+/// exclusions). Returns the created rule and the list of dates that ended
+/// up on it.
+pub fn season_fill_application_rule(
+    conn: &mut SqliteConnection,
+    template_id: i32,
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    weekdays_only: bool,
+    exclude_holidays: bool,
+    extra_excludes: &[chrono::NaiveDate],
+    override_reason: Option<String>,
+    acting_user_id: Option<i32>,
+) -> Result<(ApplicationRule, Vec<chrono::NaiveDate>), diesel::result::Error> {
+    let dates =
+        season_fill_dates(start_date, end_date, weekdays_only, exclude_holidays, extra_excludes);
+
+    if dates.is_empty() {
+        return Err(diesel::result::Error::NotFound);
+    }
+
+    let request = CreateApplicationRuleRequest {
+        rule_type: RuleType::SpecificDate,
+        days_of_week: None,
+        specific_dates: Some(dates.iter().map(|d| d.to_string()).collect()),
+        override_reason,
+    };
+
+    let rule = create_application_rule(conn, template_id, request, acting_user_id)?;
+    Ok((rule, dates))
+}
+
 /// Deletes an application rule
 pub fn delete_application_rule(
     conn: &mut SqliteConnection,
