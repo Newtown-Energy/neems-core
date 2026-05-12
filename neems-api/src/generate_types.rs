@@ -68,7 +68,9 @@ mod tests {
                 },
                 company::ErrorResponse as CompanyErrorResponse,
                 login::{ErrorResponse as LoginErrorResponse, LoginSuccessResponse},
-                schedule_library::ErrorResponse as ScheduleLibraryErrorResponse,
+                schedule_library::{
+                    CreateFromSiteDefaultsRequest, ErrorResponse as ScheduleLibraryErrorResponse,
+                },
                 site::{CreateSiteRequest, ErrorResponse as SiteErrorResponse, UpdateSiteRequest},
                 user::{
                     AddUserRoleRequest, CreateUserWithRolesRequest,
@@ -168,6 +170,8 @@ mod tests {
         CloneLibraryItemRequest::export().expect("Failed to export CloneLibraryItemRequest type");
         ScheduleLibraryErrorResponse::export()
             .expect("Failed to export schedule_library::ErrorResponse type");
+        CreateFromSiteDefaultsRequest::export()
+            .expect("Failed to export CreateFromSiteDefaultsRequest type");
 
         // Application Rule types
         RuleType::export().expect("Failed to export RuleType type");
