@@ -88,6 +88,7 @@ mod tests {
         CompanyWithTimestamps::export().expect("Failed to export CompanyWithTimestamps type");
 
         Site::export().expect("Failed to export Site type");
+        SiteVariant::export().expect("Failed to export SiteVariant type");
 
         Role::export().expect("Failed to export Role type");
         NewRole::export().expect("Failed to export NewRole type");

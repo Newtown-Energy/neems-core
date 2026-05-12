@@ -4,6 +4,37 @@ use ts_rs::TS;
 
 use crate::schema::sites;
 
+/// Variant flag for sites that need different demo behavior.
+///
+/// `Standard` is the typical interconnect. `NoGridCharge` represents the
+/// alternate-site arc from the demo script — the inverters cannot pull
+/// from the grid, so any charge command at this site is invalid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum SiteVariant {
+    Standard,
+    NoGridCharge,
+}
+
+impl SiteVariant {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SiteVariant::Standard => "standard",
+            SiteVariant::NoGridCharge => "no_grid_charge",
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "standard" => Ok(SiteVariant::Standard),
+            "no_grid_charge" => Ok(SiteVariant::NoGridCharge),
+            _ => Err(format!("Unknown site variant: {}", s)),
+        }
+    }
+}
+
 #[derive(
     Queryable,
     Selectable,
@@ -27,6 +58,16 @@ pub struct Site {
     pub longitude: f64,
     pub company_id: i32,            // Foreign key to Company
     pub ramp_duration_seconds: i32, // Time to ramp from 0 to full power (default 120s)
+    pub power_kw: Option<f64>,
+    pub capacity_kwh: Option<f64>,
+    pub closed_loop_enabled: bool,
+    pub off_peak_start_minutes: Option<i32>,
+    pub off_peak_end_minutes: Option<i32>,
+    pub peak_revenue_start_minutes: Option<i32>,
+    pub peak_revenue_end_minutes: Option<i32>,
+    pub interconnection_max_output_kw: Option<f64>,
+    pub rebound_protection_soc_floor_percent: f64,
+    pub site_variant: String,
 }
 
 #[derive(Insertable)]
@@ -63,6 +104,16 @@ pub struct SiteWithTimestamps {
     pub longitude: f64,
     pub company_id: i32,
     pub ramp_duration_seconds: i32,
+    pub power_kw: Option<f64>,
+    pub capacity_kwh: Option<f64>,
+    pub closed_loop_enabled: bool,
+    pub off_peak_start_minutes: Option<i32>,
+    pub off_peak_end_minutes: Option<i32>,
+    pub peak_revenue_start_minutes: Option<i32>,
+    pub peak_revenue_end_minutes: Option<i32>,
+    pub interconnection_max_output_kw: Option<f64>,
+    pub rebound_protection_soc_floor_percent: f64,
+    pub site_variant: String,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
     #[ts(type = "string")]

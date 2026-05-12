@@ -68,11 +68,17 @@ pub fn get_site_by_company_and_name(
     site_name: &str,
 ) -> Result<Option<Site>, diesel::result::Error> {
     // Use raw SQL for case-insensitive comparison
-    diesel::sql_query("SELECT id, name, address, latitude, longitude, company_id, ramp_duration_seconds FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)")
-        .bind::<diesel::sql_types::Integer, _>(site_company_id)
-        .bind::<diesel::sql_types::Text, _>(site_name)
-        .get_result::<Site>(conn)
-        .optional()
+    diesel::sql_query(
+        "SELECT id, name, address, latitude, longitude, company_id, ramp_duration_seconds, \
+         power_kw, capacity_kwh, closed_loop_enabled, off_peak_start_minutes, \
+         off_peak_end_minutes, peak_revenue_start_minutes, peak_revenue_end_minutes, \
+         interconnection_max_output_kw, rebound_protection_soc_floor_percent, site_variant \
+         FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)",
+    )
+    .bind::<diesel::sql_types::Integer, _>(site_company_id)
+    .bind::<diesel::sql_types::Text, _>(site_name)
+    .get_result::<Site>(conn)
+    .optional()
 }
 
 /// Gets all sites in the system.
@@ -169,6 +175,16 @@ pub fn get_site_with_timestamps(
         longitude: site.longitude,
         company_id: site.company_id,
         ramp_duration_seconds: site.ramp_duration_seconds,
+        power_kw: site.power_kw,
+        capacity_kwh: site.capacity_kwh,
+        closed_loop_enabled: site.closed_loop_enabled,
+        off_peak_start_minutes: site.off_peak_start_minutes,
+        off_peak_end_minutes: site.off_peak_end_minutes,
+        peak_revenue_start_minutes: site.peak_revenue_start_minutes,
+        peak_revenue_end_minutes: site.peak_revenue_end_minutes,
+        interconnection_max_output_kw: site.interconnection_max_output_kw,
+        rebound_protection_soc_floor_percent: site.rebound_protection_soc_floor_percent,
+        site_variant: site.site_variant,
         created_at,
         updated_at,
     }))
