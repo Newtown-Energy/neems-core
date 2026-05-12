@@ -41,6 +41,7 @@ impl SiteVariant {
     Identifiable,
     Associations,
     QueryableByName,
+    Clone,
     Debug,
     Serialize,
     Deserialize,

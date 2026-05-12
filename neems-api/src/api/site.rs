@@ -25,7 +25,7 @@ use crate::{
         DbConn,
         company::get_company_by_id,
         site::{
-            delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id,
+            SiteUpdate, delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id,
             get_sites_by_company, insert_site, update_site,
         },
     },
@@ -57,7 +57,13 @@ pub struct CreateSiteRequest {
     pub ramp_duration_seconds: i32,
 }
 
-/// Request payload for updating a site (all fields optional)
+/// Request payload for updating a site (all fields optional).
+///
+/// Doubles as the demo-defaults patch: power_kw, capacity_kwh, the off-peak
+/// and peak-revenue window bounds, interconnection cap, rebound-protection
+/// floor, closed-loop toggle, and site variant are all settable here. None
+/// means "leave alone" — there is no way to explicitly clear a nullable
+/// field through this endpoint.
 #[derive(Deserialize, Serialize, TS)]
 #[ts(export)]
 pub struct UpdateSiteRequest {
@@ -67,6 +73,16 @@ pub struct UpdateSiteRequest {
     pub longitude: Option<f64>,
     pub company_id: Option<i32>,
     pub ramp_duration_seconds: Option<i32>,
+    pub power_kw: Option<f64>,
+    pub capacity_kwh: Option<f64>,
+    pub closed_loop_enabled: Option<bool>,
+    pub off_peak_start_minutes: Option<i32>,
+    pub off_peak_end_minutes: Option<i32>,
+    pub peak_revenue_start_minutes: Option<i32>,
+    pub peak_revenue_end_minutes: Option<i32>,
+    pub interconnection_max_output_kw: Option<f64>,
+    pub rebound_protection_soc_floor_percent: Option<f64>,
+    pub site_variant: Option<String>,
 }
 
 /// Helper function to check if user can perform CRUD operations on a site
@@ -355,12 +371,25 @@ pub async fn update_site_endpoint(
                 update_site(
                     conn,
                     site_id,
-                    update_data.name.clone(),
-                    update_data.address.clone(),
-                    update_data.latitude,
-                    update_data.longitude,
-                    update_data.company_id,
-                    update_data.ramp_duration_seconds,
+                    SiteUpdate {
+                        name: update_data.name.clone(),
+                        address: update_data.address.clone(),
+                        latitude: update_data.latitude,
+                        longitude: update_data.longitude,
+                        company_id: update_data.company_id,
+                        ramp_duration_seconds: update_data.ramp_duration_seconds,
+                        power_kw: update_data.power_kw,
+                        capacity_kwh: update_data.capacity_kwh,
+                        closed_loop_enabled: update_data.closed_loop_enabled,
+                        off_peak_start_minutes: update_data.off_peak_start_minutes,
+                        off_peak_end_minutes: update_data.off_peak_end_minutes,
+                        peak_revenue_start_minutes: update_data.peak_revenue_start_minutes,
+                        peak_revenue_end_minutes: update_data.peak_revenue_end_minutes,
+                        interconnection_max_output_kw: update_data.interconnection_max_output_kw,
+                        rebound_protection_soc_floor_percent: update_data
+                            .rebound_protection_soc_floor_percent,
+                        site_variant: update_data.site_variant.clone(),
+                    },
                     Some(auth_user.user.id),
                 )
                 .map(Json)

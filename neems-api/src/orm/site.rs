@@ -2,6 +2,29 @@ use diesel::prelude::*;
 
 use crate::models::{NewSite, Site, SiteWithTimestamps};
 
+/// Partial update payload for [`update_site`]. Any field left `None` is
+/// preserved at its current value; nullable demo fields cannot be cleared
+/// through this struct (a future API can grow a double-`Option` if needed).
+#[derive(Default, Debug, Clone)]
+pub struct SiteUpdate {
+    pub name: Option<String>,
+    pub address: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub company_id: Option<i32>,
+    pub ramp_duration_seconds: Option<i32>,
+    pub power_kw: Option<f64>,
+    pub capacity_kwh: Option<f64>,
+    pub closed_loop_enabled: Option<bool>,
+    pub off_peak_start_minutes: Option<i32>,
+    pub off_peak_end_minutes: Option<i32>,
+    pub peak_revenue_start_minutes: Option<i32>,
+    pub peak_revenue_end_minutes: Option<i32>,
+    pub interconnection_max_output_kw: Option<f64>,
+    pub rebound_protection_soc_floor_percent: Option<f64>,
+    pub site_variant: Option<String>,
+}
+
 /// Gets all sites for a specific company ID.
 pub fn get_sites_by_company(
     conn: &mut SqliteConnection,
@@ -88,16 +111,11 @@ pub fn get_all_sites(conn: &mut SqliteConnection) -> Result<Vec<Site>, diesel::r
 }
 
 /// Updates a site in the database (timestamps handled automatically by database
-/// triggers)
+/// triggers).
 pub fn update_site(
     conn: &mut SqliteConnection,
     site_id: i32,
-    new_name: Option<String>,
-    new_address: Option<String>,
-    new_latitude: Option<f64>,
-    new_longitude: Option<f64>,
-    new_company_id: Option<i32>,
-    new_ramp_duration_seconds: Option<i32>,
+    update: SiteUpdate,
     acting_user_id: Option<i32>,
 ) -> Result<Site, diesel::result::Error> {
     use crate::schema::sites::dsl::*;
@@ -105,23 +123,39 @@ pub fn update_site(
     // First, get the current site to preserve existing values
     let current_site = sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)?;
 
-    // Update with new values or keep existing ones
     diesel::update(sites.filter(id.eq(site_id)))
         .set((
-            name.eq(new_name.unwrap_or(current_site.name)),
-            address.eq(new_address.unwrap_or(current_site.address)),
-            latitude.eq(new_latitude.unwrap_or(current_site.latitude)),
-            longitude.eq(new_longitude.unwrap_or(current_site.longitude)),
-            company_id.eq(new_company_id.unwrap_or(current_site.company_id)),
+            name.eq(update.name.unwrap_or(current_site.name)),
+            address.eq(update.address.unwrap_or(current_site.address)),
+            latitude.eq(update.latitude.unwrap_or(current_site.latitude)),
+            longitude.eq(update.longitude.unwrap_or(current_site.longitude)),
+            company_id.eq(update.company_id.unwrap_or(current_site.company_id)),
             ramp_duration_seconds
-                .eq(new_ramp_duration_seconds.unwrap_or(current_site.ramp_duration_seconds)),
+                .eq(update.ramp_duration_seconds.unwrap_or(current_site.ramp_duration_seconds)),
+            power_kw.eq(update.power_kw.or(current_site.power_kw)),
+            capacity_kwh.eq(update.capacity_kwh.or(current_site.capacity_kwh)),
+            closed_loop_enabled
+                .eq(update.closed_loop_enabled.unwrap_or(current_site.closed_loop_enabled)),
+            off_peak_start_minutes
+                .eq(update.off_peak_start_minutes.or(current_site.off_peak_start_minutes)),
+            off_peak_end_minutes
+                .eq(update.off_peak_end_minutes.or(current_site.off_peak_end_minutes)),
+            peak_revenue_start_minutes
+                .eq(update.peak_revenue_start_minutes.or(current_site.peak_revenue_start_minutes)),
+            peak_revenue_end_minutes
+                .eq(update.peak_revenue_end_minutes.or(current_site.peak_revenue_end_minutes)),
+            interconnection_max_output_kw.eq(update
+                .interconnection_max_output_kw
+                .or(current_site.interconnection_max_output_kw)),
+            rebound_protection_soc_floor_percent.eq(update
+                .rebound_protection_soc_floor_percent
+                .unwrap_or(current_site.rebound_protection_soc_floor_percent)),
+            site_variant.eq(update.site_variant.unwrap_or(current_site.site_variant)),
         ))
         .execute(conn)?;
 
-    // Return the updated site
     let site = sites.filter(id.eq(site_id)).select(Site::as_select()).first(conn)?;
 
-    // Update the trigger-created activity entry with user information
     if let Some(user_id) = acting_user_id {
         use crate::orm::entity_activity::update_latest_activity_user;
         let _ = update_latest_activity_user(conn, "sites", site_id, "update", user_id);
@@ -385,12 +419,10 @@ mod tests {
         let updated_site = update_site(
             &mut conn,
             created_site.id,
-            Some("Updated Site".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
+            SiteUpdate {
+                name: Some("Updated Site".to_string()),
+                ..Default::default()
+            },
             None,
         )
         .expect("Failed to update site");
@@ -417,12 +449,15 @@ mod tests {
         let fully_updated_site = update_site(
             &mut conn,
             created_site.id,
-            Some("Fully Updated Site".to_string()),
-            Some("New Address".to_string()),
-            Some(41.0),
-            Some(-75.0),
-            Some(company2.id),
-            Some(180),
+            SiteUpdate {
+                name: Some("Fully Updated Site".to_string()),
+                address: Some("New Address".to_string()),
+                latitude: Some(41.0),
+                longitude: Some(-75.0),
+                company_id: Some(company2.id),
+                ramp_duration_seconds: Some(180),
+                ..Default::default()
+            },
             None,
         )
         .expect("Failed to fully update site");
@@ -433,6 +468,52 @@ mod tests {
         assert_eq!(fully_updated_site.longitude, -75.0);
         assert_eq!(fully_updated_site.company_id, company2.id);
         assert_eq!(fully_updated_site.ramp_duration_seconds, 180);
+
+        // Test demo-defaults update
+        let defaults_updated = update_site(
+            &mut conn,
+            created_site.id,
+            SiteUpdate {
+                power_kw: Some(5000.0),
+                capacity_kwh: Some(23500.0),
+                closed_loop_enabled: Some(false),
+                off_peak_start_minutes: Some(0),
+                off_peak_end_minutes: Some(8 * 60),
+                peak_revenue_start_minutes: Some(16 * 60),
+                peak_revenue_end_minutes: Some(20 * 60),
+                interconnection_max_output_kw: Some(5000.0),
+                rebound_protection_soc_floor_percent: Some(2.5),
+                site_variant: Some("no_grid_charge".to_string()),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("Failed to update demo defaults");
+
+        assert_eq!(defaults_updated.power_kw, Some(5000.0));
+        assert_eq!(defaults_updated.capacity_kwh, Some(23500.0));
+        assert!(!defaults_updated.closed_loop_enabled);
+        assert_eq!(defaults_updated.off_peak_start_minutes, Some(0));
+        assert_eq!(defaults_updated.off_peak_end_minutes, Some(480));
+        assert_eq!(defaults_updated.peak_revenue_start_minutes, Some(960));
+        assert_eq!(defaults_updated.peak_revenue_end_minutes, Some(1200));
+        assert_eq!(defaults_updated.interconnection_max_output_kw, Some(5000.0));
+        assert!((defaults_updated.rebound_protection_soc_floor_percent - 2.5).abs() < 1e-6);
+        assert_eq!(defaults_updated.site_variant, "no_grid_charge");
+
+        // Demo defaults are sticky: a subsequent unrelated update keeps them.
+        let after_name_change = update_site(
+            &mut conn,
+            created_site.id,
+            SiteUpdate {
+                name: Some("Still Updated".to_string()),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("Failed to update name");
+        assert_eq!(after_name_change.power_kw, Some(5000.0));
+        assert_eq!(after_name_change.site_variant, "no_grid_charge");
     }
 
     #[test]
@@ -442,12 +523,10 @@ mod tests {
         let result = update_site(
             &mut conn,
             99999,
-            Some("Test".to_string()),
-            None,
-            None,
-            None,
-            None,
-            None,
+            SiteUpdate {
+                name: Some("Test".to_string()),
+                ..Default::default()
+            },
             None,
         );
 

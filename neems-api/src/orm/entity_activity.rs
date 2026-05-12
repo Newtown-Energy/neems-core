@@ -409,12 +409,10 @@ pub fn test_all_triggers_comprehensive(
     site::update_site(
         conn,
         created_site.id,
-        Some("Updated Site Name".to_string()),
-        None,
-        None,
-        None,
-        None,
-        None,
+        site::SiteUpdate {
+            name: Some("Updated Site Name".to_string()),
+            ..Default::default()
+        },
         None,
     )?;
     let site_activities_after_update = get_activity_history(conn, "sites", created_site.id)?;
