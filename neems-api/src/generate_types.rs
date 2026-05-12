@@ -173,6 +173,16 @@ mod tests {
         CreateFromSiteDefaultsRequest::export()
             .expect("Failed to export CreateFromSiteDefaultsRequest type");
 
+        // Entity Activity API types (audit log surface)
+        use crate::api::entity_activity::{
+            EntityActivityWithUser, ErrorResponse as EntityActivityErrorResponse,
+        };
+        EntityActivityWithUser::export().expect("Failed to export EntityActivityWithUser type");
+        EntityActivityErrorResponse::export()
+            .expect("Failed to export entity_activity::ErrorResponse type");
+        EntityActivity::export().expect("Failed to export EntityActivity type");
+        ActivityLogEntry::export().expect("Failed to export ActivityLogEntry type");
+
         // Application Rule types
         RuleType::export().expect("Failed to export RuleType type");
         ApplicationRule::export().expect("Failed to export ApplicationRule type");
