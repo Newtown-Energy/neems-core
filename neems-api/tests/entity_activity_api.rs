@@ -188,7 +188,7 @@ async fn entity_activity_records_commands_only_update() {
     // The update row should have the acting user backfilled.
     let update_row = rows.iter().find(|r| r.operation_type == "update").unwrap();
     assert!(
-        update_row.user_email.as_deref().map_or(false, |e| e.contains("superadmin")),
+        update_row.user_email.as_deref().is_some_and(|e| e.contains("superadmin")),
         "expected superadmin email on commands-only update row, got {:?}",
         update_row.user_email
     );
