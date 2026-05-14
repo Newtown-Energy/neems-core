@@ -96,19 +96,19 @@ echo "Adding sites for Best BESS..."
 $NEEMS_ADMIN_BIN site add --name "B1" --address "789 Battery Street, Industrial Zone" --latitude 40.6892 --longitude=-74.0445 --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B1' already exists"
 $NEEMS_ADMIN_BIN site add --name "B2" --address "321 Energy Avenue, Industrial Zone" --latitude 40.7282 --longitude=-74.0776 --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B2' already exists"
 
-# Assign admin role to admin users (role 3 is 'admin')
+# Assign admin role to admin users
 echo "Assigning admin roles..."
-$NEEMS_ADMIN_BIN user add-role --email "admin@sunnysolar.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
-$NEEMS_ADMIN_BIN user add-role --email "admin@bestbess.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
+$NEEMS_ADMIN_BIN user add-role --email "admin@sunnysolar.com" --role admin 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
+$NEEMS_ADMIN_BIN user add-role --email "admin@bestbess.com" --role admin 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
 
-# Assign user role to regular users (role 4 is 'user')
-echo "Assigning user roles..."
-$NEEMS_ADMIN_BIN user add-role --email "user@sunnysolar.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@sunnysolar.com"
-$NEEMS_ADMIN_BIN user add-role --email "user@bestbess.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@bestbess.com"
+# Assign staff role to regular users
+echo "Assigning staff roles..."
+$NEEMS_ADMIN_BIN user add-role --email "user@sunnysolar.com" --role staff 2>/dev/null || echo "Staff role already assigned to user@sunnysolar.com"
+$NEEMS_ADMIN_BIN user add-role --email "user@bestbess.com" --role staff 2>/dev/null || echo "Staff role already assigned to user@bestbess.com"
 
-# Assign newtown-admin role to james@newtown.energy (role 1 is 'newtown-admin')
+# Assign newtown-admin role to james@newtown.energy
 echo "Assigning newtown-admin role..."
-$NEEMS_ADMIN_BIN user add-role --email "james@newtown.energy" --role-id 1 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
+$NEEMS_ADMIN_BIN user add-role --email "james@newtown.energy" --role newtown-admin 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
 
 # Add demo devices for Sunny Solar sites
 echo "Adding devices for Sunny Solar sites..."
