@@ -79,6 +79,9 @@ echo "Newtown Energy ID: $NEWTOWN_ENERGY_ID"
 echo "Adding users for Sunny Solar..."
 $NEEMS_ADMIN_BIN user add --email "admin@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User admin@sunnysolar.com already exists"
 $NEEMS_ADMIN_BIN user add --email "user@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User user@sunnysolar.com already exists"
+# A second admin lets the walkthrough's two-user audit demo run without
+# creating a user from /admin first. Same company as Bat Farm 1.
+$NEEMS_ADMIN_BIN user add --email "operator@example.com" --password "operator" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User operator@example.com already exists"
 
 # Add demo users for Best BESS
 echo "Adding users for Best BESS..."
@@ -122,6 +125,7 @@ $NEEMS_ADMIN_BIN site add --name "B2" --address "321 Energy Avenue, Industrial Z
 echo "Assigning admin roles..."
 $NEEMS_ADMIN_BIN user add-role --email "admin@sunnysolar.com" --role admin 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
 $NEEMS_ADMIN_BIN user add-role --email "admin@bestbess.com" --role admin 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
+$NEEMS_ADMIN_BIN user add-role --email "operator@example.com" --role admin 2>/dev/null || echo "Admin role already assigned to operator@example.com"
 
 # Assign staff role to regular users
 echo "Assigning staff roles..."
@@ -170,6 +174,7 @@ echo ""
 echo "Demo users created:"
 echo "  Sunny Solar:"
 echo "    admin@sunnysolar.com (password: admin) - Admin role"
+echo "    operator@example.com (password: operator) - Admin role"
 echo "    user@sunnysolar.com (password: admin) - User role"
 echo "    Sites: Bat Farm 1, Bat Farm 2, Dembowski 1 (no_grid_charge variant)"
 echo "  Best BESS:"
