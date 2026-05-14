@@ -19,6 +19,9 @@ if [ -z "$DB_PATH" ]; then
     exit 1
 fi
 
+# `sqlite://` is what diesel/SQLx expect; `sqlite3` CLI needs the bare path.
+SQLITE_FILE="${DB_PATH#sqlite://}"
+
 diesel --database-url=${DB_PATH} migration run
 echo Setup ${DB_PATH}
 
@@ -90,6 +93,25 @@ $NEEMS_ADMIN_BIN user add --email "james@newtown.energy" --password "admin" --co
 echo "Adding sites for Sunny Solar..."
 $NEEMS_ADMIN_BIN site add --name "Bat Farm 1" --address "123 Bat Farm Road, Rural Area" --latitude 40.7128 --longitude=-74.0060 --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 1' already exists"
 $NEEMS_ADMIN_BIN site add --name "Bat Farm 2" --address "456 Bat Farm Lane, Rural Area" --latitude 40.7580 --longitude=-73.9855 --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 2' already exists"
+# Dembowski 1 is the Illinois site from the demo script's Part 3 — a
+# `no_grid_charge` variant whose inverters cannot pull from the grid.
+# Pre-populate the demo configuration columns so the peak-season wizard
+# is ready to run without the operator filling them in by hand.
+$NEEMS_ADMIN_BIN site add --name "Dembowski 1" --address "100 Cornfield Lane, Bloomington, IL" --latitude 40.4842 --longitude=-88.9937 --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Dembowski 1' already exists"
+sqlite3 "$SQLITE_FILE" <<'SQL'
+UPDATE sites SET
+    power_kw = 5000,
+    capacity_kwh = 23500,
+    closed_loop_enabled = 1,
+    off_peak_start_minutes = 0,
+    off_peak_end_minutes = 480,
+    peak_revenue_start_minutes = 960,
+    peak_revenue_end_minutes = 1200,
+    interconnection_max_output_kw = 5000,
+    rebound_protection_soc_floor_percent = 2.0,
+    site_variant = 'no_grid_charge'
+WHERE name = 'Dembowski 1';
+SQL
 
 # Add demo sites for Best BESS
 echo "Adding sites for Best BESS..."
@@ -149,7 +171,7 @@ echo "Demo users created:"
 echo "  Sunny Solar:"
 echo "    admin@sunnysolar.com (password: admin) - Admin role"
 echo "    user@sunnysolar.com (password: admin) - User role"
-echo "    Sites: Bat Farm 1, Bat Farm 2"
+echo "    Sites: Bat Farm 1, Bat Farm 2, Dembowski 1 (no_grid_charge variant)"
 echo "  Best BESS:"
 echo "    admin@bestbess.com (password: admin) - Admin role"
 echo "    user@bestbess.com (password: admin) - User role"
