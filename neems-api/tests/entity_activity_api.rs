@@ -127,6 +127,74 @@ async fn entity_activity_returns_history_with_user_email() {
 }
 
 #[rocket::async_test]
+async fn entity_activity_records_commands_only_update() {
+    // Regression: a library-item edit that only swaps commands (name &
+    // description unchanged — the F4 inline-edit path on the calendar)
+    // used to skip the schedule_templates update entirely, so the
+    // update trigger never fired and the Resulting Schedule pane's
+    // audit timeline stayed stuck at the original 'create' row.
+    let client = Client::tracked(fast_test_rocket()).await.expect("rocket");
+    let admin = login_admin(&client).await;
+
+    let new_item = json!({
+        "name": "Commands-only update test",
+        "commands": [
+            { "execution_offset_seconds": 0, "command_type": "charge", "duration_seconds": 3600, "target_soc_percent": null }
+        ]
+    });
+    let response = client
+        .post("/api/1/Sites/1/ScheduleLibraryItems")
+        .cookie(admin.clone())
+        .json(&new_item)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Created);
+    let item: ScheduleLibraryItem = response.into_json().await.expect("valid JSON");
+
+    // Update only the commands. name and description stay null — this
+    // mirrors what DayDetailsDialog sends from the inline-edit path.
+    let update_body = json!({
+        "name": null,
+        "description": null,
+        "commands": [
+            { "execution_offset_seconds": 0, "command_type": "charge", "duration_seconds": 7200, "target_soc_percent": null }
+        ]
+    });
+    let response = client
+        .put(format!("/api/1/ScheduleLibraryItems/{}", item.id))
+        .cookie(admin.clone())
+        .json(&update_body)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+
+    // Audit log should now have both a 'create' and an 'update' row.
+    let url = format!(
+        "/api/1/EntityActivity?table_name=schedule_templates&entity_id={}",
+        item.id
+    );
+    let response = client.get(&url).cookie(admin.clone()).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let rows: Vec<EntityActivityWithUser> = response.into_json().await.expect("valid JSON");
+
+    let creates = rows.iter().filter(|r| r.operation_type == "create").count();
+    let updates = rows.iter().filter(|r| r.operation_type == "update").count();
+    assert!(creates >= 1, "expected ≥1 create row, got {creates} in {rows:?}");
+    assert!(
+        updates >= 1,
+        "expected ≥1 update row for a commands-only edit, got {updates} in {rows:?}"
+    );
+
+    // The update row should have the acting user backfilled.
+    let update_row = rows.iter().find(|r| r.operation_type == "update").unwrap();
+    assert!(
+        update_row.user_email.as_deref().map_or(false, |e| e.contains("superadmin")),
+        "expected superadmin email on commands-only update row, got {:?}",
+        update_row.user_email
+    );
+}
+
+#[rocket::async_test]
 async fn entity_activity_unknown_entity_returns_empty_list() {
     let client = Client::tracked(fast_test_rocket()).await.expect("rocket");
     let admin = login_admin(&client).await;

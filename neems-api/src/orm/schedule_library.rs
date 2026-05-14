@@ -296,6 +296,10 @@ pub fn update_library_item(
         }
 
         // Update template fields
+        let name_changed = request.name.is_some();
+        let description_changed = request.description.is_some();
+        let commands_changed = request.commands.is_some();
+
         if let Some(name_val) = request.name {
             diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
                 .set(schedule_templates::name.eq(name_val))
@@ -306,13 +310,6 @@ pub fn update_library_item(
             diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
                 .set(schedule_templates::description.eq(description_val))
                 .execute(conn)?;
-        }
-
-        // Update activity log
-        if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ =
-                update_latest_activity_user(conn, "schedule_templates", item_id, "update", user_id);
         }
 
         // Replace commands if provided
@@ -371,6 +368,42 @@ pub fn update_library_item(
                 diesel::insert_into(schedule_template_entries::table)
                     .values(&new_entry)
                     .execute(conn)?;
+            }
+        }
+
+        // If commands changed but name/description didn't, do a no-op
+        // UPDATE on the parent template so the `schedule_templates_update_log`
+        // trigger fires and the audit log records this edit. Without
+        // this, command-only edits (the inline F4 path) leave the
+        // Resulting Schedule pane's provenance stuck at the original
+        // create event — the leaf-table audit rows live under a
+        // different table_name so the pane never sees them.
+        let parent_row_touched = name_changed || description_changed;
+        if commands_changed && !parent_row_touched {
+            let current_name = schedule_templates::table
+                .find(item_id)
+                .select(schedule_templates::name)
+                .first::<String>(conn)?;
+            diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
+                .set(schedule_templates::name.eq(current_name))
+                .execute(conn)?;
+        }
+
+        // Backfill the acting user on the just-written activity row. We
+        // call this once at the end so the row we backfill is the most
+        // recent trigger-emitted one — covers the name/description path,
+        // the commands-only no-op path, and the all-of-the-above path.
+        let any_change = name_changed || description_changed || commands_changed;
+        if let Some(user_id) = acting_user_id {
+            if any_change {
+                use crate::orm::entity_activity::update_latest_activity_user;
+                let _ = update_latest_activity_user(
+                    conn,
+                    "schedule_templates",
+                    item_id,
+                    "update",
+                    user_id,
+                );
             }
         }
 
