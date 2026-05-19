@@ -80,6 +80,16 @@ pub struct NewSite {
     pub longitude: f64,
     pub company_id: i32,
     pub ramp_duration_seconds: i32,
+    // Optional demo-driven defaults. The ORM `insert_site` populates
+    // these so newly-created sites start with sane scheduling values
+    // instead of nulls (see `DEFAULT_*` constants in `orm::site`).
+    pub power_kw: Option<f64>,
+    pub capacity_kwh: Option<f64>,
+    pub off_peak_start_minutes: Option<i32>,
+    pub off_peak_end_minutes: Option<i32>,
+    pub peak_revenue_start_minutes: Option<i32>,
+    pub peak_revenue_end_minutes: Option<i32>,
+    pub interconnection_max_output_kw: Option<f64>,
 }
 
 // For API inputs and validation

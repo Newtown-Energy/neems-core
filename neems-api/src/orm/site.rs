@@ -2,6 +2,19 @@ use diesel::prelude::*;
 
 use crate::models::{NewSite, Site, SiteWithTimestamps};
 
+/// Documented defaults applied to every newly-inserted site so the UI
+/// is never staring at a blank Site Defaults panel. Demo-walkthrough
+/// values for a 5 MW / 23.5 MWh battery on a 12am–8am off-peak charge
+/// / 4pm–8pm peak-revenue discharge schedule. Operators can override
+/// any of these from the Site Defaults panel after creation.
+pub const DEFAULT_POWER_KW: f64 = 5000.0;
+pub const DEFAULT_CAPACITY_KWH: f64 = 23500.0;
+pub const DEFAULT_OFF_PEAK_START_MINUTES: i32 = 0;
+pub const DEFAULT_OFF_PEAK_END_MINUTES: i32 = 480; // 08:00
+pub const DEFAULT_PEAK_REVENUE_START_MINUTES: i32 = 960; // 16:00
+pub const DEFAULT_PEAK_REVENUE_END_MINUTES: i32 = 1200; // 20:00
+pub const DEFAULT_INTERCONNECTION_MAX_OUTPUT_KW: f64 = 5000.0;
+
 /// Partial update payload for [`update_site`]. Any field left `None` is
 /// preserved at its current value; nullable demo fields cannot be cleared
 /// through this struct (a future API can grow a double-`Option` if needed).
@@ -59,6 +72,13 @@ pub fn insert_site(
         longitude: site_longitude,
         company_id: site_company_id,
         ramp_duration_seconds: site_ramp_duration_seconds,
+        power_kw: Some(DEFAULT_POWER_KW),
+        capacity_kwh: Some(DEFAULT_CAPACITY_KWH),
+        off_peak_start_minutes: Some(DEFAULT_OFF_PEAK_START_MINUTES),
+        off_peak_end_minutes: Some(DEFAULT_OFF_PEAK_END_MINUTES),
+        peak_revenue_start_minutes: Some(DEFAULT_PEAK_REVENUE_START_MINUTES),
+        peak_revenue_end_minutes: Some(DEFAULT_PEAK_REVENUE_END_MINUTES),
+        interconnection_max_output_kw: Some(DEFAULT_INTERCONNECTION_MAX_OUTPUT_KW),
     };
 
     diesel::insert_into(sites).values(&new_site).execute(conn)?;
