@@ -69,6 +69,13 @@ pub struct Site {
     pub interconnection_max_output_kw: Option<f64>,
     pub rebound_protection_soc_floor_percent: f64,
     pub site_variant: String,
+    /// Charge ceiling as a percentage of `power_kw` (0–100). Drives the
+    /// height of the orange charge bar in the calendar day cell so a
+    /// site that charges at half-power renders a half-height bar.
+    pub charge_rate_percent: f64,
+    /// Discharge ceiling as a percentage of `power_kw` (0–100). See
+    /// `charge_rate_percent` for visualization context.
+    pub discharge_rate_percent: f64,
 }
 
 #[derive(Insertable)]
@@ -125,6 +132,8 @@ pub struct SiteWithTimestamps {
     pub interconnection_max_output_kw: Option<f64>,
     pub rebound_protection_soc_floor_percent: f64,
     pub site_variant: String,
+    pub charge_rate_percent: f64,
+    pub discharge_rate_percent: f64,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
     #[ts(type = "string")]

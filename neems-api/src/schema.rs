@@ -139,6 +139,8 @@ diesel::table! {
         interconnection_max_output_kw -> Nullable<Double>,
         rebound_protection_soc_floor_percent -> Double,
         site_variant -> Text,
+        charge_rate_percent -> Double,
+        discharge_rate_percent -> Double,
     }
 }
 

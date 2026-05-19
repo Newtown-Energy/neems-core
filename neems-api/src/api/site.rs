@@ -83,6 +83,8 @@ pub struct UpdateSiteRequest {
     pub interconnection_max_output_kw: Option<f64>,
     pub rebound_protection_soc_floor_percent: Option<f64>,
     pub site_variant: Option<String>,
+    pub charge_rate_percent: Option<f64>,
+    pub discharge_rate_percent: Option<f64>,
 }
 
 /// Helper function to check if user can perform CRUD operations on a site
@@ -389,6 +391,8 @@ pub async fn update_site_endpoint(
                         rebound_protection_soc_floor_percent: update_data
                             .rebound_protection_soc_floor_percent,
                         site_variant: update_data.site_variant.clone(),
+                        charge_rate_percent: update_data.charge_rate_percent,
+                        discharge_rate_percent: update_data.discharge_rate_percent,
                     },
                     Some(auth_user.user.id),
                 )

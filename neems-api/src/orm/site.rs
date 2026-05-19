@@ -36,6 +36,8 @@ pub struct SiteUpdate {
     pub interconnection_max_output_kw: Option<f64>,
     pub rebound_protection_soc_floor_percent: Option<f64>,
     pub site_variant: Option<String>,
+    pub charge_rate_percent: Option<f64>,
+    pub discharge_rate_percent: Option<f64>,
 }
 
 /// Gets all sites for a specific company ID.
@@ -115,7 +117,8 @@ pub fn get_site_by_company_and_name(
         "SELECT id, name, address, latitude, longitude, company_id, ramp_duration_seconds, \
          power_kw, capacity_kwh, closed_loop_enabled, off_peak_start_minutes, \
          off_peak_end_minutes, peak_revenue_start_minutes, peak_revenue_end_minutes, \
-         interconnection_max_output_kw, rebound_protection_soc_floor_percent, site_variant \
+         interconnection_max_output_kw, rebound_protection_soc_floor_percent, site_variant, \
+         charge_rate_percent, discharge_rate_percent \
          FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)",
     )
     .bind::<diesel::sql_types::Integer, _>(site_company_id)
@@ -171,6 +174,12 @@ pub fn update_site(
                 .rebound_protection_soc_floor_percent
                 .unwrap_or(current_site.rebound_protection_soc_floor_percent)),
             site_variant.eq(update.site_variant.unwrap_or(current_site.site_variant)),
+            charge_rate_percent.eq(update
+                .charge_rate_percent
+                .unwrap_or(current_site.charge_rate_percent)),
+            discharge_rate_percent.eq(update
+                .discharge_rate_percent
+                .unwrap_or(current_site.discharge_rate_percent)),
         ))
         .execute(conn)?;
 
@@ -239,6 +248,8 @@ pub fn get_site_with_timestamps(
         interconnection_max_output_kw: site.interconnection_max_output_kw,
         rebound_protection_soc_floor_percent: site.rebound_protection_soc_floor_percent,
         site_variant: site.site_variant,
+        charge_rate_percent: site.charge_rate_percent,
+        discharge_rate_percent: site.discharge_rate_percent,
         created_at,
         updated_at,
     }))
