@@ -185,12 +185,17 @@ mod tests {
         // Entity Activity API types (audit log surface)
         use crate::api::entity_activity::{
             EntityActivityWithUser, ErrorResponse as EntityActivityErrorResponse,
+            RecentScheduleActivityEntry, RecentScheduleActivityResponse,
         };
         EntityActivityWithUser::export().expect("Failed to export EntityActivityWithUser type");
         EntityActivityErrorResponse::export()
             .expect("Failed to export entity_activity::ErrorResponse type");
         EntityActivity::export().expect("Failed to export EntityActivity type");
         ActivityLogEntry::export().expect("Failed to export ActivityLogEntry type");
+        RecentScheduleActivityEntry::export()
+            .expect("Failed to export RecentScheduleActivityEntry type");
+        RecentScheduleActivityResponse::export()
+            .expect("Failed to export RecentScheduleActivityResponse type");
 
         // Application Rule types
         RuleType::export().expect("Failed to export RuleType type");

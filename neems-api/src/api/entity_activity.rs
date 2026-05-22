@@ -106,6 +106,159 @@ pub async fn get_entity_activity(
     .await
 }
 
+/// A single row in the per-site recent-schedule-activity feed (S1c-4).
+/// Adds a human-readable label so the frontend can render
+/// "Weeknight Discharge — Edited commands by alice@example.com"
+/// without a per-row round-trip to look up the library item.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct RecentScheduleActivityEntry {
+    pub id: i32,
+    pub table_name: String,
+    pub entity_id: i32,
+    pub operation_type: String,
+    pub timestamp: String,
+    pub user_id: Option<i32>,
+    pub user_email: Option<String>,
+    pub change_reason: Option<String>,
+    /// Library item this activity belongs to. For
+    /// `schedule_templates` rows this is the item itself; for
+    /// `application_rules` rows it's the rule's parent template.
+    pub library_item_id: i32,
+    pub library_item_name: String,
+}
+
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct RecentScheduleActivityResponse {
+    pub site_id: i32,
+    pub entries: Vec<RecentScheduleActivityEntry>,
+}
+
+/// Merged recent-activity feed for a site's schedule library +
+/// application rules, newest first.
+///
+/// - **URL:** `/api/1/Sites/<site_id>/RecentScheduleActivity?<limit>`
+/// - **Method:** `GET`
+/// - **Authentication:** Required
+///
+/// Default limit is 50; max is 500 to keep response shapes bounded.
+#[get("/1/Sites/<site_id>/RecentScheduleActivity?<limit>")]
+pub async fn get_site_recent_schedule_activity(
+    db: DbConn,
+    site_id: i32,
+    limit: Option<i64>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<RecentScheduleActivityResponse>, status::Custom<Json<ErrorResponse>>> {
+    let limit = limit.unwrap_or(50).clamp(1, 500);
+
+    db.run(move |conn| {
+        use diesel::prelude::*;
+
+        use crate::{
+            models::EntityActivity,
+            schema::{application_rules, entity_activity, schedule_templates},
+        };
+
+        // Load library items for this site so we can both filter
+        // activity rows and surface item names in the response.
+        let items: Vec<(i32, String)> = schedule_templates::table
+            .filter(schedule_templates::site_id.eq(site_id))
+            .select((schedule_templates::id, schedule_templates::name))
+            .load::<(i32, String)>(conn)
+            .map_err(|e| {
+                eprintln!("Error loading library items for activity feed: {:?}", e);
+                let err = Json(ErrorResponse { error: e.to_string() });
+                status::Custom(Status::InternalServerError, err)
+            })?;
+
+        if items.is_empty() {
+            return Ok(Json(RecentScheduleActivityResponse {
+                site_id,
+                entries: vec![],
+            }));
+        }
+
+        let item_ids: Vec<i32> = items.iter().map(|(id, _)| *id).collect();
+        let name_by_item_id: std::collections::HashMap<i32, String> =
+            items.into_iter().collect();
+
+        // Map application_rule ids → their parent library item id so
+        // we can join back to the item name in the response.
+        let rule_to_item: std::collections::HashMap<i32, i32> = application_rules::table
+            .filter(application_rules::template_id.eq_any(&item_ids))
+            .select((application_rules::id, application_rules::template_id))
+            .load::<(i32, i32)>(conn)
+            .map_err(|e| {
+                eprintln!("Error loading application rules for activity feed: {:?}", e);
+                let err = Json(ErrorResponse { error: e.to_string() });
+                status::Custom(Status::InternalServerError, err)
+            })?
+            .into_iter()
+            .collect();
+
+        let rule_ids: Vec<i32> = rule_to_item.keys().copied().collect();
+
+        // Pull the union of template + rule activity in one query,
+        // newest first, capped by the requested limit.
+        let activity: Vec<EntityActivity> = entity_activity::table
+            .filter(
+                (entity_activity::table_name
+                    .eq("schedule_templates")
+                    .and(entity_activity::entity_id.eq_any(&item_ids)))
+                .or(entity_activity::table_name
+                    .eq("application_rules")
+                    .and(entity_activity::entity_id.eq_any(&rule_ids))),
+            )
+            .order(entity_activity::timestamp.desc())
+            .limit(limit)
+            .load::<EntityActivity>(conn)
+            .map_err(|e| {
+                eprintln!("Error loading recent schedule activity: {:?}", e);
+                let err = Json(ErrorResponse { error: e.to_string() });
+                status::Custom(Status::InternalServerError, err)
+            })?;
+
+        let mut entries: Vec<RecentScheduleActivityEntry> = Vec::with_capacity(activity.len());
+        for row in activity {
+            // Resolve back to a library item — the row's entity is
+            // either the item itself or one of its rules.
+            let library_item_id = if row.table_name == "schedule_templates" {
+                row.entity_id
+            } else {
+                match rule_to_item.get(&row.entity_id) {
+                    Some(item_id) => *item_id,
+                    None => continue, // Stale row whose rule is gone; skip rather than 500.
+                }
+            };
+            let library_item_name = name_by_item_id
+                .get(&library_item_id)
+                .cloned()
+                .unwrap_or_else(|| format!("Item #{}", library_item_id));
+
+            let user_email = row
+                .user_id
+                .and_then(|uid| get_user(conn, uid).ok().flatten().map(|u| u.email));
+
+            entries.push(RecentScheduleActivityEntry {
+                id: row.id,
+                table_name: row.table_name,
+                entity_id: row.entity_id,
+                operation_type: row.operation_type,
+                timestamp: row.timestamp.and_utc().to_rfc3339(),
+                user_id: row.user_id,
+                user_email,
+                change_reason: row.change_reason,
+                library_item_id,
+                library_item_name,
+            });
+        }
+
+        Ok(Json(RecentScheduleActivityResponse { site_id, entries }))
+    })
+    .await
+}
+
 pub fn routes() -> Vec<Route> {
-    routes![get_entity_activity]
+    routes![get_entity_activity, get_site_recent_schedule_activity]
 }
