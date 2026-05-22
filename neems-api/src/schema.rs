@@ -64,6 +64,7 @@ diesel::table! {
         operation_type -> Text,
         timestamp -> Timestamp,
         user_id -> Nullable<Integer>,
+        change_reason -> Nullable<Text>,
     }
 }
 

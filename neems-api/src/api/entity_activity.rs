@@ -39,6 +39,10 @@ pub struct EntityActivityWithUser {
     pub timestamp: String,
     pub user_id: Option<i32>,
     pub user_email: Option<String>,
+    /// Free-form reason provided at the API layer (S1b). Backfilled
+    /// after the trigger writes the activity row; NULL for
+    /// non-update operations or callers that didn't provide one.
+    pub change_reason: Option<String>,
 }
 
 /// Query parameters for [get_entity_activity].
@@ -94,6 +98,7 @@ pub async fn get_entity_activity(
                 timestamp: row.timestamp.and_utc().to_rfc3339(),
                 user_id: row.user_id,
                 user_email: email,
+                change_reason: row.change_reason,
             });
         }
         Ok(Json(out))

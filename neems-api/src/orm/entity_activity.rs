@@ -19,6 +19,7 @@ pub fn log_activity(
         operation_type: operation_type_val.to_string(),
         timestamp: None, // Use database default (CURRENT_TIMESTAMP)
         user_id: user_id_val,
+        change_reason: None,
     };
 
     diesel::insert_into(entity_activity).values(&new_activity).execute(conn)?;
@@ -126,6 +127,50 @@ pub fn update_latest_activity_user(
     if let Some(activity) = activity_to_update {
         diesel::update(entity_activity.filter(id.eq(activity.id)))
             .set(user_id.eq(acting_user_id))
+            .execute(conn)?;
+    }
+
+    Ok(())
+}
+
+/// Backfill the `change_reason` on the most-recent activity row for
+/// the given (table, entity, op). Mirrors [`update_latest_activity_user`]:
+/// callers invoke it after triggering a trigger-created row so the
+/// API-supplied reason lands on the same activity entry the operator
+/// will see in the Change History pane.
+///
+/// Pass `None` (or an empty string) to skip — keeps call sites tidy
+/// when the reason field is optional.
+pub fn update_latest_activity_reason(
+    conn: &mut SqliteConnection,
+    table_name_val: &str,
+    entity_id_val: i32,
+    operation_type_val: &str,
+    reason: Option<&str>,
+) -> Result<(), diesel::result::Error> {
+    use chrono::{Duration, Utc};
+
+    use crate::schema::entity_activity::dsl::*;
+
+    let Some(reason_str) = reason.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+
+    let recent_cutoff = Utc::now().naive_utc() - Duration::seconds(2);
+    let activity_to_update = entity_activity
+        .filter(table_name.eq(table_name_val))
+        .filter(entity_id.eq(entity_id_val))
+        .filter(operation_type.eq(operation_type_val))
+        .filter(timestamp.gt(recent_cutoff))
+        .filter(change_reason.is_null())
+        .order(timestamp.desc())
+        .limit(1)
+        .first::<EntityActivity>(conn)
+        .optional()?;
+
+    if let Some(activity) = activity_to_update {
+        diesel::update(entity_activity.filter(id.eq(activity.id)))
+            .set(change_reason.eq(reason_str.to_string()))
             .execute(conn)?;
     }
 

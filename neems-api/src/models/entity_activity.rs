@@ -16,6 +16,10 @@ pub struct EntityActivity {
     #[ts(type = "string")]
     pub timestamp: NaiveDateTime,
     pub user_id: Option<i32>,
+    /// Free-form reason supplied at the API layer for `update`
+    /// operations. Backfilled by the orm after the trigger row lands,
+    /// so create rows produced purely by triggers stay NULL.
+    pub change_reason: Option<String>,
 }
 
 #[derive(Insertable, Debug, Deserialize)]
@@ -26,6 +30,7 @@ pub struct NewEntityActivity {
     pub operation_type: String,
     pub timestamp: Option<NaiveDateTime>, // Optional to use database default
     pub user_id: Option<i32>,
+    pub change_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -35,4 +40,5 @@ pub struct ActivityLogEntry {
     #[ts(type = "string")]
     pub timestamp: NaiveDateTime,
     pub user_id: Option<i32>,
+    pub change_reason: Option<String>,
 }

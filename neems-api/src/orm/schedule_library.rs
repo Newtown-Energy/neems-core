@@ -394,9 +394,11 @@ pub fn update_library_item(
         // recent trigger-emitted one — covers the name/description path,
         // the commands-only no-op path, and the all-of-the-above path.
         let any_change = name_changed || description_changed || commands_changed;
-        if let Some(user_id) = acting_user_id {
-            if any_change {
-                use crate::orm::entity_activity::update_latest_activity_user;
+        if any_change {
+            use crate::orm::entity_activity::{
+                update_latest_activity_reason, update_latest_activity_user,
+            };
+            if let Some(user_id) = acting_user_id {
                 let _ = update_latest_activity_user(
                     conn,
                     "schedule_templates",
@@ -405,6 +407,13 @@ pub fn update_library_item(
                     user_id,
                 );
             }
+            let _ = update_latest_activity_reason(
+                conn,
+                "schedule_templates",
+                item_id,
+                "update",
+                request.change_reason.as_deref(),
+            );
         }
 
         // Return updated item
