@@ -327,6 +327,22 @@ pub async fn update_site_endpoint(
     update_data: LoggedJson<UpdateSiteRequest>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Site>, response::status::Custom<Json<ErrorResponse>>> {
+    // Reject out-of-range rate percentages before touching the DB so the
+    // caller gets a clear 400 instead of a quiet bad-data write.
+    for (field, value) in [
+        ("charge_rate_percent", update_data.charge_rate_percent),
+        ("discharge_rate_percent", update_data.discharge_rate_percent),
+    ] {
+        if let Some(v) = value {
+            if !v.is_finite() || !(0.0..=100.0).contains(&v) {
+                let err = Json(ErrorResponse {
+                    error: format!("{} must be between 0 and 100 (got {})", field, v),
+                });
+                return Err(response::status::Custom(Status::BadRequest, err));
+            }
+        }
+    }
+
     db.run(move |conn| {
         // First get the site to check authorization
         match get_site_by_id(conn, site_id) {
