@@ -151,10 +151,15 @@ mod tests {
         ForcedAlarmsResponse::export().expect("Failed to export ForcedAlarmsResponse type");
 
         // Data API types
-        use crate::api::data::{DataSourcesResponse, ReadingsQuery, ReadingsResponse};
+        use crate::api::data::{
+            DataSourcesResponse, ReadingsQuery, ReadingsResponse, SocHistoryPoint,
+            SocHistoryResponse,
+        };
         DataSourcesResponse::export().expect("Failed to export DataSourcesResponse type");
         ReadingsResponse::export().expect("Failed to export ReadingsResponse type");
         ReadingsQuery::export().expect("Failed to export ReadingsQuery type");
+        SocHistoryPoint::export().expect("Failed to export SocHistoryPoint type");
+        SocHistoryResponse::export().expect("Failed to export SocHistoryResponse type");
 
         // Neems-data model types
         neems_data::models::Source::export()
