@@ -553,6 +553,7 @@ pub fn ensure_default_schedule_exists(
             days_of_week: None,
             specific_dates: None,
             override_reason: None,
+            change_reason: None,
         };
 
         // Create the default rule - ignore errors since rule creation is best-effort

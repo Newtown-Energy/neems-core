@@ -15,7 +15,8 @@ use crate::{
     orm::{
         DbConn,
         application_rule::{
-            create_application_rule, delete_application_rule, get_application_rules_for_site,
+            create_application_rule, delete_application_rule, get_application_rule_by_id,
+            get_application_rules_for_site,
             get_application_rules_for_template, get_calendar_schedules,
             get_calendar_schedules_with_matches, get_effective_schedule,
             season_fill_application_rule,
@@ -197,35 +198,38 @@ pub async fn create_application_rule_endpoint(
 }
 
 /// Delete an application rule
-#[delete("/1/ApplicationRules/<id>")]
+///
+/// Accepts an optional `change_reason` query param (S1c-3) that lands
+/// on the deletion's entity_activity row so the per-day Change
+/// History pane can show *why* the rule was removed.
+#[delete("/1/ApplicationRules/<id>?<change_reason>")]
 pub async fn delete_application_rule_endpoint(
     db: DbConn,
     id: i32,
+    change_reason: Option<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<Status, status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
-        // Get the rule to check authorization
-        let rules = match get_application_rules_for_template(conn, id) {
-            Ok(rules) => rules,
-            Err(e) => {
-                eprintln!("Error getting application rule: {:?}", e);
+        // Look up the rule directly by its primary key. (Previously
+        // this called get_application_rules_for_template with the rule
+        // id as if it were a template id — a no-op that accidentally
+        // 404'd most deletes.)
+        let rule = match get_application_rule_by_id(conn, id) {
+            Ok(Some(rule)) => rule,
+            Ok(None) => {
                 let err = Json(ErrorResponse {
                     error: "Application rule not found".to_string(),
                 });
                 return Err(status::Custom(Status::NotFound, err));
             }
+            Err(e) => {
+                eprintln!("Error getting application rule: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                });
+                return Err(status::Custom(Status::InternalServerError, err));
+            }
         };
-
-        // Find the rule
-        let rule = rules.into_iter().find(|r| r.id == id);
-        if rule.is_none() {
-            let err = Json(ErrorResponse {
-                error: "Application rule not found".to_string(),
-            });
-            return Err(status::Custom(Status::NotFound, err));
-        }
-
-        let rule = rule.unwrap();
 
         // Get the library item to check site_id
         let item = match get_library_item(conn, rule.library_item_id) {
@@ -247,7 +251,12 @@ pub async fn delete_application_rule_endpoint(
             return Err(status::Custom(Status::Forbidden, err));
         }
 
-        match delete_application_rule(conn, id, Some(auth_user.user.id)) {
+        match delete_application_rule(
+            conn,
+            id,
+            Some(auth_user.user.id),
+            change_reason.as_deref(),
+        ) {
             Ok(_) => Ok(Status::NoContent),
             Err(e) => {
                 eprintln!("Error deleting application rule: {:?}", e);

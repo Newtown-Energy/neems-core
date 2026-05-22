@@ -76,6 +76,12 @@ pub struct CreateApplicationRuleRequest {
     pub days_of_week: Option<Vec<i32>>,
     pub specific_dates: Option<Vec<String>>,
     pub override_reason: Option<String>,
+    /// Free-form reason captured at the UI layer for the audit row
+    /// (S1c-3). Distinct from `override_reason` (which lives on the
+    /// rule itself and explains *why this date uses a different
+    /// schedule*) — `change_reason` explains *why this rule is being
+    /// created or removed* and lands on entity_activity.
+    pub change_reason: Option<String>,
 }
 
 /// Response with effective schedule for a date
