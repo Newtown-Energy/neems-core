@@ -301,3 +301,199 @@ fn update_company(
 
     Ok(())
 }
+
+#[cfg(all(test, feature = "test-staging"))]
+#[allow(unused_imports)]
+mod tests {
+    use neems_api::{
+        models::CompanyInput,
+        orm::{
+            company::{get_all_companies, get_company_by_id, get_company_by_name, insert_company},
+            site::insert_site,
+            testing::setup_test_db,
+            user::{get_user_by_email, list_all_users},
+        },
+    };
+
+    use super::*;
+    use crate::admin_cli::user_commands::{UserAction, add_user_impl};
+
+    #[test]
+    fn test_handle_company_command_with_conn_ls() {
+        let mut conn = setup_test_db();
+
+        let action = CompanyAction::Ls { search_term: None, fixed_string: false };
+        let result = handle_company_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_handle_company_command_with_conn_add() {
+        let mut conn = setup_test_db();
+
+        let action = CompanyAction::Add { name: "CLI Test Company".to_string() };
+        let result = handle_company_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found = companies.iter().any(|c| c.name == "CLI Test Company");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_handle_company_command_with_conn_rm() {
+        let mut conn = setup_test_db();
+
+        insert_company(&mut conn, "Remove This Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let action = CompanyAction::Rm {
+            search_term: "Remove This".to_string(),
+            fixed_string: true,
+            yes: true,
+        };
+        let result = handle_company_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found = companies.iter().any(|c| c.name == "Remove This Company");
+        assert!(!found);
+    }
+
+    #[test]
+    fn test_company_ls_impl_all() {
+        let mut conn = setup_test_db();
+
+        insert_company(&mut conn, "Test Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        insert_company(&mut conn, "Test Company 2".to_string(), None)
+            .expect("Failed to create company 2");
+
+        let result = company_ls_impl(&mut conn, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_company_ls_impl_with_search() {
+        let mut conn = setup_test_db();
+
+        insert_company(&mut conn, "ACME Corp".to_string(), None)
+            .expect("Failed to create company 1");
+        insert_company(&mut conn, "Tech Solutions".to_string(), None)
+            .expect("Failed to create company 2");
+
+        let result = company_ls_impl(&mut conn, Some("ACME".to_string()), true);
+        assert!(result.is_ok());
+
+        let result = company_ls_impl(&mut conn, Some("^Tech".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_company_add_impl() {
+        let mut conn = setup_test_db();
+
+        let result = company_add_impl(&mut conn, "New Test Company".to_string(), 1);
+        assert!(result.is_ok());
+
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found = companies.iter().any(|c| c.name == "New Test Company");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_company_add_impl_duplicate_name() {
+        let mut conn = setup_test_db();
+
+        // Create first company
+        let result = company_add_impl(&mut conn, "Duplicate Test Company".to_string(), 1);
+        assert!(result.is_ok());
+
+        // Try to create second company with same name - should succeed gracefully
+        let result = company_add_impl(&mut conn, "Duplicate Test Company".to_string(), 1);
+        assert!(result.is_ok()); // Now handles duplicates gracefully
+
+        // Verify there's still only one company with this name
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let count = companies.iter().filter(|c| c.name == "Duplicate Test Company").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_company_rm_impl_with_cascade() {
+        let mut conn = setup_test_db();
+
+        // Create company with users and sites
+        let company = insert_company(&mut conn, "Delete Me Company".to_string(), None)
+            .expect("Failed to create company");
+        let keep_company = insert_company(&mut conn, "Keep Me Company".to_string(), None)
+            .expect("Failed to create company");
+
+        // Create user in company to be deleted
+        add_user_impl(
+            &mut conn,
+            "user@deleteme.com",
+            Some("password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        // Create user in company to keep
+        add_user_impl(
+            &mut conn,
+            "user@keepme.com",
+            Some("password".to_string()),
+            keep_company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        // Delete company
+        let result = company_rm_impl(&mut conn, "Delete Me".to_string(), true, true, 1);
+        assert!(result.is_ok());
+
+        // Verify company was deleted
+        let companies = get_all_companies(&mut conn).expect("Failed to get companies");
+        let found_deleted = companies.iter().any(|c| c.name == "Delete Me Company");
+        assert!(!found_deleted);
+
+        // Verify other company still exists
+        let found_kept = companies.iter().any(|c| c.name == "Keep Me Company");
+        assert!(found_kept);
+
+        // Verify users were deleted with company
+        let all_users = list_all_users(&mut conn).expect("Failed to get users");
+        let deleted_user_exists = all_users.iter().any(|u| u.email == "user@deleteme.com");
+        assert!(!deleted_user_exists);
+
+        let kept_user_exists = all_users.iter().any(|u| u.email == "user@keepme.com");
+        assert!(kept_user_exists);
+    }
+
+    #[test]
+    fn test_company_edit_impl() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Original Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let result = company_edit_impl(&mut conn, company.id, Some("Updated Company".to_string()));
+        assert!(result.is_ok());
+
+        let updated_company = get_company_by_id(&mut conn, company.id)
+            .expect("Failed to get updated company")
+            .expect("Company should exist");
+        assert_eq!(updated_company.name, "Updated Company");
+    }
+
+    #[test]
+    fn test_company_edit_impl_nonexistent_company() {
+        let mut conn = setup_test_db();
+
+        let result = company_edit_impl(&mut conn, 99999, Some("New Name".to_string()));
+        assert!(result.is_err());
+    }
+}

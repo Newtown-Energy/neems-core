@@ -4,6 +4,9 @@
 //! along with utility functions for generating test data and helper functions
 //! for API testing.
 
+pub mod list;
+pub mod roles;
+
 use rand::{prelude::IndexedRandom, rng};
 use rocket::{
     Route,
@@ -15,21 +18,21 @@ use rocket::{
         json::{Json, json},
     },
 };
+pub use roles::{AddUserRoleRequest, RemoveUserRoleRequest};
 use ts_rs::TS;
 
 use crate::{
     logged_json::LoggedJson,
-    models::{CompanyInput, Role, UserInput, UserWithRoles},
-    odata_query::{ODataCollectionResponse, ODataQuery, apply_select, build_context_url},
+    models::{CompanyInput, UserInput, UserWithRoles},
     orm::{
         DbConn,
         company::get_company_by_name,
         role::get_role_by_name,
         user::{
             delete_user_with_cleanup, get_user, get_user_by_email, get_user_with_roles,
-            get_users_by_company_with_roles, insert_user, list_all_users_with_roles, update_user,
+            insert_user, update_user,
         },
-        user_role::{assign_user_role_by_name, get_user_roles, remove_user_role_by_name},
+        user_role::assign_user_role_by_name,
     },
     session_guards::AuthenticatedUser,
 };
@@ -619,243 +622,6 @@ pub async fn create_user(
     .await
 }
 
-/// List Users endpoint.
-///
-/// - **URL:** `/api/1/users`
-/// - **Method:** `GET`
-/// - **Purpose:** Retrieves all users in the system
-/// - **Authentication:** Required
-///
-/// This endpoint retrieves all users from the database and returns them
-/// as a JSON array. This includes all user information including timestamps
-/// and associated company IDs.
-///
-/// # Response
-///
-/// **Success (HTTP 200 OK):**
-/// ```json
-/// [
-///   {
-///     "id": 1,
-///     "email": "user1@example.com",
-///     "password_hash": "hashed_password",
-///     "company_id": 1,
-///     "totp_secret": null,
-///     "created_at": "2023-01-01T00:00:00Z",
-///     "updated_at": "2023-01-01T00:00:00Z"
-///   },
-///   {
-///     "id": 2,
-///     "email": "user2@example.com",
-///     "password_hash": "hashed_password",
-///     "company_id": 2,
-///     "totp_secret": "secret",
-///     "created_at": "2023-01-01T00:00:00Z",
-///     "updated_at": "2023-01-01T00:00:00Z"
-///   }
-/// ]
-/// ```
-///
-/// # Arguments
-/// * `db` - Database connection pool
-///
-/// # Returns
-/// * `Ok(Json<Vec<User>>)` - List of all users
-/// * `Err(Status)` - Error during retrieval (typically InternalServerError)
-#[get("/1/Users?<query..>")]
-pub async fn list_users(
-    db: DbConn,
-    auth_user: AuthenticatedUser,
-    query: ODataQuery,
-) -> Result<Json<serde_json::Value>, Status> {
-    // Validate query options
-    query.validate().map_err(|_| Status::BadRequest)?;
-
-    // Authorization: determine which users this user can see
-    let users = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
-        // newtown-admin and newtown-staff can see all users
-        db.run(|conn| {
-            list_all_users_with_roles(conn).map_err(|e| {
-                eprintln!("Error listing all users: {:?}", e);
-                Status::InternalServerError
-            })
-        })
-        .await?
-    } else if auth_user.has_role("admin") {
-        // admin can only see users from their own company
-        let company_id = auth_user.user.company_id;
-        db.run(move |conn| {
-            get_users_by_company_with_roles(conn, company_id).map_err(|e| {
-                eprintln!("Error listing company users: {:?}", e);
-                Status::InternalServerError
-            })
-        })
-        .await?
-    } else {
-        // Regular users cannot list users
-        return Err(Status::Forbidden);
-    };
-
-    // Apply filtering if specified
-    let mut filtered_users = users;
-    if let Some(filter_expr) = query.parse_filter() {
-        // Basic filtering implementation - this could be expanded
-        filtered_users.retain(|user| {
-            // Simple implementation - could be much more sophisticated
-            match &filter_expr.property.as_str() {
-                &"email" => match &filter_expr.value {
-                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                        crate::odata_query::FilterOperator::Eq => user.email == *s,
-                        crate::odata_query::FilterOperator::Ne => user.email != *s,
-                        crate::odata_query::FilterOperator::Contains => user.email.contains(s),
-                        _ => true,
-                    },
-                    _ => true,
-                },
-                _ => true, // Unknown property, don't filter
-            }
-        });
-    }
-
-    // Apply sorting if specified
-    if let Some(orderby) = query.parse_orderby() {
-        for (property, direction) in orderby.iter().rev() {
-            match property.as_str() {
-                "email" => {
-                    filtered_users.sort_by(|a, b| {
-                        let cmp = a.email.cmp(&b.email);
-                        match direction {
-                            crate::odata_query::OrderDirection::Asc => cmp,
-                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
-                        }
-                    });
-                }
-                "id" => {
-                    filtered_users.sort_by(|a, b| {
-                        let cmp = a.id.cmp(&b.id);
-                        match direction {
-                            crate::odata_query::OrderDirection::Asc => cmp,
-                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
-                        }
-                    });
-                }
-                _ => {} // Unknown property, don't sort
-            }
-        }
-    }
-
-    // Get count before applying top/skip
-    let total_count = filtered_users.len() as i64;
-
-    // Apply skip and top
-    if let Some(skip) = query.skip {
-        filtered_users = filtered_users.into_iter().skip(skip as usize).collect();
-    }
-    if let Some(top) = query.top {
-        filtered_users = filtered_users.into_iter().take(top as usize).collect();
-    }
-
-    // Handle $expand and computed properties, then $select
-    let expand_props = query.parse_expand();
-    let select_props = query.parse_select();
-    let mut expanded_users: Vec<serde_json::Value> = Vec::new();
-
-    // Check if activity timestamps are requested in $select
-    let needs_activity_timestamps = if let Some(ref select_fields) = select_props {
-        select_fields
-            .iter()
-            .any(|field| field == "activity_created_at" || field == "activity_updated_at")
-    } else {
-        false // Default behavior doesn't include activity timestamps
-    };
-
-    for user in &filtered_users {
-        let mut user_json = serde_json::to_value(user).map_err(|_| Status::InternalServerError)?;
-
-        // Handle $expand=company
-        if let Some(expansions) = &expand_props
-            && expansions.iter().any(|e| e.eq_ignore_ascii_case("company"))
-        {
-            // Load company data for this user
-            let company_id = user.company_id;
-            let company = db
-                .run(move |conn| {
-                    use crate::orm::company::get_company_by_id;
-                    get_company_by_id(conn, company_id)
-                })
-                .await
-                .map_err(|_| Status::InternalServerError)?;
-
-            if let Some(company) = company {
-                user_json.as_object_mut().ok_or(Status::InternalServerError)?.insert(
-                    "Company".to_string(),
-                    serde_json::to_value(company).map_err(|_| Status::InternalServerError)?,
-                );
-            }
-        }
-
-        // Handle computed activity timestamps if requested
-        if needs_activity_timestamps {
-            let user_id = user.id;
-            let timestamps = db
-                .run(move |conn| {
-                    use crate::orm::entity_activity::{get_created_at, get_updated_at};
-
-                    let created_at = get_created_at(conn, "users", user_id).ok();
-                    let updated_at = get_updated_at(conn, "users", user_id).ok();
-
-                    (created_at, updated_at)
-                })
-                .await;
-
-            // Add activity timestamps to user object
-            let user_obj = user_json.as_object_mut().ok_or(Status::InternalServerError)?;
-            if let Some(created_at) = timestamps.0 {
-                user_obj.insert(
-                    "activity_created_at".to_string(),
-                    serde_json::Value::String(
-                        created_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                    ),
-                );
-            } else {
-                user_obj.insert("activity_created_at".to_string(), serde_json::Value::Null);
-            }
-
-            if let Some(updated_at) = timestamps.1 {
-                user_obj.insert(
-                    "activity_updated_at".to_string(),
-                    serde_json::Value::String(
-                        updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                    ),
-                );
-            } else {
-                user_obj.insert("activity_updated_at".to_string(), serde_json::Value::Null);
-            }
-        }
-
-        expanded_users.push(user_json);
-    }
-
-    // Apply $select to each expanded user if specified
-    let selected_users: Result<Vec<serde_json::Value>, _> = expanded_users
-        .iter()
-        .map(|user| apply_select(user, select_props.as_deref()))
-        .collect();
-
-    let selected_users = selected_users.map_err(|_| Status::InternalServerError)?;
-
-    // Build OData response
-    let context = build_context_url("http://localhost/api/1", "Users", select_props.as_deref());
-    let mut response = ODataCollectionResponse::new(context, selected_users);
-
-    // Add count if requested
-    if query.count.unwrap_or(false) {
-        response = response.with_count(total_count);
-    }
-
-    Ok(Json(serde_json::to_value(response).map_err(|_| Status::InternalServerError)?))
-}
-
 #[derive(serde::Deserialize)]
 pub struct SetUserRoleRequest {
     pub user_id: i32,
@@ -871,21 +637,6 @@ pub struct CreateUserWithRolesRequest {
     pub company_id: i32,
     pub totp_secret: Option<String>,
     pub role_names: Vec<String>,
-}
-
-/// Request structure for adding a role to a user (user_id comes from URL path).
-#[derive(serde::Deserialize, TS)]
-#[ts(export)]
-pub struct AddUserRoleRequest {
-    pub role_name: String,
-}
-
-/// Request structure for removing a role from a user (user_id comes from URL
-/// path).
-#[derive(serde::Deserialize, TS)]
-#[ts(export)]
-pub struct RemoveUserRoleRequest {
-    pub role_name: String,
 }
 
 /// Request structure for updating a user (all fields optional).
@@ -995,349 +746,6 @@ pub async fn get_user_endpoint(
         }
     })
     .await
-}
-
-/// Get User Roles endpoint.
-///
-/// - **URL:** `/api/1/users/<user_id>/roles`
-/// - **Method:** `GET`
-/// - **Purpose:** Retrieves all roles assigned to a specific user
-/// - **Authentication:** Required (users can view their own roles, or users
-///   with admin privileges can view any user's roles)
-///
-/// This endpoint retrieves all roles assigned to a specific user.
-/// Users can view their own roles, or users with sufficient privileges
-/// can view any user's roles.
-///
-/// # Parameters
-///
-/// - `user_id` - The ID of the user whose roles to retrieve
-///
-/// # Response
-///
-/// **Success (HTTP 200 OK):**
-/// ```json
-/// [
-///   {
-///     "id": 1,
-///     "name": "admin",
-///     "description": "Administrator role",
-///     "created_at": "2023-01-01T00:00:00Z",
-///     "updated_at": "2023-01-01T00:00:00Z"
-///   },
-///   {
-///     "id": 2,
-///     "name": "staff",
-///     "description": "Staff role",
-///     "created_at": "2023-01-01T00:00:00Z",
-///     "updated_at": "2023-01-01T00:00:00Z"
-///   }
-/// ]
-/// ```
-///
-/// **Failure (HTTP 403 Forbidden):**
-/// User doesn't have permission to view the specified user's roles
-///
-/// # Arguments
-/// * `db` - Database connection pool
-/// * `user_id` - The ID of the user whose roles to retrieve
-/// * `auth_user` - The authenticated user making the request
-///
-/// # Returns
-/// * `Ok(Json<Vec<Role>>)` - List of roles for the specified user
-/// * `Err(Status)` - Error status (Forbidden, InternalServerError, etc.)
-///
-/// # Example
-///
-/// ```js
-/// const response = await fetch('/api/1/users/123/roles', {
-///   method: 'GET',
-///   credentials: 'include'
-/// });
-/// ```
-#[get("/1/Users/<user_id>/Roles")]
-pub async fn get_user_roles_endpoint(
-    db: DbConn,
-    user_id: i32,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<Vec<Role>>, Status> {
-    // Users can view their own roles, admins can view any user's roles
-    if auth_user.user.id != user_id
-        && !auth_user.has_any_role(&["newtown-admin", "newtown-staff", "admin"])
-    {
-        return Err(Status::Forbidden);
-    }
-
-    db.run(move |conn| {
-        get_user_roles(conn, user_id).map(Json).map_err(|e| {
-            eprintln!("Error getting user roles: {:?}", e);
-            Status::InternalServerError
-        })
-    })
-    .await
-}
-
-/// Add User Role endpoint.
-///
-/// - **URL:** `/api/1/users/<user_id>/roles`
-/// - **Method:** `POST`
-/// - **Purpose:** Assigns a role to a user with authorization checks
-/// - **Authentication:** Required (admin privileges with specific business
-///   rules)
-///
-/// This endpoint allows authorized users to add roles to other users
-/// following the business rules:
-/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy
-///    company
-/// 2. `newtown-admin` can set any user's role to anything
-/// 3. `newtown-staff` can set any user's role except `newtown-admin`
-/// 4. `admin` can set another user's role to `admin` if target user is at same
-///    company
-/// 5. Users must have at least one role (validated elsewhere)
-///
-/// # Authorization Rules
-///
-/// 1. `newtown-staff` and `newtown-admin` roles are reserved for Newtown Energy
-///    company
-/// 2. `newtown-admin` can set any user's role to anything
-/// 3. `newtown-staff` can set any user's role except `newtown-admin`
-/// 4. `admin` can set another user's role to `admin` if target user is at same
-///    company
-/// 5. Users must have at least one role (validated elsewhere)
-///
-/// # Request Format
-///
-/// ```json
-/// {
-///   "role_name": "staff"
-/// }
-/// ```
-///
-/// # Response
-///
-/// **Success (HTTP 200 OK):**
-/// No response body - role successfully assigned
-///
-/// **Failure (HTTP 403 Forbidden):**
-/// User doesn't have permission to assign the specified role
-///
-/// **Failure (HTTP 500 Internal Server Error):**
-/// Database error or validation failure
-///
-/// # Arguments
-/// * `db` - Database connection pool
-/// * `user_id` - User ID from URL path parameter
-/// * `request` - JSON payload containing role_name to add
-/// * `auth_user` - The authenticated user making the request
-///
-/// # Returns
-/// * `Ok(Status::Ok)` - Role successfully assigned
-/// * `Err(Status)` - Error status (Forbidden, InternalServerError, etc.)
-///
-/// # Example
-///
-/// ```js
-/// const response = await fetch('/api/1/users/123/roles', {
-///   method: 'POST',
-///   headers: { 'Content-Type': 'application/json' },
-///   body: JSON.stringify({
-///     role_name: 'staff'
-///   }),
-///   credentials: 'include'
-/// });
-/// ```
-#[post("/1/Users/<user_id>/Roles", data = "<request>")]
-pub async fn add_user_role(
-    db: DbConn,
-    user_id: i32,
-    request: Json<AddUserRoleRequest>,
-    auth_user: AuthenticatedUser,
-) -> Result<Status, Status> {
-    let target_user_id = user_id;
-    let role_name = request.role_name.clone();
-
-    // Get target user's company for validation
-    let target_user = db
-        .run(move |conn| get_user(conn, target_user_id))
-        .await
-        .map_err(|e| {
-            eprintln!("Error getting target user: {:?}", e);
-            Status::InternalServerError
-        })?
-        .ok_or(Status::NotFound)?;
-
-    // Authorization check based on business rules
-    let can_assign = if auth_user.has_role("newtown-admin") {
-        // Rule 2: newtown-admin can set any user's role to anything
-        true
-    } else if auth_user.has_role("newtown-staff") {
-        // Rule 3: newtown-staff can set any user's role except newtown-admin
-        role_name != "newtown-admin"
-    } else if auth_user.has_role("admin") {
-        // Rule 4: admin can set another user's role to any role if same company
-        auth_user.user.company_id == target_user.company_id
-    } else {
-        false
-    };
-
-    if !can_assign {
-        return Err(Status::Forbidden);
-    }
-
-    // Rule 1: newtown-staff and newtown-admin roles are reserved for Newtown Energy
-    if role_name == "newtown-staff" || role_name == "newtown-admin" {
-        let newtown_company_search = CompanyInput { name: "Newtown Energy".to_string() };
-        let newtown_company = db
-            .run(move |conn| get_company_by_name(conn, &newtown_company_search))
-            .await
-            .map_err(|e| {
-                eprintln!("Error getting Newtown Energy company: {:?}", e);
-                Status::InternalServerError
-            })?;
-
-        let newtown_company = match newtown_company {
-            Some(inst) => inst,
-            None => {
-                eprintln!("Newtown Energy company not found");
-                return Err(Status::InternalServerError);
-            }
-        };
-
-        if target_user.company_id != newtown_company.id {
-            return Err(Status::Forbidden);
-        }
-    }
-
-    // Assign the role
-    db.run(move |conn| {
-        assign_user_role_by_name(conn, target_user_id, &role_name).map_err(|e| {
-            eprintln!("Error assigning user role: {:?}", e);
-            Status::InternalServerError
-        })
-    })
-    .await?;
-
-    Ok(Status::Ok)
-}
-
-/// Remove User Role endpoint.
-///
-/// - **URL:** `/api/1/users/<user_id>/roles`
-/// - **Method:** `DELETE`
-/// - **Purpose:** Removes a role from a user with authorization checks
-/// - **Authentication:** Required (same authorization rules as adding roles)
-///
-/// This endpoint allows authorized users to remove roles from other users
-/// following the same authorization rules as adding roles. Additionally,
-/// it ensures users always retain at least one role.
-///
-/// # Authorization Rules
-///
-/// Same authorization rules as adding roles, plus:
-/// - Users must retain at least one role after removal
-///
-/// # Request Format
-///
-/// ```json
-/// {
-///   "role_name": "staff"
-/// }
-/// ```
-///
-/// # Response
-///
-/// **Success (HTTP 200 OK):**
-/// No response body - role successfully removed
-///
-/// **Failure (HTTP 400 Bad Request):**
-/// User would have no roles remaining after removal
-///
-/// **Failure (HTTP 403 Forbidden):**
-/// User doesn't have permission to remove the specified role
-///
-/// **Failure (HTTP 500 Internal Server Error):**
-/// Database error or validation failure
-///
-/// # Arguments
-/// * `db` - Database connection pool
-/// * `user_id` - User ID from URL path parameter
-/// * `request` - JSON payload containing role_name to remove
-/// * `auth_user` - The authenticated user making the request
-///
-/// # Returns
-/// * `Ok(Status::Ok)` - Role successfully removed
-/// * `Err(Status)` - Error status (Forbidden, BadRequest, InternalServerError,
-///   etc.)
-///
-/// # Example
-///
-/// ```js
-/// const response = await fetch('/api/1/users/123/roles', {
-///   method: 'DELETE',
-///   headers: { 'Content-Type': 'application/json' },
-///   body: JSON.stringify({
-///     role_name: 'staff'
-///   }),
-///   credentials: 'include'
-/// });
-/// ```
-#[delete("/1/Users/<user_id>/Roles", data = "<request>")]
-pub async fn remove_user_role(
-    db: DbConn,
-    user_id: i32,
-    request: Json<RemoveUserRoleRequest>,
-    auth_user: AuthenticatedUser,
-) -> Result<Status, Status> {
-    let target_user_id = user_id;
-    let role_name = request.role_name.clone();
-
-    // Get target user's company for validation
-    let target_user = db
-        .run(move |conn| get_user(conn, target_user_id))
-        .await
-        .map_err(|e| {
-            eprintln!("Error getting target user: {:?}", e);
-            Status::InternalServerError
-        })?
-        .ok_or(Status::NotFound)?;
-
-    // Check if user would have any roles left after removal
-    let current_roles =
-        db.run(move |conn| get_user_roles(conn, target_user_id)).await.map_err(|e| {
-            eprintln!("Error getting current user roles: {:?}", e);
-            Status::InternalServerError
-        })?;
-
-    // Rule 5: Users must have at least one role
-    if current_roles.len() <= 1 {
-        return Err(Status::BadRequest);
-    }
-
-    // Authorization check - same rules as adding roles
-    let can_remove = if auth_user.has_role("newtown-admin") {
-        true
-    } else if auth_user.has_role("newtown-staff") {
-        role_name != "newtown-admin"
-    } else if auth_user.has_role("admin") {
-        auth_user.user.company_id == target_user.company_id
-    } else {
-        false
-    };
-
-    if !can_remove {
-        return Err(Status::Forbidden);
-    }
-
-    // Remove the role
-    db.run(move |conn| {
-        remove_user_role_by_name(conn, target_user_id, &role_name).map_err(|e| {
-            eprintln!("Error removing user role: {:?}", e);
-            Status::InternalServerError
-        })
-    })
-    .await?;
-
-    Ok(Status::Ok)
 }
 
 /// Update User endpoint.
@@ -1627,13 +1035,13 @@ pub async fn get_user_company(
 pub fn routes() -> Vec<Route> {
     routes![
         create_user,
-        list_users,
+        list::list_users,
         get_user_endpoint,
         update_user_endpoint,
         delete_user_endpoint,
-        get_user_roles_endpoint,
-        add_user_role,
-        remove_user_role,
+        roles::get_user_roles_endpoint,
+        roles::add_user_role,
+        roles::remove_user_role,
         get_user_company
     ]
 }
