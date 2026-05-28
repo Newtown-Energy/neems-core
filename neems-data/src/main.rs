@@ -382,7 +382,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             };
 
-            let source_id = existing.id.unwrap();
+            let source_id = existing.id.expect("source loaded from database is missing its id");
 
             let description = if args.clear_description {
                 Some(None)
@@ -467,7 +467,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             };
 
-            let source_id = existing.id.unwrap();
+            let source_id = existing.id.expect("source loaded from database is missing its id");
 
             // Delete the source
             let deleted_count = delete_source(&mut connection, source_id)?;

@@ -5,7 +5,11 @@
 //! - Automatic reconnection on disconnect
 //! - Read and write operations with proper error handling
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{
+    io,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::Duration,
+};
 
 use tokio::{net::TcpStream, time::timeout};
 use tokio_modbus::{client::tcp, prelude::*};
@@ -36,7 +40,7 @@ pub struct ModbusClientConfig {
 impl Default for ModbusClientConfig {
     fn default() -> Self {
         Self {
-            address: "127.0.0.1:502".parse().unwrap(),
+            address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 502),
             slave_id: 1,
             connect_timeout: Duration::from_secs(5),
             operation_timeout: Duration::from_millis(500),
