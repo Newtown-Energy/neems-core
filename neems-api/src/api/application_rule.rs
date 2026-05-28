@@ -16,9 +16,8 @@ use crate::{
         DbConn,
         application_rule::{
             create_application_rule, delete_application_rule, get_application_rule_by_id,
-            get_application_rules_for_site,
-            get_application_rules_for_template, get_calendar_schedules,
-            get_calendar_schedules_with_matches, get_effective_schedule,
+            get_application_rules_for_site, get_application_rules_for_template,
+            get_calendar_schedules, get_calendar_schedules_with_matches, get_effective_schedule,
             season_fill_application_rule,
         },
         schedule_library::get_library_item,
@@ -251,12 +250,7 @@ pub async fn delete_application_rule_endpoint(
             return Err(status::Custom(Status::Forbidden, err));
         }
 
-        match delete_application_rule(
-            conn,
-            id,
-            Some(auth_user.user.id),
-            change_reason.as_deref(),
-        ) {
+        match delete_application_rule(conn, id, Some(auth_user.user.id), change_reason.as_deref()) {
             Ok(_) => Ok(Status::NoContent),
             Err(e) => {
                 eprintln!("Error deleting application rule: {:?}", e);

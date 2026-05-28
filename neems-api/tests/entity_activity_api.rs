@@ -9,8 +9,7 @@
 //!   5. unknown entities return an empty list (no 404).
 
 use neems_api::{
-    api::entity_activity::EntityActivityWithUser,
-    models::ScheduleLibraryItem,
+    api::entity_activity::EntityActivityWithUser, models::ScheduleLibraryItem,
     orm::testing::fast_test_rocket,
 };
 use rocket::{
@@ -83,21 +82,14 @@ async fn entity_activity_returns_history_with_user_email() {
     assert_eq!(response.status(), Status::Ok);
 
     // Read the audit log back.
-    let url = format!(
-        "/api/1/EntityActivity?table_name=schedule_templates&entity_id={}",
-        item.id
-    );
+    let url = format!("/api/1/EntityActivity?table_name=schedule_templates&entity_id={}", item.id);
     let response = client.get(&url).cookie(admin.clone()).dispatch().await;
     assert_eq!(response.status(), Status::Ok);
 
     let rows: Vec<EntityActivityWithUser> = response.into_json().await.expect("valid JSON");
 
     // We expect at least one create + one update row, ordered oldest first.
-    assert!(
-        rows.len() >= 2,
-        "expected ≥2 activity rows for item, got {}",
-        rows.len()
-    );
+    assert!(rows.len() >= 2, "expected ≥2 activity rows for item, got {}", rows.len());
 
     let create_row = rows.iter().find(|r| r.operation_type == "create");
     let update_row = rows.iter().find(|r| r.operation_type == "update");
@@ -169,10 +161,7 @@ async fn entity_activity_records_commands_only_update() {
     assert_eq!(response.status(), Status::Ok);
 
     // Audit log should now have both a 'create' and an 'update' row.
-    let url = format!(
-        "/api/1/EntityActivity?table_name=schedule_templates&entity_id={}",
-        item.id
-    );
+    let url = format!("/api/1/EntityActivity?table_name=schedule_templates&entity_id={}", item.id);
     let response = client.get(&url).cookie(admin.clone()).dispatch().await;
     assert_eq!(response.status(), Status::Ok);
     let rows: Vec<EntityActivityWithUser> = response.into_json().await.expect("valid JSON");
@@ -210,7 +199,11 @@ async fn entity_activity_unknown_entity_returns_empty_list() {
     assert_eq!(response.status(), Status::Ok);
 
     let rows: Vec<EntityActivityWithUser> = response.into_json().await.expect("valid JSON");
-    assert!(rows.is_empty(), "expected empty list for unknown entity, got {} rows", rows.len());
+    assert!(
+        rows.is_empty(),
+        "expected empty list for unknown entity, got {} rows",
+        rows.len()
+    );
 }
 
 #[rocket::async_test]
@@ -228,8 +221,5 @@ async fn entity_activity_missing_query_params_returns_400_or_422() {
         .dispatch()
         .await;
     let code = response.status().code;
-    assert!(
-        (400..500).contains(&code),
-        "expected 4xx for missing query param, got {code}"
-    );
+    assert!((400..500).contains(&code), "expected 4xx for missing query param, got {code}");
 }

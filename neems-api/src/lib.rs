@@ -85,7 +85,9 @@ fn default_catcher(status: rocket::http::Status, req: &Request) -> Json<Value> {
 }
 
 pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
-    rocket.manage(api::alarm::DemoForcedAlarms::default()).mount("/api", api::routes())
+    rocket
+        .manage(api::alarm::DemoForcedAlarms::default())
+        .mount("/api", api::routes())
 }
 
 fn log_rocket_info(rocket: &Rocket<Build>) {

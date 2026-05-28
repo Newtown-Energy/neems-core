@@ -612,7 +612,8 @@ pub async fn get_site_schema(site_db: SiteDbConn) -> Result<Json<serde_json::Val
 #[derive(Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SocHistoryPoint {
-    /// ISO 8601 timestamp of the reading (naive UTC, matches `Reading.timestamp`).
+    /// ISO 8601 timestamp of the reading (naive UTC, matches
+    /// `Reading.timestamp`).
     pub timestamp: NaiveDateTime,
     /// Battery state of charge as a percentage, 0–100.
     pub soc_percent: f64,
@@ -702,19 +703,16 @@ pub async fn get_site_soc_history(
             if let Some(t) = to_ts {
                 query = query.filter(readings::timestamp.le(t));
             }
-            let rows: Vec<neems_data::models::Reading> =
-                query.load(conn).map_err(|e| {
-                    eprintln!("Error loading SoC readings: {:?}", e);
-                    Status::InternalServerError
-                })?;
+            let rows: Vec<neems_data::models::Reading> = query.load(conn).map_err(|e| {
+                eprintln!("Error loading SoC readings: {:?}", e);
+                Status::InternalServerError
+            })?;
 
             let points = rows
                 .into_iter()
                 .filter_map(|r| {
-                    parse_soc_level(&r.data).map(|soc_percent| SocHistoryPoint {
-                        timestamp: r.timestamp,
-                        soc_percent,
-                    })
+                    parse_soc_level(&r.data)
+                        .map(|soc_percent| SocHistoryPoint { timestamp: r.timestamp, soc_percent })
                 })
                 .collect();
             Ok(Json(SocHistoryResponse { site_id, points }))
@@ -819,11 +817,10 @@ pub async fn get_site_charge_discharge_summary(
             if let Some(t) = to_ts {
                 query = query.filter(readings::timestamp.le(t));
             }
-            let rows: Vec<neems_data::models::Reading> =
-                query.load(conn).map_err(|e| {
-                    eprintln!("Error loading SoC readings for summary: {:?}", e);
-                    Status::InternalServerError
-                })?;
+            let rows: Vec<neems_data::models::Reading> = query.load(conn).map_err(|e| {
+                eprintln!("Error loading SoC readings for summary: {:?}", e);
+                Status::InternalServerError
+            })?;
 
             // Bucket by day → (charging, discharging, hold) minutes.
             // BTreeMap keeps day keys sorted on iteration so the

@@ -838,11 +838,24 @@ async fn test_from_site_defaults_creates_charge_and_discharge_commands() {
 }
 
 #[rocket::async_test]
-async fn test_from_site_defaults_rejects_missing_windows() {
+async fn test_from_site_defaults_rejects_invalid_windows() {
     let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
     let admin_cookie = login_admin(&client).await;
 
-    // Site 2 has not had its windows populated.
+    // Sites are created with default windows, so flip Site 2's peak window so
+    // end <= start to exercise the validation path.
+    let site_patch = json!({
+        "peak_revenue_start_minutes": 1200,
+        "peak_revenue_end_minutes": 960
+    });
+    let response = client
+        .put("/api/1/Sites/2")
+        .cookie(admin_cookie.clone())
+        .json(&site_patch)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+
     let body = json!({ "name": "Should Fail" });
     let response = client
         .post("/api/1/Sites/2/ScheduleLibraryItems/FromSiteDefaults")

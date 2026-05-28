@@ -3,8 +3,7 @@
 //! This module provides HTTP endpoints for accessing alarm information
 //! derived from RTAC readings stored in the site database.
 
-use std::collections::HashSet;
-use std::sync::Mutex;
+use std::{collections::HashSet, sync::Mutex};
 
 use chrono::{DateTime, Utc};
 use neems_data::rtac::{
@@ -267,10 +266,8 @@ pub async fn get_active_alarms(
             .alarms
             .iter()
             .any(|a| matches!(a.severity, AlarmSeverityDto::Emergency));
-        response.has_critical = response
-            .alarms
-            .iter()
-            .any(|a| matches!(a.severity, AlarmSeverityDto::Critical));
+        response.has_critical =
+            response.alarms.iter().any(|a| matches!(a.severity, AlarmSeverityDto::Critical));
         // Surface a synthetic timestamp so the SLD's stale-data banner
         // doesn't fire purely because no readings exist in dev.
         if response.timestamp.is_none() {
@@ -309,7 +306,8 @@ fn forbid_unless_demo_role(user: &AuthenticatedUser) -> Result<(), Status> {
 ///
 /// - **URL:** `/api/1/Alarms/Forced`
 /// - **Method:** `GET`
-/// - **Authentication:** Required; one of `admin`, `newtown-admin`, `newtown-staff`.
+/// - **Authentication:** Required; one of `admin`, `newtown-admin`,
+///   `newtown-staff`.
 #[get("/1/Alarms/Forced")]
 pub fn get_forced_alarms(
     user: AuthenticatedUser,
@@ -326,7 +324,8 @@ pub fn get_forced_alarms(
 /// - **URL:** `/api/1/Alarms/Forced`
 /// - **Method:** `PUT`
 /// - **Body:** `{ "alarm_nums": [u16, ...] }`
-/// - **Authentication:** Required; one of `admin`, `newtown-admin`, `newtown-staff`.
+/// - **Authentication:** Required; one of `admin`, `newtown-admin`,
+///   `newtown-staff`.
 ///
 /// The supplied list replaces the in-memory set (it is not additive). Pass
 /// an empty list to clear all forced alarms. Unknown alarm numbers are

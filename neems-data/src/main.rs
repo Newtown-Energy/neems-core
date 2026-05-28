@@ -525,10 +525,7 @@ fn seed_soc_history(
             let name = format!("soc_history_site_{}", args.site_id);
             let new_source = NewSource {
                 name: name.clone(),
-                description: Some(format!(
-                    "Demo SoC history for site {} (seeded)",
-                    args.site_id
-                )),
+                description: Some(format!("Demo SoC history for site {} (seeded)", args.site_id)),
                 active: Some(false), // seed-only; not polled live
                 interval_seconds: Some((args.interval_minutes as i32) * 60),
                 test_type: Some("charging_state".to_string()),
@@ -537,9 +534,7 @@ fn seed_soc_history(
                 company_id: None,
             };
             let created = create_source(conn, new_source)?;
-            let id = created
-                .id
-                .ok_or("create_source returned a row with no id")?;
+            let id = created.id.ok_or("create_source returned a row with no id")?;
             println!("Created source '{}' (ID {})", created.name, id);
             (id, created.name)
         }
@@ -563,8 +558,7 @@ fn seed_soc_history(
     // span/interval + 1 (e.g. a 6-min span at 6-min cadence yields 2
     // slots, not 1). Without the +1 the "already present" math at the
     // end can underflow when the seeder fully populates the window.
-    let total_slots =
-        ((end - start).num_seconds() / interval.num_seconds()) as usize + 1;
+    let total_slots = ((end - start).num_seconds() / interval.num_seconds()) as usize + 1;
 
     // Idempotency: pull existing timestamps in the window and skip them.
     let existing: std::collections::HashSet<NaiveDateTime> = readings::table

@@ -11,11 +11,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    orm::{
-        DbConn,
-        entity_activity::get_activity_history,
-        user::get_user,
-    },
+    orm::{DbConn, entity_activity::get_activity_history, user::get_user},
     session_guards::AuthenticatedUser,
 };
 
@@ -173,15 +169,11 @@ pub async fn get_site_recent_schedule_activity(
             })?;
 
         if items.is_empty() {
-            return Ok(Json(RecentScheduleActivityResponse {
-                site_id,
-                entries: vec![],
-            }));
+            return Ok(Json(RecentScheduleActivityResponse { site_id, entries: vec![] }));
         }
 
         let item_ids: Vec<i32> = items.iter().map(|(id, _)| *id).collect();
-        let name_by_item_id: std::collections::HashMap<i32, String> =
-            items.into_iter().collect();
+        let name_by_item_id: std::collections::HashMap<i32, String> = items.into_iter().collect();
 
         // Map application_rule ids → their parent library item id so
         // we can join back to the item name in the response.
@@ -236,9 +228,8 @@ pub async fn get_site_recent_schedule_activity(
                 .cloned()
                 .unwrap_or_else(|| format!("Item #{}", library_item_id));
 
-            let user_email = row
-                .user_id
-                .and_then(|uid| get_user(conn, uid).ok().flatten().map(|u| u.email));
+            let user_email =
+                row.user_id.and_then(|uid| get_user(conn, uid).ok().flatten().map(|u| u.email));
 
             entries.push(RecentScheduleActivityEntry {
                 id: row.id,

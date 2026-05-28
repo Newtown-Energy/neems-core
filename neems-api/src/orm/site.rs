@@ -174,12 +174,10 @@ pub fn update_site(
                 .rebound_protection_soc_floor_percent
                 .unwrap_or(current_site.rebound_protection_soc_floor_percent)),
             site_variant.eq(update.site_variant.unwrap_or(current_site.site_variant)),
-            charge_rate_percent.eq(update
-                .charge_rate_percent
-                .unwrap_or(current_site.charge_rate_percent)),
-            discharge_rate_percent.eq(update
-                .discharge_rate_percent
-                .unwrap_or(current_site.discharge_rate_percent)),
+            charge_rate_percent
+                .eq(update.charge_rate_percent.unwrap_or(current_site.charge_rate_percent)),
+            discharge_rate_percent
+                .eq(update.discharge_rate_percent.unwrap_or(current_site.discharge_rate_percent)),
         ))
         .execute(conn)?;
 

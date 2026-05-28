@@ -129,22 +129,17 @@ pub fn get_application_rule_by_id(
 ) -> Result<Option<ApplicationRule>, diesel::result::Error> {
     use crate::schema::application_rules;
 
-    let row: Option<ApplicationRuleDb> = application_rules::table
-        .find(rule_id)
-        .first(conn)
-        .optional()?;
+    let row: Option<ApplicationRuleDb> =
+        application_rules::table.find(rule_id).first(conn).optional()?;
 
     match row {
         None => Ok(None),
-        Some(r) => r
-            .to_api_model()
-            .map(Some)
-            .map_err(|e| {
-                diesel::result::Error::DeserializationError(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    e,
-                )))
-            }),
+        Some(r) => r.to_api_model().map(Some).map_err(|e| {
+            diesel::result::Error::DeserializationError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        }),
     }
 }
 

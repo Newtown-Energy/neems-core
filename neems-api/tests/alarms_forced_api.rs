@@ -9,11 +9,7 @@ use neems_api::orm::testing::fast_test_rocket;
 use rocket::{http::Status, local::asynchronous::Client, tokio};
 use serde_json::{Value, json};
 
-async fn login_as(
-    client: &Client,
-    email: &str,
-    password: &str,
-) -> rocket::http::Cookie<'static> {
+async fn login_as(client: &Client, email: &str, password: &str) -> rocket::http::Cookie<'static> {
     let body = json!({ "email": email, "password": password });
     let resp = client.post("/api/1/login").json(&body).dispatch().await;
     assert_eq!(resp.status(), Status::Ok, "login failed for {}", email);
