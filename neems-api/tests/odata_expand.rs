@@ -315,3 +315,203 @@ async fn test_activity_timestamps_for_existing_users() {
         );
     }
 }
+
+#[rocket::async_test]
+async fn test_users_filter_eq_email() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let response = client
+        .get("/api/1/Users?$filter=email%20eq%20%27superadmin@example.com%27")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: Value = response.into_json().await.expect("valid OData JSON");
+    let users = odata_response["value"].as_array().expect("users array");
+
+    assert_eq!(users.len(), 1, "$filter=email eq should return exactly one match");
+    assert_eq!(users[0]["email"].as_str().unwrap(), "superadmin@example.com");
+}
+
+#[rocket::async_test]
+async fn test_users_filter_ne_email() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let all_response = client.get("/api/1/Users").cookie(admin_cookie.clone()).dispatch().await;
+    let all: Value = all_response.into_json().await.expect("valid OData JSON");
+    let total = all["value"].as_array().unwrap().len();
+    assert!(total >= 2, "golden db should seed at least 2 users");
+
+    let response = client
+        .get("/api/1/Users?$filter=email%20ne%20%27superadmin@example.com%27")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: Value = response.into_json().await.expect("valid OData JSON");
+    let users = odata_response["value"].as_array().expect("users array");
+
+    assert_eq!(users.len(), total - 1, "$filter=email ne should exclude exactly one");
+    assert!(users.iter().all(|u| u["email"].as_str().unwrap() != "superadmin@example.com"));
+}
+
+#[rocket::async_test]
+async fn test_users_orderby_email_asc_and_desc() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let asc_resp = client
+        .get("/api/1/Users?$orderby=email%20asc")
+        .cookie(admin_cookie.clone())
+        .dispatch()
+        .await;
+    assert_eq!(asc_resp.status(), Status::Ok);
+    let asc: Value = asc_resp.into_json().await.expect("valid OData JSON");
+    let asc_emails: Vec<String> = asc["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["email"].as_str().unwrap().to_string())
+        .collect();
+    let mut sorted_asc = asc_emails.clone();
+    sorted_asc.sort();
+    assert_eq!(asc_emails, sorted_asc, "$orderby=email asc must be ascending");
+
+    let desc_resp = client
+        .get("/api/1/Users?$orderby=email%20desc")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+    assert_eq!(desc_resp.status(), Status::Ok);
+    let desc: Value = desc_resp.into_json().await.expect("valid OData JSON");
+    let desc_emails: Vec<String> = desc["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["email"].as_str().unwrap().to_string())
+        .collect();
+    let mut sorted_desc = desc_emails.clone();
+    sorted_desc.sort_by(|a, b| b.cmp(a));
+    assert_eq!(desc_emails, sorted_desc, "$orderby=email desc must be descending");
+}
+
+#[rocket::async_test]
+async fn test_users_orderby_id_desc() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let resp = client
+        .get("/api/1/Users?$orderby=id%20desc")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: Value = resp.into_json().await.expect("valid OData JSON");
+    let ids: Vec<i64> = body["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["id"].as_i64().unwrap())
+        .collect();
+
+    assert!(ids.len() >= 2, "need at least 2 users to check ordering");
+    for pair in ids.windows(2) {
+        assert!(pair[0] > pair[1], "$orderby=id desc must be strictly descending");
+    }
+}
+
+#[rocket::async_test]
+async fn test_users_skip_and_top_pagination() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let full = client
+        .get("/api/1/Users?$orderby=id%20asc")
+        .cookie(admin_cookie.clone())
+        .dispatch()
+        .await
+        .into_json::<Value>()
+        .await
+        .expect("valid JSON");
+    let full_ids: Vec<i64> = full["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["id"].as_i64().unwrap())
+        .collect();
+    assert!(full_ids.len() >= 4, "need at least 4 users for pagination test");
+
+    let page = client
+        .get("/api/1/Users?$orderby=id%20asc&$skip=2&$top=2")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await
+        .into_json::<Value>()
+        .await
+        .expect("valid JSON");
+    let page_ids: Vec<i64> = page["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["id"].as_i64().unwrap())
+        .collect();
+
+    assert_eq!(page_ids.len(), 2, "$top=2 must cap the page at 2 items");
+    assert_eq!(page_ids, full_ids[2..4], "$skip=2&$top=2 must return items 2..4");
+}
+
+#[rocket::async_test]
+async fn test_users_count_reflects_total_before_paging() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let unpaged = client
+        .get("/api/1/Users")
+        .cookie(admin_cookie.clone())
+        .dispatch()
+        .await
+        .into_json::<Value>()
+        .await
+        .expect("valid JSON");
+    let total = unpaged["value"].as_array().unwrap().len() as i64;
+    assert!(total >= 2);
+
+    let resp = client
+        .get("/api/1/Users?$top=1&$count=true")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: Value = resp.into_json().await.expect("valid OData JSON");
+
+    assert_eq!(body["value"].as_array().unwrap().len(), 1, "$top=1 limits page size");
+    assert_eq!(
+        body["@odata.count"].as_i64(),
+        Some(total),
+        "@odata.count must equal pre-paging total when $count=true"
+    );
+}
+
+#[rocket::async_test]
+async fn test_users_count_omitted_when_not_requested() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let body: Value = client
+        .get("/api/1/Users?$top=1")
+        .cookie(admin_cookie)
+        .dispatch()
+        .await
+        .into_json()
+        .await
+        .expect("valid OData JSON");
+
+    assert!(
+        body.get("@odata.count").is_none(),
+        "@odata.count must be omitted when $count is not requested"
+    );
+}
