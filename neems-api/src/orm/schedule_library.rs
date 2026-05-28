@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use diesel::{prelude::*, sql_types::BigInt};
 
 use crate::models::{

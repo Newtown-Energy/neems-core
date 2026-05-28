@@ -2,6 +2,7 @@
 # Do - The Simplest Build Tool on Earth.
 # Documentation and examples see https://github.com/8gears/do
 #
+set -eo pipefail
 SCRIPTNAME=`basename "$0"`
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BASEDIR=$(dirname -- "$SCRIPT_DIR")

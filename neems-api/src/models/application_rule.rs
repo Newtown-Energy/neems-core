@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use diesel::{Associations, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -132,9 +134,12 @@ impl RuleType {
             RuleType::SpecificDate => "specific_date",
         }
     }
+}
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Result<Self, String> {
+impl FromStr for RuleType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "default" => Ok(RuleType::Default),
             "day_of_week" => Ok(RuleType::DayOfWeek),

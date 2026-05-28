@@ -1,0 +1,7 @@
+[toolchain]
+channel = "nightly-2026-04-01"
+components = ["clippy", "rustfmt", "rust-src"]
+# cranelift (rustc-codegen-cranelift-preview) is an optional dev-only
+# speed-up — installed on demand by `bin/dosh depends`. It is not
+# always published for every dated nightly, so leaving it out of the
+# pinned toolchain keeps CI green.

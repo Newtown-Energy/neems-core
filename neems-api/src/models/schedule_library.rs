@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use diesel::{Associations, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -199,9 +201,12 @@ impl CommandType {
             CommandType::TrickleCharge => "trickle_charge",
         }
     }
+}
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Result<Self, String> {
+impl FromStr for CommandType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "charge" => Ok(CommandType::Charge),
             "discharge" => Ok(CommandType::Discharge),
