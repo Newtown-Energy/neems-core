@@ -221,3 +221,41 @@ pub fn role_edit_impl(
 
     Ok(())
 }
+
+#[cfg(all(test, feature = "test-staging"))]
+#[allow(unused_imports)]
+mod tests {
+    use neems_api::orm::{
+        company::insert_company, role::get_all_roles, testing::setup_test_db,
+        user::get_user_by_email,
+    };
+
+    use super::*;
+    use crate::admin_cli::user_commands::{UserAction, add_user_impl};
+
+    #[test]
+    fn test_role_add_impl() {
+        let mut conn = setup_test_db();
+
+        let result =
+            role_add_impl(&mut conn, "Test Role".to_string(), Some("A test role".to_string()));
+        assert!(result.is_ok());
+
+        // Verify role was created
+        let roles = get_all_roles(&mut conn).expect("Failed to get roles");
+        let found = roles.iter().any(|r| r.name == "Test Role");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_role_ls_impl() {
+        let mut conn = setup_test_db();
+
+        let result = role_ls_impl(&mut conn, None, false);
+        assert!(result.is_ok());
+
+        // Test with search
+        let result = role_ls_impl(&mut conn, Some("admin".to_string()), false);
+        assert!(result.is_ok());
+    }
+}

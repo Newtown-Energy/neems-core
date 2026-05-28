@@ -555,3 +555,549 @@ pub fn device_edit_impl(
 
     Ok(())
 }
+
+#[cfg(all(test, feature = "test-staging"))]
+#[allow(unused_imports)]
+mod tests {
+    use neems_api::{
+        models::DeviceInput,
+        orm::{
+            company::insert_company,
+            device::{get_all_devices, get_device_by_id, get_devices_by_site, insert_device},
+            site::insert_site,
+            testing::setup_test_db,
+        },
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_handle_device_command_with_conn_ls() {
+        let mut conn = setup_test_db();
+
+        let action = DeviceAction::Ls {
+            search_term: None,
+            fixed_string: false,
+            company_id: None,
+            site_id: None,
+        };
+        let result = handle_device_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_handle_device_command_with_conn_add() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "123 Test St".to_string(),
+            40.7128,
+            -74.0060,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        let action = DeviceAction::Add {
+            name: Some("Test Device".to_string()),
+            description: Some("Test Description".to_string()),
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: Some("SN123".to_string()),
+            ip_address: Some("192.168.1.1".to_string()),
+            install_date: Some("2024-01-15 10:30:00".to_string()),
+            company_id: company.id.to_string(),
+            site_id: site.id,
+        };
+        let result = handle_device_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+
+        // Verify device was created
+        let devices = get_all_devices(&mut conn).expect("Failed to get devices");
+        let found = devices.iter().any(|d| d.name == "Test Device");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_handle_device_command_with_conn_rm() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "Address".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        let device_input = DeviceInput {
+            name: Some("Remove This Device".to_string()),
+            description: None,
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input, Some(1)).expect("Failed to create device");
+
+        let action = DeviceAction::Rm {
+            search_term: "Remove This".to_string(),
+            fixed_string: true,
+            yes: true,
+            company_id: None,
+            site_id: None,
+        };
+        let result = handle_device_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+
+        let devices = get_all_devices(&mut conn).expect("Failed to get devices");
+        let found = devices.iter().any(|d| d.name == "Remove This Device");
+        assert!(!found);
+    }
+
+    #[test]
+    fn test_device_ls_impl_all() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "Address".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        let device_input1 = DeviceInput {
+            name: Some("Device 1".to_string()),
+            description: None,
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input1, None).expect("Failed to create device 1");
+
+        let device_input2 = DeviceInput {
+            name: Some("Device 2".to_string()),
+            description: None,
+            type_: "Meter".to_string(),
+            model: "Model B".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input2, None).expect("Failed to create device 2");
+
+        let result = device_ls_impl(&mut conn, None, false, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_device_ls_impl_with_search() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "Address".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        let device_input1 = DeviceInput {
+            name: Some("Solar Inverter".to_string()),
+            description: None,
+            type_: "Inverter".to_string(),
+            model: "SUN2000".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input1, None).expect("Failed to create device 1");
+
+        let device_input2 = DeviceInput {
+            name: Some("Battery System".to_string()),
+            description: None,
+            type_: "Battery".to_string(),
+            model: "PowerWall".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input2, None).expect("Failed to create device 2");
+
+        let result = device_ls_impl(&mut conn, Some("Solar".to_string()), true, None, None);
+        assert!(result.is_ok());
+
+        let result = device_ls_impl(&mut conn, Some("^Battery".to_string()), false, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_device_ls_impl_with_site_filter() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site1 = insert_site(
+            &mut conn,
+            "Site 1".to_string(),
+            "Address 1".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site 1");
+
+        let site2 = insert_site(
+            &mut conn,
+            "Site 2".to_string(),
+            "Address 2".to_string(),
+            41.0,
+            -75.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site 2");
+
+        let device_input1 = DeviceInput {
+            name: Some("Device A".to_string()),
+            description: None,
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site1.id,
+        };
+        insert_device(&mut conn, device_input1, None).expect("Failed to create device A");
+
+        let device_input2 = DeviceInput {
+            name: Some("Device B".to_string()),
+            description: None,
+            type_: "Meter".to_string(),
+            model: "Model B".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site2.id,
+        };
+        insert_device(&mut conn, device_input2, None).expect("Failed to create device B");
+
+        let result = device_ls_impl(&mut conn, None, false, None, Some(site1.id));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_device_add_impl() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "123 Test St".to_string(),
+            40.7128,
+            -74.0060,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        let device_input = DeviceInput {
+            name: Some("New Device".to_string()),
+            description: Some("Device Description".to_string()),
+            type_: "Controller".to_string(),
+            model: "Model X".to_string(),
+            serial: Some("SN456".to_string()),
+            ip_address: Some("192.168.1.100".to_string()),
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+
+        let result = device_add_impl(&mut conn, device_input, 1);
+        assert!(result.is_ok());
+
+        let devices = get_all_devices(&mut conn).expect("Failed to get devices");
+        let found = devices.iter().any(|d| d.name == "New Device");
+        assert!(found);
+    }
+
+    #[test]
+    fn test_device_add_impl_duplicate_name_same_site() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "123 Test St".to_string(),
+            40.7128,
+            -74.0060,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        // Create first device
+        let device_input1 = DeviceInput {
+            name: Some("Duplicate Device".to_string()),
+            description: None,
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        let result = device_add_impl(&mut conn, device_input1, 1);
+        assert!(result.is_ok());
+
+        // Try to create second device with same name in same site - should succeed
+        // gracefully
+        let device_input2 = DeviceInput {
+            name: Some("Duplicate Device".to_string()),
+            description: None,
+            type_: "Meter".to_string(),
+            model: "Model B".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        let result = device_add_impl(&mut conn, device_input2, 1);
+        assert!(result.is_ok()); // Should handle duplicates gracefully
+
+        // Verify there's still only one device with this name for this site
+        let devices = get_devices_by_site(&mut conn, site.id).expect("Failed to get devices");
+        let count = devices.iter().filter(|d| d.name == "Duplicate Device").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_device_rm_impl() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        let site = insert_site(
+            &mut conn,
+            "Test Site".to_string(),
+            "Address".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site");
+
+        let device_input1 = DeviceInput {
+            name: Some("Delete Me Device".to_string()),
+            description: None,
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input1, Some(1)).expect("Failed to create device 1");
+
+        let device_input2 = DeviceInput {
+            name: Some("Keep Me Device".to_string()),
+            description: None,
+            type_: "Meter".to_string(),
+            model: "Model B".to_string(),
+            serial: None,
+            ip_address: None,
+            install_date: None,
+            company_id: company.id,
+            site_id: site.id,
+        };
+        insert_device(&mut conn, device_input2, Some(1)).expect("Failed to create device 2");
+
+        let result = device_rm_impl(&mut conn, "Delete Me".to_string(), true, true, None, None, 1);
+        assert!(result.is_ok());
+
+        let devices = get_all_devices(&mut conn).expect("Failed to get devices");
+        let found_deleted = devices.iter().any(|d| d.name == "Delete Me Device");
+        assert!(!found_deleted);
+
+        let found_kept = devices.iter().any(|d| d.name == "Keep Me Device");
+        assert!(found_kept);
+    }
+
+    #[test]
+    fn test_device_edit_impl() {
+        let mut conn = setup_test_db();
+
+        let company1 = insert_company(&mut conn, "Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string(), None)
+            .expect("Failed to create company 2");
+
+        let site1 = insert_site(
+            &mut conn,
+            "Site 1".to_string(),
+            "Address 1".to_string(),
+            40.0,
+            -74.0,
+            company1.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site 1");
+
+        let site2 = insert_site(
+            &mut conn,
+            "Site 2".to_string(),
+            "Address 2".to_string(),
+            41.0,
+            -75.0,
+            company2.id,
+            120,
+            None,
+        )
+        .expect("Failed to create site 2");
+
+        let device_input = DeviceInput {
+            name: Some("Original Device".to_string()),
+            description: Some("Original Description".to_string()),
+            type_: "Sensor".to_string(),
+            model: "Model A".to_string(),
+            serial: Some("SN123".to_string()),
+            ip_address: Some("192.168.1.1".to_string()),
+            install_date: None,
+            company_id: company1.id,
+            site_id: site1.id,
+        };
+        let device =
+            insert_device(&mut conn, device_input, Some(1)).expect("Failed to create device");
+
+        // Edit name and description
+        let result = device_edit_impl(
+            &mut conn,
+            device.id,
+            Some("Updated Device".to_string()),
+            Some("".to_string()), // Clear description
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            1,
+        );
+        assert!(result.is_ok());
+
+        let updated_device = get_device_by_id(&mut conn, device.id)
+            .expect("Failed to get updated device")
+            .expect("Device should exist");
+        assert_eq!(updated_device.name, "Updated Device");
+        assert_eq!(updated_device.description, None);
+        assert_eq!(updated_device.type_, "Sensor");
+        assert_eq!(updated_device.model, "Model A");
+
+        // Edit company and site
+        let result = device_edit_impl(
+            &mut conn,
+            device.id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(company2.id),
+            Some(site2.id),
+            1,
+        );
+        assert!(result.is_ok());
+
+        let updated_device = get_device_by_id(&mut conn, device.id)
+            .expect("Failed to get updated device")
+            .expect("Device should exist");
+        assert_eq!(updated_device.company_id, company2.id);
+        assert_eq!(updated_device.site_id, site2.id);
+    }
+
+    #[test]
+    fn test_device_edit_impl_nonexistent_device() {
+        let mut conn = setup_test_db();
+
+        let result = device_edit_impl(
+            &mut conn,
+            99999,
+            Some("New Name".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            1,
+        );
+        assert!(result.is_err());
+    }
+}

@@ -530,3 +530,756 @@ pub fn user_set_roles_impl(
 
     Ok(())
 }
+
+#[cfg(all(test, feature = "test-staging"))]
+#[allow(unused_imports)]
+mod tests {
+    use argon2::{Argon2, PasswordHash, PasswordVerifier};
+    use neems_api::{
+        models::CompanyInput,
+        orm::{
+            company::{get_company_by_name, insert_company},
+            role::get_all_roles,
+            testing::setup_test_db,
+            user::{get_user, get_user_by_email, list_all_users},
+        },
+    };
+
+    use super::*;
+    use crate::admin_cli::{company_commands::CompanyAction, role_commands::RoleAction};
+
+    #[test]
+    fn test_handle_user_command_with_conn_add() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        let action = UserAction::Add {
+            email: "cli_test@example.com".to_string(),
+            password: Some("cli_password".to_string()),
+            company_id: company.id.to_string(),
+            totp_secret: Some("cli_totp".to_string()),
+        };
+
+        let result = handle_user_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+
+        // Verify user was created
+        let user = get_user_by_email(&mut conn, "cli_test@example.com")
+            .expect("Failed to get CLI created user")
+            .expect("User should exist");
+        assert_eq!(user.email, "cli_test@example.com");
+        assert_eq!(user.company_id, company.id);
+    }
+
+    #[test]
+    fn test_handle_user_command_with_conn_change_password() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        // Create user first
+        let create_action = UserAction::Add {
+            email: "change_test@example.com".to_string(),
+            password: Some("original".to_string()),
+            company_id: company.id.to_string(),
+            totp_secret: None,
+        };
+        handle_user_command_with_conn(&mut conn, create_action, 1).expect("Failed to create user");
+
+        let original_user = get_user_by_email(&mut conn, "change_test@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
+        let original_hash = original_user.password_hash.clone();
+
+        // Change password
+        let change_action = UserAction::ChangePassword {
+            email: "change_test@example.com".to_string(),
+            password: Some("new_password".to_string()),
+        };
+
+        let result = handle_user_command_with_conn(&mut conn, change_action, 1);
+        assert!(result.is_ok());
+
+        // Verify password changed
+        let updated_user = get_user_by_email(&mut conn, "change_test@example.com")
+            .expect("Failed to get updated user")
+            .expect("User should exist");
+        assert_ne!(updated_user.password_hash, original_hash);
+    }
+
+    #[test]
+    fn test_handle_user_command_with_conn_list() {
+        let mut conn = setup_test_db();
+
+        let action = UserAction::Ls { search_term: None, fixed_string: false };
+        let result = handle_user_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_handle_user_command_with_conn_rm() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        let create_action = UserAction::Add {
+            email: "delete_me@example.com".to_string(),
+            password: Some("password1".to_string()),
+            company_id: company.id.to_string(),
+            totp_secret: None,
+        };
+        handle_user_command_with_conn(&mut conn, create_action, 1).expect("Failed to create user");
+
+        let create_action2 = UserAction::Add {
+            email: "keep_me@test.com".to_string(),
+            password: Some("password2".to_string()),
+            company_id: company.id.to_string(),
+            totp_secret: None,
+        };
+        handle_user_command_with_conn(&mut conn, create_action2, 1).expect("Failed to create user");
+
+        let action = UserAction::Rm {
+            search_term: "@example.com".to_string(),
+            fixed_string: true,
+            yes: true,
+        };
+        let result = handle_user_command_with_conn(&mut conn, action, 1);
+        assert!(result.is_ok());
+
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 1);
+        assert_eq!(remaining_users[0].email, "keep_me@test.com");
+    }
+
+    #[test]
+    fn test_hash_password() {
+        let password = "test_password_123";
+        let hash = hash_password(password).expect("Failed to hash password");
+
+        // Verify the hash is valid argon2 format
+        assert!(hash.starts_with("$argon2"));
+
+        // Verify we can verify the password with the hash
+        let argon2 = Argon2::default();
+        let parsed_hash = PasswordHash::new(&hash).expect("Failed to parse hash");
+        assert!(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok());
+    }
+
+    #[test]
+    fn test_add_user_impl() {
+        let mut conn = setup_test_db();
+
+        // Create a test company first
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        // Test creating a user
+        let result = add_user_impl(
+            &mut conn,
+            "test@example.com",
+            Some("password123".to_string()),
+            company.id,
+            Some("totp_secret".to_string()),
+            1,
+        );
+
+        assert!(result.is_ok());
+
+        // Verify user was created by fetching it
+        let created_user = get_user_by_email(&mut conn, "test@example.com")
+            .expect("Failed to get created user")
+            .expect("User should exist");
+
+        assert_eq!(created_user.email, "test@example.com");
+        assert_eq!(created_user.company_id, company.id);
+        assert_eq!(created_user.totp_secret, Some("totp_secret".to_string()));
+
+        // Verify password was hashed (not stored as plaintext)
+        assert_ne!(created_user.password_hash, "password123");
+        assert!(created_user.password_hash.starts_with("$argon2"));
+    }
+
+    #[test]
+    fn test_add_user_impl_duplicate_email() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        // Create first user
+        add_user_impl(
+            &mut conn,
+            "test@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create first user");
+
+        // Try to create second user with same email - should now succeed gracefully
+        let result = add_user_impl(
+            &mut conn,
+            "test@example.com",
+            Some("password2".to_string()),
+            company.id,
+            None,
+            1,
+        );
+
+        assert!(result.is_ok()); // Now handles duplicates gracefully
+    }
+
+    #[test]
+    fn test_change_password_impl() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        // Create a user first
+        add_user_impl(
+            &mut conn,
+            "test@example.com",
+            Some("original_password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let original_user = get_user_by_email(&mut conn, "test@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
+        let original_hash = original_user.password_hash.clone();
+
+        // Change password
+        let result = change_password_impl(
+            &mut conn,
+            "test@example.com",
+            Some("new_password".to_string()),
+            1,
+        );
+        assert!(result.is_ok());
+
+        // Verify password was changed
+        let updated_user = get_user_by_email(&mut conn, "test@example.com")
+            .expect("Failed to get updated user")
+            .expect("User should exist");
+
+        assert_ne!(updated_user.password_hash, original_hash);
+        assert!(updated_user.password_hash.starts_with("$argon2"));
+
+        // Verify new password works
+        let argon2 = Argon2::default();
+        let parsed_hash =
+            PasswordHash::new(&updated_user.password_hash).expect("Failed to parse new hash");
+        assert!(argon2.verify_password("new_password".as_bytes(), &parsed_hash).is_ok());
+    }
+
+    #[test]
+    fn test_change_password_impl_nonexistent_user() {
+        let mut conn = setup_test_db();
+
+        let result = change_password_impl(
+            &mut conn,
+            "nonexistent@example.com",
+            Some("password".to_string()),
+            1,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_users_impl_empty() {
+        let mut conn = setup_test_db();
+
+        // Should not panic with empty database
+        let result = list_users_impl(&mut conn, None, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_users_impl_with_users() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        // Create a few users
+        add_user_impl(
+            &mut conn,
+            "user1@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user1");
+        add_user_impl(
+            &mut conn,
+            "user2@example.com",
+            Some("password2".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user2");
+
+        let result = list_users_impl(&mut conn, None, false);
+        assert!(result.is_ok());
+
+        // Verify users exist
+        let users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0].email, "user1@example.com");
+        assert_eq!(users[1].email, "user2@example.com");
+    }
+
+    #[test]
+    fn test_list_users_impl_with_regex_search() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "alice@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user1");
+        add_user_impl(
+            &mut conn,
+            "bob@test.com",
+            Some("password2".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user2");
+        add_user_impl(
+            &mut conn,
+            "charlie@example.org",
+            Some("password3".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user3");
+
+        let result = list_users_impl(&mut conn, Some("example\\.com$".to_string()), false);
+        assert!(result.is_ok());
+
+        let result = list_users_impl(&mut conn, Some("@test".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_users_impl_with_fixed_string_search() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "user.with.dots@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user1");
+        add_user_impl(
+            &mut conn,
+            "normaluser@test.com",
+            Some("password2".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user2");
+
+        let result = list_users_impl(&mut conn, Some(".with.".to_string()), true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_users_impl_invalid_regex() {
+        let mut conn = setup_test_db();
+
+        let result = list_users_impl(&mut conn, Some("[invalid".to_string()), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_users_impl_no_matches() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "user@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let result = list_users_impl(&mut conn, Some("nonexistent".to_string()), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_remove_users_impl_with_regex() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "alice@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user1");
+        add_user_impl(
+            &mut conn,
+            "bob@test.com",
+            Some("password2".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user2");
+        add_user_impl(
+            &mut conn,
+            "charlie@example.org",
+            Some("password3".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user3");
+
+        let result = remove_users_impl(&mut conn, "example\\.com$".to_string(), false, true, 1);
+        assert!(result.is_ok());
+
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 2);
+        assert_eq!(remaining_users[0].email, "bob@test.com");
+        assert_eq!(remaining_users[1].email, "charlie@example.org");
+    }
+
+    #[test]
+    fn test_remove_users_impl_with_fixed_string() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "user.with.dots@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user1");
+        add_user_impl(
+            &mut conn,
+            "normaluser@test.com",
+            Some("password2".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user2");
+
+        let result = remove_users_impl(&mut conn, ".with.".to_string(), true, true, 1);
+        assert!(result.is_ok());
+
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 1);
+        assert_eq!(remaining_users[0].email, "normaluser@test.com");
+    }
+
+    #[test]
+    fn test_remove_users_impl_no_matches() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "user@example.com",
+            Some("password1".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let result = remove_users_impl(&mut conn, "nonexistent".to_string(), false, true, 1);
+        assert!(result.is_ok());
+
+        let remaining_users = list_all_users(&mut conn).expect("Failed to list users");
+        assert_eq!(remaining_users.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_users_impl_invalid_regex() {
+        let mut conn = setup_test_db();
+
+        let result = remove_users_impl(&mut conn, "[invalid".to_string(), false, true, 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_change_password_impl_with_provided_password() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        add_user_impl(
+            &mut conn,
+            "password_test@example.com",
+            Some("original_password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let original_user = get_user_by_email(&mut conn, "password_test@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
+        let original_hash = original_user.password_hash.clone();
+
+        let result = change_password_impl(
+            &mut conn,
+            "password_test@example.com",
+            Some("new_password".to_string()),
+            1,
+        );
+        assert!(result.is_ok());
+
+        let updated_user = get_user_by_email(&mut conn, "password_test@example.com")
+            .expect("Failed to get updated user")
+            .expect("User should exist");
+
+        assert_ne!(updated_user.password_hash, original_hash);
+        assert!(updated_user.password_hash.starts_with("$argon2"));
+    }
+
+    #[test]
+    fn test_add_user_impl_with_provided_password() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create test company");
+
+        let result = add_user_impl(
+            &mut conn,
+            "create_test@example.com",
+            Some("test_password".to_string()),
+            company.id,
+            None,
+            1,
+        );
+        assert!(result.is_ok());
+
+        let created_user = get_user_by_email(&mut conn, "create_test@example.com")
+            .expect("Failed to get created user")
+            .expect("User should exist");
+
+        assert_eq!(created_user.email, "create_test@example.com");
+        assert_eq!(created_user.company_id, company.id);
+        assert!(created_user.password_hash.starts_with("$argon2"));
+    }
+
+    #[test]
+    fn test_user_edit_impl() {
+        let mut conn = setup_test_db();
+
+        let company1 = insert_company(&mut conn, "Company 1".to_string(), None)
+            .expect("Failed to create company 1");
+        let company2 = insert_company(&mut conn, "Company 2".to_string(), None)
+            .expect("Failed to create company 2");
+
+        // Create a user
+        add_user_impl(
+            &mut conn,
+            "original@example.com",
+            Some("password".to_string()),
+            company1.id,
+            Some("original_totp".to_string()),
+            1,
+        )
+        .expect("Failed to create user");
+
+        let user = get_user_by_email(&mut conn, "original@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
+
+        // Edit email
+        let result = user_edit_impl(
+            &mut conn,
+            user.id,
+            Some("updated@example.com".to_string()),
+            None,
+            None,
+            1,
+        );
+        assert!(result.is_ok());
+
+        let updated_user = get_user(&mut conn, user.id)
+            .expect("Failed to get updated user")
+            .expect("User should exist");
+        assert_eq!(updated_user.email, "updated@example.com");
+        assert_eq!(updated_user.company_id, company1.id);
+
+        // Edit company and TOTP
+        let result = user_edit_impl(
+            &mut conn,
+            user.id,
+            None,
+            Some(company2.id),
+            Some("new_totp".to_string()),
+            1,
+        );
+        assert!(result.is_ok());
+
+        let updated_user = get_user(&mut conn, user.id)
+            .expect("Failed to get updated user")
+            .expect("User should exist");
+        assert_eq!(updated_user.company_id, company2.id);
+        assert_eq!(updated_user.totp_secret, Some("new_totp".to_string()));
+    }
+
+    #[test]
+    fn test_user_edit_impl_nonexistent_user() {
+        let mut conn = setup_test_db();
+
+        let result =
+            user_edit_impl(&mut conn, 99999, Some("new@example.com".to_string()), None, None, 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_user_edit_impl_nonexistent_company() {
+        let mut conn = setup_test_db();
+
+        let company = insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to create company");
+
+        add_user_impl(
+            &mut conn,
+            "user@example.com",
+            Some("password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let user = get_user_by_email(&mut conn, "user@example.com")
+            .expect("Failed to get user")
+            .expect("User should exist");
+
+        let result = user_edit_impl(&mut conn, user.id, None, Some(99999), None, 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_user_add_role_impl() {
+        let mut conn = setup_test_db();
+
+        let company =
+            get_company_by_name(&mut conn, &CompanyInput { name: "Newtown Energy".to_string() })
+                .expect("Failed to query company")
+                .expect("Newtown Energy company should exist");
+
+        add_user_impl(
+            &mut conn,
+            "test@example.com",
+            Some("password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let result = user_add_role_impl(&mut conn, "test@example.com", "newtown-staff");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_user_set_roles_impl() {
+        let mut conn = setup_test_db();
+
+        let company =
+            get_company_by_name(&mut conn, &CompanyInput { name: "Newtown Energy".to_string() })
+                .expect("Failed to query company")
+                .expect("Newtown Energy company should exist");
+
+        add_user_impl(
+            &mut conn,
+            "test2@example.com",
+            Some("password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        let result =
+            user_set_roles_impl(&mut conn, "test2@example.com", "newtown-admin,newtown-staff");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_user_rm_role_impl_last_role_fails() {
+        let mut conn = setup_test_db();
+
+        let company =
+            get_company_by_name(&mut conn, &CompanyInput { name: "Newtown Energy".to_string() })
+                .expect("Failed to query company")
+                .expect("Newtown Energy company should exist");
+
+        add_user_impl(
+            &mut conn,
+            "test3@example.com",
+            Some("password".to_string()),
+            company.id,
+            None,
+            1,
+        )
+        .expect("Failed to create user");
+
+        // First assign a role
+        user_add_role_impl(&mut conn, "test3@example.com", "newtown-admin")
+            .expect("Failed to add role");
+
+        // Try to remove the only role - should fail
+        let result = user_rm_role_impl(&mut conn, "test3@example.com", "newtown-admin");
+        assert!(result.is_err());
+    }
+}
