@@ -787,7 +787,7 @@ pub async fn list_users(
                 .map_err(|_| Status::InternalServerError)?;
 
             if let Some(company) = company {
-                user_json.as_object_mut().unwrap().insert(
+                user_json.as_object_mut().ok_or(Status::InternalServerError)?.insert(
                     "Company".to_string(),
                     serde_json::to_value(company).map_err(|_| Status::InternalServerError)?,
                 );
@@ -809,7 +809,7 @@ pub async fn list_users(
                 .await;
 
             // Add activity timestamps to user object
-            let user_obj = user_json.as_object_mut().unwrap();
+            let user_obj = user_json.as_object_mut().ok_or(Status::InternalServerError)?;
             if let Some(created_at) = timestamps.0 {
                 user_obj.insert(
                     "activity_created_at".to_string(),

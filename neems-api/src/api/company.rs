@@ -241,7 +241,7 @@ pub async fn list_companies(
                     .await
                     .map_err(|_| Status::InternalServerError)?;
 
-                company_json.as_object_mut().unwrap().insert(
+                company_json.as_object_mut().ok_or(Status::InternalServerError)?.insert(
                     "Users".to_string(),
                     serde_json::to_value(users).map_err(|_| Status::InternalServerError)?,
                 );
@@ -258,7 +258,7 @@ pub async fn list_companies(
                     .await
                     .map_err(|_| Status::InternalServerError)?;
 
-                company_json.as_object_mut().unwrap().insert(
+                company_json.as_object_mut().ok_or(Status::InternalServerError)?.insert(
                     "Sites".to_string(),
                     serde_json::to_value(sites).map_err(|_| Status::InternalServerError)?,
                 );
