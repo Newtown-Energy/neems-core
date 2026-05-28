@@ -64,6 +64,7 @@ diesel::table! {
         operation_type -> Text,
         timestamp -> Timestamp,
         user_id -> Nullable<Integer>,
+        change_reason -> Nullable<Text>,
     }
 }
 
@@ -129,6 +130,18 @@ diesel::table! {
         longitude -> Double,
         company_id -> Integer,
         ramp_duration_seconds -> Integer,
+        power_kw -> Nullable<Double>,
+        capacity_kwh -> Nullable<Double>,
+        closed_loop_enabled -> Bool,
+        off_peak_start_minutes -> Nullable<Integer>,
+        off_peak_end_minutes -> Nullable<Integer>,
+        peak_revenue_start_minutes -> Nullable<Integer>,
+        peak_revenue_end_minutes -> Nullable<Integer>,
+        interconnection_max_output_kw -> Nullable<Double>,
+        rebound_protection_soc_floor_percent -> Double,
+        site_variant -> Text,
+        charge_rate_percent -> Double,
+        discharge_rate_percent -> Double,
     }
 }
 

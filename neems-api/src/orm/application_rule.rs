@@ -66,12 +66,23 @@ pub fn create_application_rule(
             .get_result::<LastInsertRowId>(conn)?
             .last_insert_rowid as i32;
 
-        // Update activity log
+        // Update activity log. We always try the reason backfill so
+        // change_reason lands even when the caller is anonymous (no
+        // acting_user_id) — the activity row still exists.
+        use crate::orm::entity_activity::{
+            update_latest_activity_reason, update_latest_activity_user,
+        };
         if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
             let _ =
                 update_latest_activity_user(conn, "application_rules", rule_id, "create", user_id);
         }
+        let _ = update_latest_activity_reason(
+            conn,
+            "application_rules",
+            rule_id,
+            "create",
+            request.change_reason.as_deref(),
+        );
 
         // Return created rule
         let rule_db = application_rules::table.find(rule_id).first::<ApplicationRuleDb>(conn)?;
@@ -108,6 +119,28 @@ pub fn get_application_rules_for_template(
             })
         })
         .collect()
+}
+
+/// Look up a single application rule by its primary key. Returns
+/// `Ok(None)` when no row matches so the caller can map to a 404.
+pub fn get_application_rule_by_id(
+    conn: &mut SqliteConnection,
+    rule_id: i32,
+) -> Result<Option<ApplicationRule>, diesel::result::Error> {
+    use crate::schema::application_rules;
+
+    let row: Option<ApplicationRuleDb> =
+        application_rules::table.find(rule_id).first(conn).optional()?;
+
+    match row {
+        None => Ok(None),
+        Some(r) => r.to_api_model().map(Some).map_err(|e| {
+            diesel::result::Error::DeserializationError(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        }),
+    }
 }
 
 /// Checks if a library item has a default rule
@@ -158,11 +191,85 @@ pub fn get_application_rules_for_site(
         .collect()
 }
 
+/// Compute the list of dates that satisfy a season-fill request without
+/// touching the database. Exposed for the API layer so it can preview the
+/// fill, and for tests.
+pub fn season_fill_dates(
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    weekdays_only: bool,
+    exclude_holidays: bool,
+    extra_excludes: &[chrono::NaiveDate],
+) -> Vec<chrono::NaiveDate> {
+    use std::collections::BTreeSet;
+
+    use chrono::{Datelike, Duration, Weekday};
+
+    if start_date > end_date {
+        return Vec::new();
+    }
+
+    let mut skip: BTreeSet<chrono::NaiveDate> = extra_excludes.iter().copied().collect();
+    if exclude_holidays {
+        for h in crate::orm::holidays::us_federal_holidays_in_range(start_date, end_date) {
+            skip.insert(h);
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut d = start_date;
+    while d <= end_date {
+        let is_weekend = matches!(d.weekday(), Weekday::Sat | Weekday::Sun);
+        let excluded_by_weekend = weekdays_only && is_weekend;
+        if !excluded_by_weekend && !skip.contains(&d) {
+            out.push(d);
+        }
+        d += Duration::days(1);
+    }
+    out
+}
+
+/// Create a single `specific_date` application rule containing every date
+/// in `[start_date, end_date]` that passes the wizard's filters
+/// (weekdays-only, exclude federal holidays, plus any caller-supplied
+/// exclusions). Returns the created rule and the list of dates that ended
+/// up on it.
+pub fn season_fill_application_rule(
+    conn: &mut SqliteConnection,
+    template_id: i32,
+    start_date: chrono::NaiveDate,
+    end_date: chrono::NaiveDate,
+    weekdays_only: bool,
+    exclude_holidays: bool,
+    extra_excludes: &[chrono::NaiveDate],
+    override_reason: Option<String>,
+    acting_user_id: Option<i32>,
+) -> Result<(ApplicationRule, Vec<chrono::NaiveDate>), diesel::result::Error> {
+    let dates =
+        season_fill_dates(start_date, end_date, weekdays_only, exclude_holidays, extra_excludes);
+
+    if dates.is_empty() {
+        return Err(diesel::result::Error::NotFound);
+    }
+
+    let request = CreateApplicationRuleRequest {
+        rule_type: RuleType::SpecificDate,
+        days_of_week: None,
+        specific_dates: Some(dates.iter().map(|d| d.to_string()).collect()),
+        override_reason,
+        change_reason: None,
+    };
+
+    let rule = create_application_rule(conn, template_id, request, acting_user_id)?;
+    Ok((rule, dates))
+}
+
 /// Deletes an application rule
 pub fn delete_application_rule(
     conn: &mut SqliteConnection,
     rule_id: i32,
     acting_user_id: Option<i32>,
+    change_reason: Option<&str>,
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::application_rules;
 
@@ -170,11 +277,20 @@ pub fn delete_application_rule(
         .execute(conn)?;
 
     if result > 0 {
+        use crate::orm::entity_activity::{
+            update_latest_activity_reason, update_latest_activity_user,
+        };
         if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
             let _ =
                 update_latest_activity_user(conn, "application_rules", rule_id, "delete", user_id);
         }
+        let _ = update_latest_activity_reason(
+            conn,
+            "application_rules",
+            rule_id,
+            "delete",
+            change_reason,
+        );
     }
 
     Ok(result)

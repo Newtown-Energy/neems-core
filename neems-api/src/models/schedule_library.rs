@@ -176,6 +176,10 @@ pub struct UpdateLibraryItemRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub commands: Option<Vec<CreateCommandRequest>>,
+    /// Free-form reason for this change, surfaced in the per-day
+    /// Change History pane. Optional — older callers and trigger-only
+    /// changes stay NULL.
+    pub change_reason: Option<String>,
 }
 
 /// Request to clone a library item

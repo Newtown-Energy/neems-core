@@ -608,6 +608,253 @@ pub async fn get_site_schema(site_db: SiteDbConn) -> Result<Json<serde_json::Val
         .await
 }
 
+/// A single SoC sample point exposed to the frontend.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SocHistoryPoint {
+    /// ISO 8601 timestamp of the reading (naive UTC, matches
+    /// `Reading.timestamp`).
+    pub timestamp: NaiveDateTime,
+    /// Battery state of charge as a percentage, 0–100.
+    pub soc_percent: f64,
+}
+
+/// Response payload for `GET /api/1/Sites/<id>/SocHistory`.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SocHistoryResponse {
+    pub site_id: i32,
+    pub points: Vec<SocHistoryPoint>,
+}
+
+/// Extract the battery SoC percentage from a reading's JSON `data` blob.
+///
+/// The `charging_state` collector writes `{ "level": <number>, ... }`. We
+/// pull `level` out and clamp obvious garbage; a missing or non-numeric
+/// field returns `None` so the caller can skip the row instead of
+/// poisoning the series.
+pub fn parse_soc_level(data_json: &str) -> Option<f64> {
+    let parsed: serde_json::Value = serde_json::from_str(data_json).ok()?;
+    let n = parsed.get("level")?.as_f64()?;
+    if !n.is_finite() {
+        return None;
+    }
+    Some(n.clamp(0.0, 100.0))
+}
+
+/// Get the SoC history for a site within a time window.
+///
+/// - **URL:** `/api/1/Sites/<site_id>/SocHistory?from=...&to=...`
+/// - **Method:** `GET`
+/// - **Authentication:** Required
+///
+/// Joins `readings → sources` (filtered to `site_id` and the
+/// `charging_state` test type), parses each reading's JSON `level`
+/// field, and returns the resulting points in chronological order.
+#[get("/1/Sites/<site_id>/SocHistory?<from>&<to>")]
+pub async fn get_site_soc_history(
+    site_id: i32,
+    from: Option<String>,
+    to: Option<String>,
+    _user: AuthenticatedUser,
+    site_db: SiteDbConn,
+) -> Result<Json<SocHistoryResponse>, Status> {
+    let parse_ts = |s: &str| -> Option<NaiveDateTime> {
+        NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
+            .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+            .ok()
+    };
+    let from_ts = from.as_deref().and_then(parse_ts);
+    let to_ts = to.as_deref().and_then(parse_ts);
+    if from.is_some() && from_ts.is_none() {
+        return Err(Status::BadRequest);
+    }
+    if to.is_some() && to_ts.is_none() {
+        return Err(Status::BadRequest);
+    }
+
+    site_db
+        .run(move |conn| {
+            use diesel::prelude::*;
+            use neems_data::schema::{readings, sources};
+
+            // Find the charging-state sources belonging to this site.
+            let source_ids: Vec<i32> = sources::table
+                .filter(sources::site_id.eq(site_id))
+                .filter(sources::test_type.eq("charging_state"))
+                .select(sources::id.assume_not_null())
+                .load::<i32>(conn)
+                .map_err(|e| {
+                    eprintln!("Error loading charging_state sources: {:?}", e);
+                    Status::InternalServerError
+                })?;
+
+            if source_ids.is_empty() {
+                return Ok(Json(SocHistoryResponse { site_id, points: vec![] }));
+            }
+
+            let mut query = readings::table
+                .filter(readings::source_id.eq_any(&source_ids))
+                .order(readings::timestamp.asc())
+                .into_boxed();
+            if let Some(f) = from_ts {
+                query = query.filter(readings::timestamp.ge(f));
+            }
+            if let Some(t) = to_ts {
+                query = query.filter(readings::timestamp.le(t));
+            }
+            let rows: Vec<neems_data::models::Reading> = query.load(conn).map_err(|e| {
+                eprintln!("Error loading SoC readings: {:?}", e);
+                Status::InternalServerError
+            })?;
+
+            let points = rows
+                .into_iter()
+                .filter_map(|r| {
+                    parse_soc_level(&r.data)
+                        .map(|soc_percent| SocHistoryPoint { timestamp: r.timestamp, soc_percent })
+                })
+                .collect();
+            Ok(Json(SocHistoryResponse { site_id, points }))
+        })
+        .await
+}
+
+/// Per-day breakdown of how long a site spent in each battery state.
+/// Minutes (not seconds) keeps the wire format friendly for the chart.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ChargeDischargeBucket {
+    /// "YYYY-MM-DD" — the calendar day the readings fell on, in UTC.
+    pub day: String,
+    pub charging_minutes: f64,
+    pub discharging_minutes: f64,
+    pub hold_minutes: f64,
+}
+
+/// Response payload for `GET /api/1/Sites/<id>/ChargeDischargeSummary`.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ChargeDischargeSummary {
+    pub site_id: i32,
+    pub buckets: Vec<ChargeDischargeBucket>,
+}
+
+/// Extract the battery state from a reading's JSON `data` blob. The
+/// `charging_state` collector writes `{ "state": "charging" | ... }`.
+pub fn parse_soc_state(data_json: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(data_json).ok()?;
+    parsed.get("state")?.as_str().map(|s| s.to_string())
+}
+
+/// Get per-day charging/discharging/hold minute totals for a site.
+///
+/// - **URL:** `/api/1/Sites/<site_id>/ChargeDischargeSummary?from=...&to=...`
+/// - **Method:** `GET`
+/// - **Authentication:** Required
+///
+/// Each reading is treated as representing one collection-interval of
+/// time in its recorded state — count × interval_seconds / 60.
+/// Sources without an interval_seconds value are skipped (we can't
+/// attribute time without it).
+#[get("/1/Sites/<site_id>/ChargeDischargeSummary?<from>&<to>")]
+pub async fn get_site_charge_discharge_summary(
+    site_id: i32,
+    from: Option<String>,
+    to: Option<String>,
+    _user: AuthenticatedUser,
+    site_db: SiteDbConn,
+) -> Result<Json<ChargeDischargeSummary>, Status> {
+    let parse_ts = |s: &str| -> Option<NaiveDateTime> {
+        NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
+            .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+            .ok()
+    };
+    let from_ts = from.as_deref().and_then(parse_ts);
+    let to_ts = to.as_deref().and_then(parse_ts);
+    if from.is_some() && from_ts.is_none() {
+        return Err(Status::BadRequest);
+    }
+    if to.is_some() && to_ts.is_none() {
+        return Err(Status::BadRequest);
+    }
+
+    site_db
+        .run(move |conn| {
+            use std::collections::BTreeMap;
+
+            use diesel::prelude::*;
+            use neems_data::schema::{readings, sources};
+
+            // Pull all charging_state sources for the site along with
+            // their collection interval — we need the latter to weight
+            // each reading.
+            let site_sources: Vec<(i32, i32)> = sources::table
+                .filter(sources::site_id.eq(site_id))
+                .filter(sources::test_type.eq("charging_state"))
+                .select((sources::id.assume_not_null(), sources::interval_seconds))
+                .load::<(i32, i32)>(conn)
+                .map_err(|e| {
+                    eprintln!("Error loading charging_state sources: {:?}", e);
+                    Status::InternalServerError
+                })?;
+
+            if site_sources.is_empty() {
+                return Ok(Json(ChargeDischargeSummary { site_id, buckets: vec![] }));
+            }
+
+            let source_ids: Vec<i32> = site_sources.iter().map(|(id, _)| *id).collect();
+            let interval_by_source: std::collections::HashMap<i32, i32> =
+                site_sources.into_iter().collect();
+
+            let mut query = readings::table
+                .filter(readings::source_id.eq_any(&source_ids))
+                .order(readings::timestamp.asc())
+                .into_boxed();
+            if let Some(f) = from_ts {
+                query = query.filter(readings::timestamp.ge(f));
+            }
+            if let Some(t) = to_ts {
+                query = query.filter(readings::timestamp.le(t));
+            }
+            let rows: Vec<neems_data::models::Reading> = query.load(conn).map_err(|e| {
+                eprintln!("Error loading SoC readings for summary: {:?}", e);
+                Status::InternalServerError
+            })?;
+
+            // Bucket by day → (charging, discharging, hold) minutes.
+            // BTreeMap keeps day keys sorted on iteration so the
+            // response is chronological without an extra sort.
+            let mut by_day: BTreeMap<String, (f64, f64, f64)> = BTreeMap::new();
+            for r in rows {
+                let Some(interval_seconds) = interval_by_source.get(&r.source_id) else {
+                    continue;
+                };
+                let minutes = (*interval_seconds as f64) / 60.0;
+                let day = r.timestamp.format("%Y-%m-%d").to_string();
+                let bucket = by_day.entry(day).or_insert((0.0, 0.0, 0.0));
+                match parse_soc_state(&r.data).as_deref() {
+                    Some("charging") => bucket.0 += minutes,
+                    Some("discharging") => bucket.1 += minutes,
+                    Some("hold") => bucket.2 += minutes,
+                    _ => {} // Unknown / missing state — drop the row.
+                }
+            }
+
+            let buckets = by_day
+                .into_iter()
+                .map(|(day, (c, d, h))| ChargeDischargeBucket {
+                    day,
+                    charging_minutes: c,
+                    discharging_minutes: d,
+                    hold_minutes: h,
+                })
+                .collect();
+            Ok(Json(ChargeDischargeSummary { site_id, buckets }))
+        })
+        .await
+}
+
 /// Returns a vector of all routes defined in this module.
 ///
 /// This function collects all the route handlers defined in this module
@@ -618,14 +865,72 @@ pub async fn get_site_schema(site_db: SiteDbConn) -> Result<Json<serde_json::Val
 pub fn routes() -> Vec<Route> {
     #[cfg(feature = "test-staging")]
     {
-        let mut data_routes =
-            routes![list_data_sources, get_source_readings, get_multi_source_readings];
+        let mut data_routes = routes![
+            list_data_sources,
+            get_source_readings,
+            get_multi_source_readings,
+            get_site_soc_history,
+            get_site_charge_discharge_summary,
+        ];
         data_routes.extend(routes![get_site_schema]);
         data_routes
     }
 
     #[cfg(not(feature = "test-staging"))]
     {
-        routes![list_data_sources, get_source_readings, get_multi_source_readings]
+        routes![
+            list_data_sources,
+            get_source_readings,
+            get_multi_source_readings,
+            get_site_soc_history,
+            get_site_charge_discharge_summary,
+        ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_soc_level, parse_soc_state};
+
+    #[test]
+    fn parses_level_from_charging_state_blob() {
+        let blob = r#"{"battery_id":"default","level":42.5,"state":"charging"}"#;
+        assert_eq!(parse_soc_level(blob), Some(42.5));
+    }
+
+    #[test]
+    fn clamps_out_of_range_values() {
+        assert_eq!(parse_soc_level(r#"{"level":150}"#), Some(100.0));
+        assert_eq!(parse_soc_level(r#"{"level":-5}"#), Some(0.0));
+    }
+
+    #[test]
+    fn rejects_missing_or_non_numeric_level() {
+        assert_eq!(parse_soc_level(r#"{"foo":1}"#), None);
+        assert_eq!(parse_soc_level(r#"{"level":"high"}"#), None);
+    }
+
+    #[test]
+    fn rejects_invalid_json() {
+        assert_eq!(parse_soc_level("not json"), None);
+    }
+
+    #[test]
+    fn rejects_non_finite_values() {
+        // NaN is encoded as null by serde_json; this guards the .is_finite() branch.
+        assert_eq!(parse_soc_level(r#"{"level":null}"#), None);
+    }
+
+    #[test]
+    fn parses_state_from_charging_state_blob() {
+        let blob = r#"{"level":80.0,"state":"discharging"}"#;
+        assert_eq!(parse_soc_state(blob).as_deref(), Some("discharging"));
+    }
+
+    #[test]
+    fn returns_none_when_state_missing_or_non_string() {
+        assert_eq!(parse_soc_state(r#"{"level":80.0}"#), None);
+        assert_eq!(parse_soc_state(r#"{"state":42}"#), None);
+        assert_eq!(parse_soc_state("not json"), None);
     }
 }

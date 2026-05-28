@@ -3,18 +3,46 @@
 //! This module provides HTTP endpoints for accessing alarm information
 //! derived from RTAC readings stored in the site database.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Mutex};
 
 use chrono::{DateTime, Utc};
 use neems_data::rtac::{
     alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
     state::AlarmFlags,
 };
-use rocket::{FromForm, Route, http::Status, serde::json::Json};
+use rocket::{FromForm, Route, State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{orm::neems_data::db::SiteDbConn, session_guards::AuthenticatedUser};
+
+/// Roles allowed to control the demo forced-alarm set — mirrors the
+/// frontend Demo Controls drawer's gate.
+const DEMO_CONTROL_ROLES: &[&str] = &["admin", "newtown-admin", "newtown-staff"];
+
+/// In-memory set of alarm numbers the demo drawer has forced on. Unioned
+/// into [`get_active_alarms`] responses so the SLD, alarms page, and
+/// anything else polling `/Alarms/Active` see them as if they were real.
+///
+/// Temporary scaffolding for the demo — meant to be deleted once the
+/// real RTAC feed is hooked up. Lives in memory only; resets on server
+/// restart, which is the desired demo behavior.
+#[derive(Default)]
+pub struct DemoForcedAlarms {
+    inner: Mutex<HashSet<u16>>,
+}
+
+impl DemoForcedAlarms {
+    fn snapshot(&self) -> HashSet<u16> {
+        self.inner.lock().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    fn replace(&self, nums: HashSet<u16>) {
+        if let Ok(mut g) = self.inner.lock() {
+            *g = nums;
+        }
+    }
+}
 
 /// Alarm severity level for API responses
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -172,8 +200,10 @@ pub fn parse_alarm_registers(data_json: &str) -> Option<[u16; ALARM_REGISTER_COU
 pub async fn get_active_alarms(
     _user: AuthenticatedUser,
     site_db: SiteDbConn,
+    forced: &State<DemoForcedAlarms>,
 ) -> Result<Json<ActiveAlarmsResponse>, Status> {
-    site_db
+    let forced_nums = forced.snapshot();
+    let mut response: ActiveAlarmsResponse = site_db
         .run(|conn| {
             use diesel::prelude::*;
             use neems_data::schema::readings::dsl::*;
@@ -201,26 +231,119 @@ pub async fn get_active_alarms(
                     let now = Utc::now().naive_utc();
                     let age_seconds = (now - reading_timestamp).num_seconds();
 
-                    return Ok(Json(ActiveAlarmsResponse {
+                    return Ok(ActiveAlarmsResponse {
                         alarms,
                         has_critical,
                         has_emergency,
                         timestamp: Some(reading_timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
                         data_age_seconds: Some(age_seconds),
-                    }));
+                    });
                 }
             }
 
             // No readings with alarm data found — return empty response
-            Ok(Json(ActiveAlarmsResponse {
+            Ok(ActiveAlarmsResponse {
                 alarms: vec![],
                 has_critical: false,
                 has_emergency: false,
                 timestamp: None,
                 data_age_seconds: None,
-            }))
+            })
         })
-        .await
+        .await?;
+
+    // Overlay demo-forced alarms. We dedupe by alarm_num so a forced
+    // alarm that's also currently active in the real feed doesn't
+    // appear twice.
+    if !forced_nums.is_empty() {
+        let already: HashSet<u16> = response.alarms.iter().map(|a| a.alarm_num).collect();
+        for def in ALARM_DEFINITIONS.iter() {
+            if forced_nums.contains(&def.alarm_num) && !already.contains(&def.alarm_num) {
+                response.alarms.push(ActiveAlarmDto::from(def));
+            }
+        }
+        response.has_emergency = response
+            .alarms
+            .iter()
+            .any(|a| matches!(a.severity, AlarmSeverityDto::Emergency));
+        response.has_critical =
+            response.alarms.iter().any(|a| matches!(a.severity, AlarmSeverityDto::Critical));
+        // Surface a synthetic timestamp so the SLD's stale-data banner
+        // doesn't fire purely because no readings exist in dev.
+        if response.timestamp.is_none() {
+            let now = Utc::now().naive_utc();
+            response.timestamp = Some(now.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+            response.data_age_seconds = Some(0);
+        }
+    }
+
+    Ok(Json(response))
+}
+
+/// Body for `PUT /1/Alarms/Forced`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ForcedAlarmsRequest {
+    pub alarm_nums: Vec<u16>,
+}
+
+/// Response payload for the demo forced-alarm endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ForcedAlarmsResponse {
+    pub alarm_nums: Vec<u16>,
+}
+
+fn forbid_unless_demo_role(user: &AuthenticatedUser) -> Result<(), Status> {
+    if user.has_any_role(DEMO_CONTROL_ROLES) {
+        Ok(())
+    } else {
+        Err(Status::Forbidden)
+    }
+}
+
+/// Read the current demo forced-alarm set.
+///
+/// - **URL:** `/api/1/Alarms/Forced`
+/// - **Method:** `GET`
+/// - **Authentication:** Required; one of `admin`, `newtown-admin`,
+///   `newtown-staff`.
+#[get("/1/Alarms/Forced")]
+pub fn get_forced_alarms(
+    user: AuthenticatedUser,
+    forced: &State<DemoForcedAlarms>,
+) -> Result<Json<ForcedAlarmsResponse>, Status> {
+    forbid_unless_demo_role(&user)?;
+    let mut nums: Vec<u16> = forced.snapshot().into_iter().collect();
+    nums.sort_unstable();
+    Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
+}
+
+/// Replace the demo forced-alarm set.
+///
+/// - **URL:** `/api/1/Alarms/Forced`
+/// - **Method:** `PUT`
+/// - **Body:** `{ "alarm_nums": [u16, ...] }`
+/// - **Authentication:** Required; one of `admin`, `newtown-admin`,
+///   `newtown-staff`.
+///
+/// The supplied list replaces the in-memory set (it is not additive). Pass
+/// an empty list to clear all forced alarms. Unknown alarm numbers are
+/// silently filtered against [`ALARM_DEFINITIONS`].
+#[put("/1/Alarms/Forced", data = "<body>")]
+pub fn put_forced_alarms(
+    user: AuthenticatedUser,
+    forced: &State<DemoForcedAlarms>,
+    body: Json<ForcedAlarmsRequest>,
+) -> Result<Json<ForcedAlarmsResponse>, Status> {
+    forbid_unless_demo_role(&user)?;
+    let valid: HashSet<u16> = ALARM_DEFINITIONS.iter().map(|d| d.alarm_num).collect();
+    let next: HashSet<u16> =
+        body.alarm_nums.iter().copied().filter(|n| valid.contains(n)).collect();
+    forced.replace(next.clone());
+    let mut nums: Vec<u16> = next.into_iter().collect();
+    nums.sort_unstable();
+    Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
 }
 
 /// Get all alarm definitions.
@@ -377,5 +500,11 @@ pub async fn get_alarm_history(
 
 /// Returns all routes defined in this module.
 pub fn routes() -> Vec<Route> {
-    routes![get_active_alarms, get_alarm_definitions, get_alarm_history]
+    routes![
+        get_active_alarms,
+        get_alarm_definitions,
+        get_alarm_history,
+        get_forced_alarms,
+        put_forced_alarms
+    ]
 }

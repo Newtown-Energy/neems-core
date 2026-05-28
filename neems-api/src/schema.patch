@@ -1,0 +1,13 @@
+--- a/src/schema.rs
++++ b/src/schema.rs
+@@ -125,8 +125,8 @@ diesel::table! {
+         id -> Integer,
+         name -> Text,
+         address -> Text,
+-        latitude -> Float,
+-        longitude -> Float,
++        latitude -> Double,
++        longitude -> Double,
+         company_id -> Integer,
+         ramp_duration_seconds -> Integer,
+         power_kw -> Nullable<Double>,

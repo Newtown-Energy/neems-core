@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use rocket::{Route, http::Status, response::status, serde::json::Json};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
@@ -15,9 +15,10 @@ use crate::{
     orm::{
         DbConn,
         application_rule::{
-            create_application_rule, delete_application_rule, get_application_rules_for_site,
-            get_application_rules_for_template, get_calendar_schedules,
-            get_calendar_schedules_with_matches, get_effective_schedule,
+            create_application_rule, delete_application_rule, get_application_rule_by_id,
+            get_application_rules_for_site, get_application_rules_for_template,
+            get_calendar_schedules, get_calendar_schedules_with_matches, get_effective_schedule,
+            season_fill_application_rule,
         },
         schedule_library::get_library_item,
         site::get_site_by_id,
@@ -196,35 +197,38 @@ pub async fn create_application_rule_endpoint(
 }
 
 /// Delete an application rule
-#[delete("/1/ApplicationRules/<id>")]
+///
+/// Accepts an optional `change_reason` query param (S1c-3) that lands
+/// on the deletion's entity_activity row so the per-day Change
+/// History pane can show *why* the rule was removed.
+#[delete("/1/ApplicationRules/<id>?<change_reason>")]
 pub async fn delete_application_rule_endpoint(
     db: DbConn,
     id: i32,
+    change_reason: Option<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<Status, status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
-        // Get the rule to check authorization
-        let rules = match get_application_rules_for_template(conn, id) {
-            Ok(rules) => rules,
-            Err(e) => {
-                eprintln!("Error getting application rule: {:?}", e);
+        // Look up the rule directly by its primary key. (Previously
+        // this called get_application_rules_for_template with the rule
+        // id as if it were a template id — a no-op that accidentally
+        // 404'd most deletes.)
+        let rule = match get_application_rule_by_id(conn, id) {
+            Ok(Some(rule)) => rule,
+            Ok(None) => {
                 let err = Json(ErrorResponse {
                     error: "Application rule not found".to_string(),
                 });
                 return Err(status::Custom(Status::NotFound, err));
             }
+            Err(e) => {
+                eprintln!("Error getting application rule: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                });
+                return Err(status::Custom(Status::InternalServerError, err));
+            }
         };
-
-        // Find the rule
-        let rule = rules.into_iter().find(|r| r.id == id);
-        if rule.is_none() {
-            let err = Json(ErrorResponse {
-                error: "Application rule not found".to_string(),
-            });
-            return Err(status::Custom(Status::NotFound, err));
-        }
-
-        let rule = rule.unwrap();
 
         // Get the library item to check site_id
         let item = match get_library_item(conn, rule.library_item_id) {
@@ -246,7 +250,7 @@ pub async fn delete_application_rule_endpoint(
             return Err(status::Custom(Status::Forbidden, err));
         }
 
-        match delete_application_rule(conn, id, Some(auth_user.user.id)) {
+        match delete_application_rule(conn, id, Some(auth_user.user.id), change_reason.as_deref()) {
             Ok(_) => Ok(Status::NoContent),
             Err(e) => {
                 eprintln!("Error deleting application rule: {:?}", e);
@@ -373,6 +377,121 @@ pub async fn get_calendar_schedules_with_matches_endpoint(
     .await
 }
 
+/// Body for the peak-season wizard's season-fill endpoint.
+///
+/// `start_date` and `end_date` are ISO `YYYY-MM-DD` strings (both
+/// inclusive). `weekdays_only` and `exclude_us_federal_holidays` default
+/// to true via [`SeasonFillRequest::default`]. `exclude_dates` lets the
+/// caller drop specific dates beyond the federal-holiday set (e.g. a
+/// site-specific shutdown).
+#[derive(Debug, Deserialize, Serialize, TS)]
+#[ts(export)]
+pub struct SeasonFillRequest {
+    pub start_date: chrono::NaiveDate,
+    pub end_date: chrono::NaiveDate,
+    #[serde(default = "default_true")]
+    pub weekdays_only: bool,
+    #[serde(default = "default_true")]
+    pub exclude_us_federal_holidays: bool,
+    #[serde(default)]
+    pub exclude_dates: Vec<chrono::NaiveDate>,
+    pub override_reason: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct SeasonFillResponse {
+    pub rule: ApplicationRule,
+    #[ts(type = "string[]")]
+    pub applied_dates: Vec<chrono::NaiveDate>,
+}
+
+/// Apply a library item across a date range as a single specific-date
+/// rule, honoring weekday-only and federal-holiday filters. Returns the
+/// created rule and the list of dates it covers.
+#[post(
+    "/1/ScheduleLibraryItems/<id>/ApplicationRules/SeasonFill",
+    data = "<request>"
+)]
+pub async fn season_fill_application_rule_endpoint(
+    db: DbConn,
+    id: i32,
+    request: LoggedJson<SeasonFillRequest>,
+    auth_user: AuthenticatedUser,
+) -> Result<status::Created<Json<SeasonFillResponse>>, status::Custom<Json<ErrorResponse>>> {
+    db.run(move |conn| {
+        let item = match get_library_item(conn, id) {
+            Ok(item) => item,
+            Err(diesel::result::Error::NotFound) => {
+                let err = Json(ErrorResponse {
+                    error: "Library item not found".to_string(),
+                });
+                return Err(status::Custom(Status::NotFound, err));
+            }
+            Err(e) => {
+                eprintln!("Error getting library item for season fill: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                });
+                return Err(status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        if !can_manage_schedule(&auth_user, item.site_id, conn) {
+            let err = Json(ErrorResponse {
+                error: "Forbidden: insufficient permissions".to_string(),
+            });
+            return Err(status::Custom(Status::Forbidden, err));
+        }
+
+        let req = request.into_inner();
+
+        if req.start_date > req.end_date {
+            let err = Json(ErrorResponse {
+                error: "start_date must be on or before end_date".to_string(),
+            });
+            return Err(status::Custom(Status::BadRequest, err));
+        }
+
+        match season_fill_application_rule(
+            conn,
+            id,
+            req.start_date,
+            req.end_date,
+            req.weekdays_only,
+            req.exclude_us_federal_holidays,
+            &req.exclude_dates,
+            req.override_reason,
+            Some(auth_user.user.id),
+        ) {
+            Ok((rule, applied_dates)) => {
+                let location = format!("/api/1/ApplicationRules/{}", rule.id);
+                Ok(status::Created::new(location)
+                    .body(Json(SeasonFillResponse { rule, applied_dates })))
+            }
+            Err(diesel::result::Error::NotFound) => {
+                let err = Json(ErrorResponse {
+                    error: "Date range produced no applicable dates after applying filters"
+                        .to_string(),
+                });
+                Err(status::Custom(Status::BadRequest, err))
+            }
+            Err(e) => {
+                eprintln!("Error season-filling application rule: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                });
+                Err(status::Custom(Status::InternalServerError, err))
+            }
+        }
+    })
+    .await
+}
+
 pub fn routes() -> Vec<Route> {
     routes![
         get_rules_for_library_item,
@@ -382,5 +501,6 @@ pub fn routes() -> Vec<Route> {
         get_effective_schedule_endpoint,
         get_calendar_schedules_endpoint,
         get_calendar_schedules_with_matches_endpoint,
+        season_fill_application_rule_endpoint,
     ]
 }

@@ -328,3 +328,59 @@ async fn test_regular_user_cannot_crud_sites() {
 
     assert_eq!(response.status(), Status::Forbidden);
 }
+
+#[rocket::async_test]
+async fn test_update_site_persists_demo_defaults() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let response = client.get("/api/1/Sites").cookie(admin_cookie.clone()).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    let site = sites.first().expect("at least one site in golden DB").clone();
+    let url = format!("/api/1/Sites/{}", site.id);
+
+    // Send a defaults-only patch via the existing PUT (all fields optional).
+    let defaults_patch = json!({
+        "power_kw": 5000.0,
+        "capacity_kwh": 23500.0,
+        "closed_loop_enabled": false,
+        "off_peak_start_minutes": 0,
+        "off_peak_end_minutes": 480,
+        "peak_revenue_start_minutes": 960,
+        "peak_revenue_end_minutes": 1200,
+        "interconnection_max_output_kw": 5000.0,
+        "rebound_protection_soc_floor_percent": 2.5,
+        "site_variant": "no_grid_charge"
+    });
+
+    let response = client
+        .put(&url)
+        .cookie(admin_cookie.clone())
+        .json(&defaults_patch)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let updated: Site = response.into_json().await.expect("valid site JSON");
+    assert_eq!(updated.power_kw, Some(5000.0));
+    assert_eq!(updated.capacity_kwh, Some(23500.0));
+    assert!(!updated.closed_loop_enabled);
+    assert_eq!(updated.off_peak_start_minutes, Some(0));
+    assert_eq!(updated.off_peak_end_minutes, Some(480));
+    assert_eq!(updated.peak_revenue_start_minutes, Some(960));
+    assert_eq!(updated.peak_revenue_end_minutes, Some(1200));
+    assert_eq!(updated.interconnection_max_output_kw, Some(5000.0));
+    assert!((updated.rebound_protection_soc_floor_percent - 2.5).abs() < 1e-6);
+    assert_eq!(updated.site_variant, "no_grid_charge");
+
+    // A subsequent unrelated edit must not clobber the demo fields.
+    let name_only = json!({ "name": format!("{} Renamed", site.name) });
+    let response = client.put(&url).cookie(admin_cookie).json(&name_only).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let after: Site = response.into_json().await.expect("valid site JSON");
+    assert_eq!(after.power_kw, Some(5000.0));
+    assert_eq!(after.site_variant, "no_grid_charge");
+    assert!(!after.closed_loop_enabled);
+}

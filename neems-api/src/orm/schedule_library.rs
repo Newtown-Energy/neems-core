@@ -115,6 +115,90 @@ pub fn create_library_item(
     })
 }
 
+/// Build commands from the site's stored peak-season defaults.
+///
+/// Returns an off-peak charge command (with `target_soc_percent`) anchored
+/// to the off-peak window, plus a peak-revenue discharge command anchored
+/// to the discharge window. Returns an error string if the site lacks the
+/// windows the wizard needs.
+fn commands_from_site_defaults(
+    site: &crate::models::Site,
+    end_of_charge_soc_percent: i32,
+) -> Result<Vec<CreateCommandRequest>, String> {
+    let off_peak_start = site
+        .off_peak_start_minutes
+        .ok_or_else(|| "Site missing off_peak_start_minutes".to_string())?;
+    let off_peak_end = site
+        .off_peak_end_minutes
+        .ok_or_else(|| "Site missing off_peak_end_minutes".to_string())?;
+    let peak_start = site
+        .peak_revenue_start_minutes
+        .ok_or_else(|| "Site missing peak_revenue_start_minutes".to_string())?;
+    let peak_end = site
+        .peak_revenue_end_minutes
+        .ok_or_else(|| "Site missing peak_revenue_end_minutes".to_string())?;
+
+    // Window durations must be positive. We don't yet support windows that
+    // cross midnight (off_peak 22:00 → 06:00 wraps), but the demo script's
+    // 00:00–08:00 / 16:00–20:00 sit within a single day so this is fine
+    // for now — caller should error rather than silently flip.
+    if off_peak_end <= off_peak_start {
+        return Err("off_peak_end_minutes must be after off_peak_start_minutes".to_string());
+    }
+    if peak_end <= peak_start {
+        return Err("peak_revenue_end_minutes must be after peak_revenue_start_minutes".to_string());
+    }
+
+    Ok(vec![
+        CreateCommandRequest {
+            execution_offset_seconds: off_peak_start * 60,
+            command_type: CommandType::Charge,
+            duration_seconds: Some((off_peak_end - off_peak_start) * 60),
+            target_soc_percent: Some(end_of_charge_soc_percent),
+        },
+        CreateCommandRequest {
+            execution_offset_seconds: peak_start * 60,
+            command_type: CommandType::Discharge,
+            duration_seconds: Some((peak_end - peak_start) * 60),
+            target_soc_percent: None,
+        },
+    ])
+}
+
+/// Create a library item whose commands are derived from the site's
+/// stored peak-season defaults — the wizard's "step N: review" step
+/// calls into this after persisting any user edits to the defaults via
+/// the site PUT endpoint.
+pub fn create_library_item_from_site_defaults(
+    conn: &mut SqliteConnection,
+    site_id: i32,
+    name: String,
+    description: Option<String>,
+    end_of_charge_soc_percent: i32,
+    acting_user_id: Option<i32>,
+) -> Result<ScheduleLibraryItem, diesel::result::Error> {
+    use crate::orm::site::get_site_by_id;
+
+    let site = match get_site_by_id(conn, site_id)? {
+        Some(s) => s,
+        None => return Err(diesel::result::Error::NotFound),
+    };
+
+    let commands = commands_from_site_defaults(&site, end_of_charge_soc_percent).map_err(|e| {
+        diesel::result::Error::DeserializationError(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            e,
+        )))
+    })?;
+
+    create_library_item(
+        conn,
+        site_id,
+        CreateLibraryItemRequest { name, description, commands },
+        acting_user_id,
+    )
+}
+
 /// Gets a library item by ID with all its commands
 pub fn get_library_item(
     conn: &mut SqliteConnection,
@@ -212,6 +296,10 @@ pub fn update_library_item(
         }
 
         // Update template fields
+        let name_changed = request.name.is_some();
+        let description_changed = request.description.is_some();
+        let commands_changed = request.commands.is_some();
+
         if let Some(name_val) = request.name {
             diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
                 .set(schedule_templates::name.eq(name_val))
@@ -222,13 +310,6 @@ pub fn update_library_item(
             diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
                 .set(schedule_templates::description.eq(description_val))
                 .execute(conn)?;
-        }
-
-        // Update activity log
-        if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ =
-                update_latest_activity_user(conn, "schedule_templates", item_id, "update", user_id);
         }
 
         // Replace commands if provided
@@ -288,6 +369,51 @@ pub fn update_library_item(
                     .values(&new_entry)
                     .execute(conn)?;
             }
+        }
+
+        // If commands changed but name/description didn't, do a no-op
+        // UPDATE on the parent template so the `schedule_templates_update_log`
+        // trigger fires and the audit log records this edit. Without
+        // this, command-only edits (the inline F4 path) leave the
+        // Resulting Schedule pane's provenance stuck at the original
+        // create event — the leaf-table audit rows live under a
+        // different table_name so the pane never sees them.
+        let parent_row_touched = name_changed || description_changed;
+        if commands_changed && !parent_row_touched {
+            let current_name = schedule_templates::table
+                .find(item_id)
+                .select(schedule_templates::name)
+                .first::<String>(conn)?;
+            diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
+                .set(schedule_templates::name.eq(current_name))
+                .execute(conn)?;
+        }
+
+        // Backfill the acting user on the just-written activity row. We
+        // call this once at the end so the row we backfill is the most
+        // recent trigger-emitted one — covers the name/description path,
+        // the commands-only no-op path, and the all-of-the-above path.
+        let any_change = name_changed || description_changed || commands_changed;
+        if any_change {
+            use crate::orm::entity_activity::{
+                update_latest_activity_reason, update_latest_activity_user,
+            };
+            if let Some(user_id) = acting_user_id {
+                let _ = update_latest_activity_user(
+                    conn,
+                    "schedule_templates",
+                    item_id,
+                    "update",
+                    user_id,
+                );
+            }
+            let _ = update_latest_activity_reason(
+                conn,
+                "schedule_templates",
+                item_id,
+                "update",
+                request.change_reason.as_deref(),
+            );
         }
 
         // Return updated item
@@ -427,6 +553,7 @@ pub fn ensure_default_schedule_exists(
             days_of_week: None,
             specific_dates: None,
             override_reason: None,
+            change_reason: None,
         };
 
         // Create the default rule - ignore errors since rule creation is best-effort

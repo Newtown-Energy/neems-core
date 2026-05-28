@@ -19,6 +19,9 @@ if [ -z "$DB_PATH" ]; then
     exit 1
 fi
 
+# `sqlite://` is what diesel/SQLx expect; `sqlite3` CLI needs the bare path.
+SQLITE_FILE="${DB_PATH#sqlite://}"
+
 diesel --database-url=${DB_PATH} migration run
 echo Setup ${DB_PATH}
 
@@ -76,6 +79,9 @@ echo "Newtown Energy ID: $NEWTOWN_ENERGY_ID"
 echo "Adding users for Sunny Solar..."
 $NEEMS_ADMIN_BIN user add --email "admin@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User admin@sunnysolar.com already exists"
 $NEEMS_ADMIN_BIN user add --email "user@sunnysolar.com" --password "admin" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User user@sunnysolar.com already exists"
+# A second admin lets the walkthrough's two-user audit demo run without
+# creating a user from /admin first. Same company as Bat Farm 1.
+$NEEMS_ADMIN_BIN user add --email "operator@example.com" --password "operator" --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "User operator@example.com already exists"
 
 # Add demo users for Best BESS
 echo "Adding users for Best BESS..."
@@ -90,25 +96,45 @@ $NEEMS_ADMIN_BIN user add --email "james@newtown.energy" --password "admin" --co
 echo "Adding sites for Sunny Solar..."
 $NEEMS_ADMIN_BIN site add --name "Bat Farm 1" --address "123 Bat Farm Road, Rural Area" --latitude 40.7128 --longitude=-74.0060 --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 1' already exists"
 $NEEMS_ADMIN_BIN site add --name "Bat Farm 2" --address "456 Bat Farm Lane, Rural Area" --latitude 40.7580 --longitude=-73.9855 --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Bat Farm 2' already exists"
+# Dembowski 1 is the Illinois site from the demo script's Part 3 — a
+# `no_grid_charge` variant whose inverters cannot pull from the grid.
+# Pre-populate the demo configuration columns so the peak-season wizard
+# is ready to run without the operator filling them in by hand.
+$NEEMS_ADMIN_BIN site add --name "Dembowski 1" --address "100 Cornfield Lane, Bloomington, IL" --latitude 40.4842 --longitude=-88.9937 --company-id "$SUNNY_SOLAR_ID" 2>/dev/null || echo "Site 'Dembowski 1' already exists"
+sqlite3 "$SQLITE_FILE" <<'SQL'
+UPDATE sites SET
+    power_kw = 5000,
+    capacity_kwh = 23500,
+    closed_loop_enabled = 1,
+    off_peak_start_minutes = 0,
+    off_peak_end_minutes = 480,
+    peak_revenue_start_minutes = 960,
+    peak_revenue_end_minutes = 1200,
+    interconnection_max_output_kw = 5000,
+    rebound_protection_soc_floor_percent = 2.0,
+    site_variant = 'no_grid_charge'
+WHERE name = 'Dembowski 1';
+SQL
 
 # Add demo sites for Best BESS
 echo "Adding sites for Best BESS..."
 $NEEMS_ADMIN_BIN site add --name "B1" --address "789 Battery Street, Industrial Zone" --latitude 40.6892 --longitude=-74.0445 --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B1' already exists"
 $NEEMS_ADMIN_BIN site add --name "B2" --address "321 Energy Avenue, Industrial Zone" --latitude 40.7282 --longitude=-74.0776 --company-id "$BEST_BESS_ID" 2>/dev/null || echo "Site 'B2' already exists"
 
-# Assign admin role to admin users (role 3 is 'admin')
+# Assign admin role to admin users
 echo "Assigning admin roles..."
-$NEEMS_ADMIN_BIN user add-role --email "admin@sunnysolar.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
-$NEEMS_ADMIN_BIN user add-role --email "admin@bestbess.com" --role-id 3 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
+$NEEMS_ADMIN_BIN user add-role --email "admin@sunnysolar.com" --role admin 2>/dev/null || echo "Admin role already assigned to admin@sunnysolar.com"
+$NEEMS_ADMIN_BIN user add-role --email "admin@bestbess.com" --role admin 2>/dev/null || echo "Admin role already assigned to admin@bestbess.com"
+$NEEMS_ADMIN_BIN user add-role --email "operator@example.com" --role admin 2>/dev/null || echo "Admin role already assigned to operator@example.com"
 
-# Assign user role to regular users (role 4 is 'user')
-echo "Assigning user roles..."
-$NEEMS_ADMIN_BIN user add-role --email "user@sunnysolar.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@sunnysolar.com"
-$NEEMS_ADMIN_BIN user add-role --email "user@bestbess.com" --role-id 4 2>/dev/null || echo "User role already assigned to user@bestbess.com"
+# Assign staff role to regular users
+echo "Assigning staff roles..."
+$NEEMS_ADMIN_BIN user add-role --email "user@sunnysolar.com" --role staff 2>/dev/null || echo "Staff role already assigned to user@sunnysolar.com"
+$NEEMS_ADMIN_BIN user add-role --email "user@bestbess.com" --role staff 2>/dev/null || echo "Staff role already assigned to user@bestbess.com"
 
-# Assign newtown-admin role to james@newtown.energy (role 1 is 'newtown-admin')
+# Assign newtown-admin role to james@newtown.energy
 echo "Assigning newtown-admin role..."
-$NEEMS_ADMIN_BIN user add-role --email "james@newtown.energy" --role-id 1 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
+$NEEMS_ADMIN_BIN user add-role --email "james@newtown.energy" --role newtown-admin 2>/dev/null || echo "Newtown-admin role already assigned to james@newtown.energy"
 
 # Add demo devices for Sunny Solar sites
 echo "Adding devices for Sunny Solar sites..."
@@ -148,8 +174,9 @@ echo ""
 echo "Demo users created:"
 echo "  Sunny Solar:"
 echo "    admin@sunnysolar.com (password: admin) - Admin role"
+echo "    operator@example.com (password: operator) - Admin role"
 echo "    user@sunnysolar.com (password: admin) - User role"
-echo "    Sites: Bat Farm 1, Bat Farm 2"
+echo "    Sites: Bat Farm 1, Bat Farm 2, Dembowski 1 (no_grid_charge variant)"
 echo "  Best BESS:"
 echo "    admin@bestbess.com (password: admin) - Admin role"
 echo "    user@bestbess.com (password: admin) - User role"

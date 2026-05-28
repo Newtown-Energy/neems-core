@@ -5,7 +5,7 @@ use diesel::sqlite::SqliteConnection;
 use neems_api::orm::{
     company::get_company_by_id,
     site::{
-        delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id,
+        SiteUpdate, delete_site, get_all_sites, get_site_by_company_and_name, get_site_by_id,
         get_sites_by_company, insert_site, update_site,
     },
 };
@@ -353,12 +353,14 @@ pub fn site_edit_impl(
     let updated_site = update_site(
         conn,
         site_id,
-        new_name,
-        new_address,
-        new_latitude,
-        new_longitude,
-        new_company_id,
-        None, // ramp_duration_seconds - not modified by admin CLI
+        SiteUpdate {
+            name: new_name,
+            address: new_address,
+            latitude: new_latitude,
+            longitude: new_longitude,
+            company_id: new_company_id,
+            ..Default::default()
+        },
         Some(admin_user_id),
     )?;
 

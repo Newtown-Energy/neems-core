@@ -1,7 +1,7 @@
 //! API endpoints for managing schedule library items.
 
 use rocket::{Route, http::Status, response::status, serde::json::Json};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
@@ -13,8 +13,8 @@ use crate::{
     orm::{
         DbConn,
         schedule_library::{
-            clone_library_item, create_library_item, delete_library_item, get_library_item,
-            get_library_items_for_site, update_library_item,
+            clone_library_item, create_library_item, create_library_item_from_site_defaults,
+            delete_library_item, get_library_item, get_library_items_for_site, update_library_item,
         },
         site::get_site_by_id,
     },
@@ -355,6 +355,89 @@ pub async fn clone_library_item_endpoint(
     .await
 }
 
+/// Body for the peak-season wizard's "create from site defaults" step.
+///
+/// `end_of_charge_soc_percent` defaults to 100 (the script's "charge to
+/// 100%" beat). The endpoint reads the off-peak and peak-revenue windows
+/// straight from the site row, so the wizard must persist any user edits
+/// to those windows via the site PUT endpoint *before* calling this one.
+#[derive(Debug, Deserialize, Serialize, TS)]
+#[ts(export)]
+pub struct CreateFromSiteDefaultsRequest {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(default = "default_end_of_charge_soc")]
+    pub end_of_charge_soc_percent: i32,
+}
+
+fn default_end_of_charge_soc() -> i32 {
+    100
+}
+
+/// Create a library item whose commands come from the site's stored
+/// off-peak charge and peak-revenue discharge windows.
+#[post(
+    "/1/Sites/<site_id>/ScheduleLibraryItems/FromSiteDefaults",
+    data = "<request>"
+)]
+pub async fn create_library_item_from_site_defaults_endpoint(
+    db: DbConn,
+    site_id: i32,
+    request: LoggedJson<CreateFromSiteDefaultsRequest>,
+    auth_user: AuthenticatedUser,
+) -> Result<status::Created<Json<ScheduleLibraryItem>>, status::Custom<Json<ErrorResponse>>> {
+    db.run(move |conn| {
+        if !can_manage_schedule(&auth_user, site_id, conn) {
+            let err = Json(ErrorResponse {
+                error: "Forbidden: insufficient permissions".to_string(),
+            });
+            return Err(status::Custom(Status::Forbidden, err));
+        }
+
+        let req = request.into_inner();
+
+        match create_library_item_from_site_defaults(
+            conn,
+            site_id,
+            req.name,
+            req.description,
+            req.end_of_charge_soc_percent,
+            Some(auth_user.user.id),
+        ) {
+            Ok(item) => {
+                let location = format!("/api/1/ScheduleLibraryItems/{}", item.id);
+                Ok(status::Created::new(location).body(Json(item)))
+            }
+            Err(diesel::result::Error::NotFound) => {
+                let err = Json(ErrorResponse { error: "Site not found".to_string() });
+                Err(status::Custom(Status::NotFound, err))
+            }
+            Err(diesel::result::Error::DeserializationError(e)) => {
+                // Surfaced for missing or inverted windows on the site row.
+                let err = Json(ErrorResponse { error: e.to_string() });
+                Err(status::Custom(Status::BadRequest, err))
+            }
+            Err(diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::UniqueViolation,
+                _,
+            )) => {
+                let err = Json(ErrorResponse {
+                    error: "A schedule with this name already exists".to_string(),
+                });
+                Err(status::Custom(Status::BadRequest, err))
+            }
+            Err(e) => {
+                eprintln!("Error creating library item from site defaults: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                });
+                Err(status::Custom(Status::InternalServerError, err))
+            }
+        }
+    })
+    .await
+}
+
 pub fn routes() -> Vec<Route> {
     routes![
         list_library_items,
@@ -363,5 +446,6 @@ pub fn routes() -> Vec<Route> {
         update_library_item_endpoint,
         delete_library_item_endpoint,
         clone_library_item_endpoint,
+        create_library_item_from_site_defaults_endpoint,
     ]
 }

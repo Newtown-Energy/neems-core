@@ -1,11 +1,14 @@
 use std::{env, error::Error};
 
+use chrono::{Duration, NaiveDateTime, Utc};
 use clap::{Args, Parser, Subcommand};
 use dotenvy::dotenv;
 use neems_data::{
-    DataAggregator, NewSource, UpdateSource, create_source, delete_source, get_source_by_name,
-    list_sources, update_source,
+    DataAggregator, NewReading, NewSource, UpdateSource,
+    collectors::data_sources::charging_state_with_level, create_source, delete_source,
+    get_source_by_name, insert_readings_batch, list_sources, update_source,
 };
+use serde_json::json;
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -53,6 +56,26 @@ enum Commands {
         /// Name of the source to show
         name: String,
     },
+    /// Seed plausible past SoC history for a site (demo data).
+    ///
+    /// Creates a `charging_state` source for the site if one doesn't
+    /// already exist, then writes one reading per `interval-minutes`
+    /// slot over the trailing `days`. Existing timestamps are skipped,
+    /// so re-running is safe.
+    SeedSocHistory(SeedSocHistoryArgs),
+}
+
+#[derive(Args)]
+struct SeedSocHistoryArgs {
+    /// Site ID to seed.
+    #[arg(long)]
+    site_id: i32,
+    /// How many days of history to backfill (default 14).
+    #[arg(long, default_value = "14")]
+    days: u32,
+    /// Cadence in minutes between samples (default 6).
+    #[arg(long, default_value = "6")]
+    interval_minutes: u32,
 }
 
 #[derive(Args)]
@@ -136,6 +159,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let database_path =
         env::var("SITE_DATABASE_URL").unwrap_or_else(|_| "site-data.sqlite".to_string());
+    // DataAggregator::new prepends `sqlite://`, so strip any leading
+    // scheme from the env var to avoid a doubled prefix
+    // (`sqlite://sqlite:///path/...`) on hosts that ship the URL with
+    // the scheme already attached.
+    let database_path = database_path
+        .strip_prefix("sqlite://")
+        .map(|s| s.to_string())
+        .unwrap_or(database_path);
 
     let aggregator = DataAggregator::new(Some(&database_path));
     let mut connection = aggregator
@@ -448,11 +479,143 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 std::process::exit(1);
             }
         }
+        Some(Commands::SeedSocHistory(args)) => {
+            seed_soc_history(&mut connection, args)?;
+        }
         None => {
             eprintln!("No command provided. Use --help for usage information.");
             std::process::exit(1);
         }
     }
 
+    Ok(())
+}
+
+/// Backfill plausible past SoC readings for the given site.
+///
+/// Idempotent: collects existing reading timestamps for the source
+/// up-front and only writes slots that aren't already present.
+fn seed_soc_history(
+    conn: &mut diesel::SqliteConnection,
+    args: SeedSocHistoryArgs,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use diesel::prelude::*;
+    use neems_data::schema::{readings, sources};
+
+    if args.interval_minutes == 0 {
+        return Err("--interval-minutes must be > 0".into());
+    }
+
+    // Ensure a charging_state source exists for this site. Reuse the
+    // existing one if present; otherwise create a deterministic name so
+    // re-runs find the same row.
+    let existing_source: Option<(Option<i32>, String)> = sources::table
+        .filter(sources::site_id.eq(args.site_id))
+        .filter(sources::test_type.eq("charging_state"))
+        .select((sources::id, sources::name))
+        .first(conn)
+        .optional()?;
+
+    let (source_id, source_name) = match existing_source {
+        Some((Some(id), name)) => (id, name),
+        Some((None, name)) => {
+            return Err(format!("source '{}' has NULL id (corrupt row?)", name).into());
+        }
+        None => {
+            let name = format!("soc_history_site_{}", args.site_id);
+            let new_source = NewSource {
+                name: name.clone(),
+                description: Some(format!("Demo SoC history for site {} (seeded)", args.site_id)),
+                active: Some(false), // seed-only; not polled live
+                interval_seconds: Some((args.interval_minutes as i32) * 60),
+                test_type: Some("charging_state".to_string()),
+                arguments: Some("{}".to_string()),
+                site_id: Some(args.site_id),
+                company_id: None,
+            };
+            let created = create_source(conn, new_source)?;
+            let id = created.id.ok_or("create_source returned a row with no id")?;
+            println!("Created source '{}' (ID {})", created.name, id);
+            (id, created.name)
+        }
+    };
+
+    // Build the slot grid (oldest → newest, top of the minute).
+    let interval = Duration::minutes(args.interval_minutes as i64);
+    let end = {
+        let now = Utc::now().naive_utc();
+        // Snap to the most recent slot boundary so re-runs hit the same
+        // timestamps each time.
+        let secs = now.and_utc().timestamp();
+        let slot = interval.num_seconds();
+        let snapped = secs - (secs % slot);
+        chrono::DateTime::from_timestamp(snapped, 0)
+            .ok_or("failed to snap end timestamp")?
+            .naive_utc()
+    };
+    let start = end - Duration::days(args.days as i64);
+    // Loop below is inclusive on both endpoints, so the slot count is
+    // span/interval + 1 (e.g. a 6-min span at 6-min cadence yields 2
+    // slots, not 1). Without the +1 the "already present" math at the
+    // end can underflow when the seeder fully populates the window.
+    let total_slots = ((end - start).num_seconds() / interval.num_seconds()) as usize + 1;
+
+    // Idempotency: pull existing timestamps in the window and skip them.
+    let existing: std::collections::HashSet<NaiveDateTime> = readings::table
+        .filter(readings::source_id.eq(source_id))
+        .filter(readings::timestamp.ge(start))
+        .filter(readings::timestamp.le(end))
+        .select(readings::timestamp)
+        .load::<NaiveDateTime>(conn)?
+        .into_iter()
+        .collect();
+
+    let mut batch: Vec<NewReading> = Vec::new();
+    let mut cursor = start;
+    while cursor <= end {
+        if !existing.contains(&cursor) {
+            let utc = cursor.and_utc();
+            let (state, level) = charging_state_with_level(utc, "default");
+            let blob = json!({
+                "source_id": source_id,
+                "battery_id": "default",
+                "state": state,
+                "level": level,
+                "timestamp_utc": utc.to_rfc3339(),
+                "seeded": true,
+            })
+            .to_string();
+            batch.push(NewReading {
+                source_id,
+                timestamp: Some(cursor),
+                data: blob,
+                quality_flags: Some(0),
+            });
+        }
+        cursor += interval;
+    }
+
+    let to_write = batch.len();
+    if to_write == 0 {
+        println!(
+            "Source '{}' (ID {}) already has all {} slots seeded — nothing to do.",
+            source_name, source_id, total_slots
+        );
+        return Ok(());
+    }
+
+    // Insert in chunks so SQLite doesn't choke on a giant single statement.
+    for chunk in batch.chunks(500) {
+        insert_readings_batch(conn, chunk.to_vec())?;
+    }
+
+    println!(
+        "Seeded {} new SoC readings ({} already present) into source '{}' (ID {}) for site {}.",
+        to_write,
+        total_slots - to_write,
+        source_name,
+        source_id,
+        args.site_id
+    );
     Ok(())
 }

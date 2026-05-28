@@ -62,10 +62,15 @@ mod tests {
         // Import all the types to trigger their generation
         use crate::{
             api::{
-                application_rule::ErrorResponse as ApplicationRuleErrorResponse,
+                application_rule::{
+                    ErrorResponse as ApplicationRuleErrorResponse, SeasonFillRequest,
+                    SeasonFillResponse,
+                },
                 company::ErrorResponse as CompanyErrorResponse,
                 login::{ErrorResponse as LoginErrorResponse, LoginSuccessResponse},
-                schedule_library::ErrorResponse as ScheduleLibraryErrorResponse,
+                schedule_library::{
+                    CreateFromSiteDefaultsRequest, ErrorResponse as ScheduleLibraryErrorResponse,
+                },
                 site::{CreateSiteRequest, ErrorResponse as SiteErrorResponse, UpdateSiteRequest},
                 user::{
                     AddUserRoleRequest, CreateUserWithRolesRequest,
@@ -88,6 +93,7 @@ mod tests {
         CompanyWithTimestamps::export().expect("Failed to export CompanyWithTimestamps type");
 
         Site::export().expect("Failed to export Site type");
+        SiteVariant::export().expect("Failed to export SiteVariant type");
 
         Role::export().expect("Failed to export Role type");
         NewRole::export().expect("Failed to export NewRole type");
@@ -130,7 +136,7 @@ mod tests {
         use crate::api::alarm::{
             ActiveAlarmDto, ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse,
             AlarmHistoryEntry, AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto,
-            AlarmZoneDto,
+            AlarmZoneDto, ForcedAlarmsRequest, ForcedAlarmsResponse,
         };
         AlarmSeverityDto::export().expect("Failed to export AlarmSeverityDto type");
         AlarmZoneDto::export().expect("Failed to export AlarmZoneDto type");
@@ -141,12 +147,21 @@ mod tests {
         AlarmHistoryEntry::export().expect("Failed to export AlarmHistoryEntry type");
         AlarmHistoryResponse::export().expect("Failed to export AlarmHistoryResponse type");
         AlarmHistoryQuery::export().expect("Failed to export AlarmHistoryQuery type");
+        ForcedAlarmsRequest::export().expect("Failed to export ForcedAlarmsRequest type");
+        ForcedAlarmsResponse::export().expect("Failed to export ForcedAlarmsResponse type");
 
         // Data API types
-        use crate::api::data::{DataSourcesResponse, ReadingsQuery, ReadingsResponse};
+        use crate::api::data::{
+            ChargeDischargeBucket, ChargeDischargeSummary, DataSourcesResponse, ReadingsQuery,
+            ReadingsResponse, SocHistoryPoint, SocHistoryResponse,
+        };
         DataSourcesResponse::export().expect("Failed to export DataSourcesResponse type");
         ReadingsResponse::export().expect("Failed to export ReadingsResponse type");
         ReadingsQuery::export().expect("Failed to export ReadingsQuery type");
+        SocHistoryPoint::export().expect("Failed to export SocHistoryPoint type");
+        SocHistoryResponse::export().expect("Failed to export SocHistoryResponse type");
+        ChargeDischargeBucket::export().expect("Failed to export ChargeDischargeBucket type");
+        ChargeDischargeSummary::export().expect("Failed to export ChargeDischargeSummary type");
 
         // Neems-data model types
         neems_data::models::Source::export()
@@ -164,6 +179,23 @@ mod tests {
         CloneLibraryItemRequest::export().expect("Failed to export CloneLibraryItemRequest type");
         ScheduleLibraryErrorResponse::export()
             .expect("Failed to export schedule_library::ErrorResponse type");
+        CreateFromSiteDefaultsRequest::export()
+            .expect("Failed to export CreateFromSiteDefaultsRequest type");
+
+        // Entity Activity API types (audit log surface)
+        use crate::api::entity_activity::{
+            EntityActivityWithUser, ErrorResponse as EntityActivityErrorResponse,
+            RecentScheduleActivityEntry, RecentScheduleActivityResponse,
+        };
+        EntityActivityWithUser::export().expect("Failed to export EntityActivityWithUser type");
+        EntityActivityErrorResponse::export()
+            .expect("Failed to export entity_activity::ErrorResponse type");
+        EntityActivity::export().expect("Failed to export EntityActivity type");
+        ActivityLogEntry::export().expect("Failed to export ActivityLogEntry type");
+        RecentScheduleActivityEntry::export()
+            .expect("Failed to export RecentScheduleActivityEntry type");
+        RecentScheduleActivityResponse::export()
+            .expect("Failed to export RecentScheduleActivityResponse type");
 
         // Application Rule types
         RuleType::export().expect("Failed to export RuleType type");
@@ -178,6 +210,8 @@ mod tests {
             .expect("Failed to export CalendarDayScheduleMatches type");
         ApplicationRuleErrorResponse::export()
             .expect("Failed to export application_rule::ErrorResponse type");
+        SeasonFillRequest::export().expect("Failed to export SeasonFillRequest type");
+        SeasonFillResponse::export().expect("Failed to export SeasonFillResponse type");
 
         println!("TypeScript types generated successfully in {:?}", output_dir);
     }
