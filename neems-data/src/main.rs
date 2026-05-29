@@ -6,7 +6,8 @@ use dotenvy::dotenv;
 use neems_data::{
     DataAggregator, NewReading, NewSource, UpdateSource,
     collectors::data_sources::charging_state_with_level, create_source, delete_source,
-    get_source_by_name, insert_readings_batch, list_sources, update_source,
+    get_source_by_name, insert_readings_batch, list_sources, rtac::state::AlarmFlags,
+    update_source,
 };
 use serde_json::json;
 
@@ -63,10 +64,33 @@ enum Commands {
     /// slot over the trailing `days`. Existing timestamps are skipped,
     /// so re-running is safe.
     SeedSocHistory(SeedSocHistoryArgs),
+    /// Seed plausible past alarm history for a site (demo data).
+    ///
+    /// Creates an `alarm_status` source for the site if one doesn't
+    /// already exist, then writes one reading per `interval-minutes`
+    /// slot over the trailing `days`, each carrying an `alarm_registers`
+    /// bitfield. A deterministic pattern toggles a handful of
+    /// representative alarms on and off so the FDNY page shows real
+    /// transitions. Existing timestamps are skipped, so re-running is
+    /// safe.
+    SeedAlarmHistory(SeedAlarmHistoryArgs),
 }
 
 #[derive(Args)]
 struct SeedSocHistoryArgs {
+    /// Site ID to seed.
+    #[arg(long)]
+    site_id: i32,
+    /// How many days of history to backfill (default 14).
+    #[arg(long, default_value = "14")]
+    days: u32,
+    /// Cadence in minutes between samples (default 6).
+    #[arg(long, default_value = "6")]
+    interval_minutes: u32,
+}
+
+#[derive(Args)]
+struct SeedAlarmHistoryArgs {
     /// Site ID to seed.
     #[arg(long)]
     site_id: i32,
@@ -482,6 +506,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         Some(Commands::SeedSocHistory(args)) => {
             seed_soc_history(&mut connection, args)?;
         }
+        Some(Commands::SeedAlarmHistory(args)) => {
+            seed_alarm_history(&mut connection, args)?;
+        }
         None => {
             eprintln!("No command provided. Use --help for usage information.");
             std::process::exit(1);
@@ -611,6 +638,155 @@ fn seed_soc_history(
 
     println!(
         "Seeded {} new SoC readings ({} already present) into source '{}' (ID {}) for site {}.",
+        to_write,
+        total_slots - to_write,
+        source_name,
+        source_id,
+        args.site_id
+    );
+    Ok(())
+}
+
+/// Deterministic demo alarm state for a given instant.
+///
+/// Each tuple is `(alarm_num, period_minutes, active_minutes, phase_minutes)`:
+/// the alarm is active when the time-of-window position is within the first
+/// `active_minutes` of each `period_minutes` cycle. The chosen alarms span
+/// several zones and severities so the FDNY timeline has variety, and the
+/// long periods keep transitions sparse (a handful per alarm per week) rather
+/// than flapping every sample.
+fn seeded_alarm_flags(utc: chrono::DateTime<Utc>) -> AlarmFlags {
+    const PATTERN: &[(u16, i64, i64, i64)] = &[
+        (1, 1440, 90, 0),       // loss_fiber (L3) — ~daily, 90 min
+        (203, 2880, 180, 600),  // meter_loss_of_comms (L5) — every 2 days, 3 h
+        (301, 720, 60, 200),    // t1_temp_alarm (L4) — twice daily, 1 h
+        (104, 4320, 240, 1000), // estop (L2, critical) — every 3 days, 4 h
+        (7, 5760, 30, 2500),    // intruder_detected (L5) — every 4 days, 30 min
+    ];
+    let t_min = utc.timestamp() / 60;
+    let mut flags = AlarmFlags::default();
+    for &(num, period, active, phase) in PATTERN {
+        let pos = ((t_min - phase) % period + period) % period;
+        if pos < active {
+            flags.set_alarm_num(num, true);
+        }
+    }
+    flags
+}
+
+/// Backfill plausible past alarm readings for the given site.
+///
+/// Idempotent in the same way as [`seed_soc_history`]: existing reading
+/// timestamps for the source are skipped, so re-running only fills gaps.
+fn seed_alarm_history(
+    conn: &mut diesel::SqliteConnection,
+    args: SeedAlarmHistoryArgs,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use diesel::prelude::*;
+    use neems_data::schema::{readings, sources};
+
+    if args.interval_minutes == 0 {
+        return Err("--interval-minutes must be > 0".into());
+    }
+
+    // Ensure an alarm_status source exists for this site. Reuse the existing
+    // one if present; otherwise create a deterministic name so re-runs find
+    // the same row.
+    let existing_source: Option<(Option<i32>, String)> = sources::table
+        .filter(sources::site_id.eq(args.site_id))
+        .filter(sources::test_type.eq("alarm_status"))
+        .select((sources::id, sources::name))
+        .first(conn)
+        .optional()?;
+
+    let (source_id, source_name) = match existing_source {
+        Some((Some(id), name)) => (id, name),
+        Some((None, name)) => {
+            return Err(format!("source '{}' has NULL id (corrupt row?)", name).into());
+        }
+        None => {
+            let name = format!("alarm_history_site_{}", args.site_id);
+            let new_source = NewSource {
+                name: name.clone(),
+                description: Some(format!("Demo alarm history for site {} (seeded)", args.site_id)),
+                active: Some(false), // seed-only; not polled live
+                interval_seconds: Some((args.interval_minutes as i32) * 60),
+                test_type: Some("alarm_status".to_string()),
+                arguments: Some("{}".to_string()),
+                site_id: Some(args.site_id),
+                company_id: None,
+            };
+            let created = create_source(conn, new_source)?;
+            let id = created.id.ok_or("create_source returned a row with no id")?;
+            println!("Created source '{}' (ID {})", created.name, id);
+            (id, created.name)
+        }
+    };
+
+    // Build the slot grid (oldest → newest, top of the minute), snapping the
+    // end to the most recent slot boundary so re-runs hit the same timestamps.
+    let interval = Duration::minutes(args.interval_minutes as i64);
+    let end = {
+        let now = Utc::now().naive_utc();
+        let secs = now.and_utc().timestamp();
+        let slot = interval.num_seconds();
+        let snapped = secs - (secs % slot);
+        chrono::DateTime::from_timestamp(snapped, 0)
+            .ok_or("failed to snap end timestamp")?
+            .naive_utc()
+    };
+    let start = end - Duration::days(args.days as i64);
+    let total_slots = ((end - start).num_seconds() / interval.num_seconds()) as usize + 1;
+
+    // Idempotency: pull existing timestamps in the window and skip them.
+    let existing: std::collections::HashSet<NaiveDateTime> = readings::table
+        .filter(readings::source_id.eq(source_id))
+        .filter(readings::timestamp.ge(start))
+        .filter(readings::timestamp.le(end))
+        .select(readings::timestamp)
+        .load::<NaiveDateTime>(conn)?
+        .into_iter()
+        .collect();
+
+    let mut batch: Vec<NewReading> = Vec::new();
+    let mut cursor = start;
+    while cursor <= end {
+        if !existing.contains(&cursor) {
+            let utc = cursor.and_utc();
+            let registers = seeded_alarm_flags(utc).to_registers();
+            let blob = json!({
+                "source_id": source_id,
+                "alarm_registers": registers.to_vec(),
+                "timestamp_utc": utc.to_rfc3339(),
+                "seeded": true,
+            })
+            .to_string();
+            batch.push(NewReading {
+                source_id,
+                timestamp: Some(cursor),
+                data: blob,
+                quality_flags: Some(0),
+            });
+        }
+        cursor += interval;
+    }
+
+    let to_write = batch.len();
+    if to_write == 0 {
+        println!(
+            "Source '{}' (ID {}) already has all {} slots seeded — nothing to do.",
+            source_name, source_id, total_slots
+        );
+        return Ok(());
+    }
+
+    // Insert in chunks so SQLite doesn't choke on a giant single statement.
+    for chunk in batch.chunks(500) {
+        insert_readings_batch(conn, chunk.to_vec())?;
+    }
+
+    println!(
+        "Seeded {} new alarm readings ({} already present) into source '{}' (ID {}) for site {}.",
         to_write,
         total_slots - to_write,
         source_name,
