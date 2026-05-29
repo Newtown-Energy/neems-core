@@ -159,6 +159,10 @@ pub struct CreateLibraryItemRequest {
     pub name: String,
     pub description: Option<String>,
     pub commands: Vec<CreateCommandRequest>,
+    /// Free-form reason for creating this schedule, surfaced in the
+    /// Change History pane. Optional on the wire so older/trigger-only
+    /// callers stay NULL, but the UI requires it on the create form.
+    pub change_reason: Option<String>,
 }
 
 /// Command data for creating/updating

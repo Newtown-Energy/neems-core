@@ -47,15 +47,26 @@ pub fn create_library_item(
             .get_result::<LastInsertRowId>(conn)?
             .last_insert_rowid as i32;
 
-        // Update activity log with user info
-        if let Some(user_id) = acting_user_id {
-            use crate::orm::entity_activity::update_latest_activity_user;
-            let _ = update_latest_activity_user(
+        // Update activity log with user info and the creation reason.
+        {
+            use crate::orm::entity_activity::{
+                update_latest_activity_reason, update_latest_activity_user,
+            };
+            if let Some(user_id) = acting_user_id {
+                let _ = update_latest_activity_user(
+                    conn,
+                    "schedule_templates",
+                    template_id,
+                    "create",
+                    user_id,
+                );
+            }
+            let _ = update_latest_activity_reason(
                 conn,
                 "schedule_templates",
                 template_id,
                 "create",
-                user_id,
+                request.change_reason.as_deref(),
             );
         }
 
@@ -196,7 +207,12 @@ pub fn create_library_item_from_site_defaults(
     create_library_item(
         conn,
         site_id,
-        CreateLibraryItemRequest { name, description, commands },
+        CreateLibraryItemRequest {
+            name,
+            description,
+            commands,
+            change_reason: Some("Created from site defaults".to_string()),
+        },
         acting_user_id,
     )
 }
@@ -482,6 +498,7 @@ pub fn clone_library_item(
                 target_soc_percent: cmd.target_soc_percent,
             })
             .collect(),
+        change_reason: Some(format!("Cloned from '{}'", original.name)),
     };
 
     create_library_item(conn, original.site_id, create_request, acting_user_id)
