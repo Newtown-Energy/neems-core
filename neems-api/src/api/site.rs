@@ -85,6 +85,7 @@ pub struct UpdateSiteRequest {
     pub site_variant: Option<String>,
     pub charge_rate_percent: Option<f64>,
     pub discharge_rate_percent: Option<f64>,
+    pub trickle_charge_power_kw: Option<f64>,
 }
 
 /// Helper function to check if user can perform CRUD operations on a site
@@ -151,6 +152,16 @@ pub async fn create_site(
                 .to_string(),
         });
         return Err(response::status::Custom(Status::Forbidden, err));
+    }
+
+    if new_site.ramp_duration_seconds < 0 {
+        let err = Json(ErrorResponse {
+            error: format!(
+                "ramp_duration_seconds must be 0 or greater (got {})",
+                new_site.ramp_duration_seconds
+            ),
+        });
+        return Err(response::status::Custom(Status::BadRequest, err));
     }
 
     db.run(move |conn| {
@@ -327,11 +338,16 @@ pub async fn update_site_endpoint(
     update_data: LoggedJson<UpdateSiteRequest>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Site>, response::status::Custom<Json<ErrorResponse>>> {
-    // Reject out-of-range rate percentages before touching the DB so the
-    // caller gets a clear 400 instead of a quiet bad-data write.
+    // Reject out-of-range numeric fields before touching the DB so the
+    // caller gets a clear 400 instead of a quiet bad-data write. These
+    // mirror the bounds the React UI enforces.
     for (field, value) in [
         ("charge_rate_percent", update_data.charge_rate_percent),
         ("discharge_rate_percent", update_data.discharge_rate_percent),
+        (
+            "rebound_protection_soc_floor_percent",
+            update_data.rebound_protection_soc_floor_percent,
+        ),
     ] {
         if let Some(v) = value {
             if !v.is_finite() || !(0.0..=100.0).contains(&v) {
@@ -340,6 +356,31 @@ pub async fn update_site_endpoint(
                 });
                 return Err(response::status::Custom(Status::BadRequest, err));
             }
+        }
+    }
+
+    for (field, value) in [
+        ("power_kw", update_data.power_kw),
+        ("capacity_kwh", update_data.capacity_kwh),
+        ("interconnection_max_output_kw", update_data.interconnection_max_output_kw),
+        ("trickle_charge_power_kw", update_data.trickle_charge_power_kw),
+    ] {
+        if let Some(v) = value {
+            if !v.is_finite() || v < 0.0 {
+                let err = Json(ErrorResponse {
+                    error: format!("{} must be 0 or greater (got {})", field, v),
+                });
+                return Err(response::status::Custom(Status::BadRequest, err));
+            }
+        }
+    }
+
+    if let Some(v) = update_data.ramp_duration_seconds {
+        if v < 0 {
+            let err = Json(ErrorResponse {
+                error: format!("ramp_duration_seconds must be 0 or greater (got {})", v),
+            });
+            return Err(response::status::Custom(Status::BadRequest, err));
         }
     }
 
@@ -409,6 +450,7 @@ pub async fn update_site_endpoint(
                         site_variant: update_data.site_variant.clone(),
                         charge_rate_percent: update_data.charge_rate_percent,
                         discharge_rate_percent: update_data.discharge_rate_percent,
+                        trickle_charge_power_kw: update_data.trickle_charge_power_kw,
                     },
                     Some(auth_user.user.id),
                 )

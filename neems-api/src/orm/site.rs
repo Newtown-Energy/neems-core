@@ -38,6 +38,7 @@ pub struct SiteUpdate {
     pub site_variant: Option<String>,
     pub charge_rate_percent: Option<f64>,
     pub discharge_rate_percent: Option<f64>,
+    pub trickle_charge_power_kw: Option<f64>,
 }
 
 /// Gets all sites for a specific company ID.
@@ -81,6 +82,7 @@ pub fn insert_site(
         peak_revenue_start_minutes: Some(DEFAULT_PEAK_REVENUE_START_MINUTES),
         peak_revenue_end_minutes: Some(DEFAULT_PEAK_REVENUE_END_MINUTES),
         interconnection_max_output_kw: Some(DEFAULT_INTERCONNECTION_MAX_OUTPUT_KW),
+        trickle_charge_power_kw: None,
     };
 
     diesel::insert_into(sites).values(&new_site).execute(conn)?;
@@ -118,7 +120,7 @@ pub fn get_site_by_company_and_name(
          power_kw, capacity_kwh, closed_loop_enabled, off_peak_start_minutes, \
          off_peak_end_minutes, peak_revenue_start_minutes, peak_revenue_end_minutes, \
          interconnection_max_output_kw, rebound_protection_soc_floor_percent, site_variant, \
-         charge_rate_percent, discharge_rate_percent \
+         charge_rate_percent, discharge_rate_percent, trickle_charge_power_kw \
          FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)",
     )
     .bind::<diesel::sql_types::Integer, _>(site_company_id)
@@ -178,6 +180,8 @@ pub fn update_site(
                 .eq(update.charge_rate_percent.unwrap_or(current_site.charge_rate_percent)),
             discharge_rate_percent
                 .eq(update.discharge_rate_percent.unwrap_or(current_site.discharge_rate_percent)),
+            trickle_charge_power_kw
+                .eq(update.trickle_charge_power_kw.or(current_site.trickle_charge_power_kw)),
         ))
         .execute(conn)?;
 
@@ -248,6 +252,7 @@ pub fn get_site_with_timestamps(
         site_variant: site.site_variant,
         charge_rate_percent: site.charge_rate_percent,
         discharge_rate_percent: site.discharge_rate_percent,
+        trickle_charge_power_kw: site.trickle_charge_power_kw,
         created_at,
         updated_at,
     }))

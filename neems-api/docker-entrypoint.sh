@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# Cap debug info to line tables (debuginfo=1) so the linker's peak
+# memory during parallel test-binary links stays under the Docker VM
+# allocation. Full debug info (debuginfo=2) was tipping aarch64 debug
+# links over ~1.5 GB each — when cargo ran 3-4 in parallel ld would
+# get OOM-killed (signal 9). debuginfo=1 keeps line numbers (so panics
+# still point at real source lines) without the full DWARF type tree.
+export RUSTFLAGS="${RUSTFLAGS} -C debuginfo=1"
+
 # Run database migrations
 echo "Running database migrations..."
 cd /usr/src/app/neems-api
