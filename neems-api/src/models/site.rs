@@ -76,6 +76,10 @@ pub struct Site {
     /// Discharge ceiling as a percentage of `power_kw` (0–100). See
     /// `charge_rate_percent` for visualization context.
     pub discharge_rate_percent: f64,
+    /// Commanded power for `trickle_charge` schedule commands, in kW.
+    /// Nullable so existing rows are interpreted as "unset" and the
+    /// consumer falls back to a default.
+    pub trickle_charge_power_kw: Option<f64>,
 }
 
 #[derive(Insertable)]
@@ -97,6 +101,7 @@ pub struct NewSite {
     pub peak_revenue_start_minutes: Option<i32>,
     pub peak_revenue_end_minutes: Option<i32>,
     pub interconnection_max_output_kw: Option<f64>,
+    pub trickle_charge_power_kw: Option<f64>,
 }
 
 // For API inputs and validation
@@ -134,6 +139,7 @@ pub struct SiteWithTimestamps {
     pub site_variant: String,
     pub charge_rate_percent: f64,
     pub discharge_rate_percent: f64,
+    pub trickle_charge_power_kw: Option<f64>,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
     #[ts(type = "string")]

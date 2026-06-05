@@ -85,6 +85,7 @@ pub struct UpdateSiteRequest {
     pub site_variant: Option<String>,
     pub charge_rate_percent: Option<f64>,
     pub discharge_rate_percent: Option<f64>,
+    pub trickle_charge_power_kw: Option<f64>,
 }
 
 /// Helper function to check if user can perform CRUD operations on a site
@@ -343,6 +344,15 @@ pub async fn update_site_endpoint(
         }
     }
 
+    if let Some(v) = update_data.trickle_charge_power_kw {
+        if !v.is_finite() || v < 0.0 {
+            let err = Json(ErrorResponse {
+                error: format!("trickle_charge_power_kw must be 0 or greater (got {})", v),
+            });
+            return Err(response::status::Custom(Status::BadRequest, err));
+        }
+    }
+
     db.run(move |conn| {
         // First get the site to check authorization
         match get_site_by_id(conn, site_id) {
@@ -409,6 +419,7 @@ pub async fn update_site_endpoint(
                         site_variant: update_data.site_variant.clone(),
                         charge_rate_percent: update_data.charge_rate_percent,
                         discharge_rate_percent: update_data.discharge_rate_percent,
+                        trickle_charge_power_kw: update_data.trickle_charge_power_kw,
                     },
                     Some(auth_user.user.id),
                 )

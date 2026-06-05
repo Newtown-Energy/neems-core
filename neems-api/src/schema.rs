@@ -142,6 +142,7 @@ diesel::table! {
         site_variant -> Text,
         charge_rate_percent -> Double,
         discharge_rate_percent -> Double,
+        trickle_charge_power_kw -> Nullable<Double>,
     }
 }
 
