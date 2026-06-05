@@ -4,10 +4,12 @@
 [print_schema]
 file = "src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
-# Applied after schema regeneration. Forces sites.latitude / longitude
-# to `Double` (f64) instead of diesel-cli's SQLite default of `Float`
-# (f32); the Site model is keyed to f64 and CLI-driven migrations
-# were silently flipping the schema back, breaking the build.
+# print-schema regenerates schema.rs from the live DB on every
+# `diesel migration run`. The schedule_templates table's physical
+# column order (is_active, created_at, is_default) does not match
+# the Rust ScheduleTemplate struct's field order — so without this
+# patch the post-migration build fails with 7 trait-bound errors.
+# The patch swaps created_at and is_default back to struct order.
 patch_file = "src/schema.patch"
 
 [migrations_directory]
