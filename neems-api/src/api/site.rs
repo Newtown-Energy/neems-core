@@ -362,10 +362,7 @@ pub async fn update_site_endpoint(
     for (field, value) in [
         ("power_kw", update_data.power_kw),
         ("capacity_kwh", update_data.capacity_kwh),
-        (
-            "interconnection_max_output_kw",
-            update_data.interconnection_max_output_kw,
-        ),
+        ("interconnection_max_output_kw", update_data.interconnection_max_output_kw),
         ("trickle_charge_power_kw", update_data.trickle_charge_power_kw),
     ] {
         if let Some(v) = value {

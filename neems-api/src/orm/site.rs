@@ -180,9 +180,8 @@ pub fn update_site(
                 .eq(update.charge_rate_percent.unwrap_or(current_site.charge_rate_percent)),
             discharge_rate_percent
                 .eq(update.discharge_rate_percent.unwrap_or(current_site.discharge_rate_percent)),
-            trickle_charge_power_kw.eq(update
-                .trickle_charge_power_kw
-                .or(current_site.trickle_charge_power_kw)),
+            trickle_charge_power_kw
+                .eq(update.trickle_charge_power_kw.or(current_site.trickle_charge_power_kw)),
         ))
         .execute(conn)?;
 
