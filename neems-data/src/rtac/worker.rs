@@ -6,7 +6,11 @@
 //! - Time-slotted single worker pattern (reads every tick, writes every 5th
 //!   tick)
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::{SocketAddr, ToSocketAddrs},
+    sync::Arc,
+    time::Duration,
+};
 
 use chrono::Utc;
 use tokio::{
@@ -87,6 +91,45 @@ impl RtacConfig {
     pub fn with_slave_id(mut self, slave_id: u8) -> Self {
         self.slave_id = slave_id;
         self
+    }
+
+    /// Build a config from the environment, falling back to [`Default`].
+    ///
+    /// Honored variables:
+    /// - `RTAC_ADDRESS`: the RTAC Modbus endpoint as `host:port` (a hostname,
+    ///   e.g. the `neems-rtac-sim` service in docker, or an `ip:port`). The
+    ///   hostname is resolved to a socket address.
+    /// - `RTAC_SLAVE_ID`: the Modbus slave/unit id (u8).
+    ///
+    /// Invalid or unresolvable values are logged and the default is kept, so a
+    /// misconfigured environment never prevents startup.
+    pub fn from_env() -> Self {
+        let mut config = Self::default();
+
+        if let Ok(addr) = std::env::var("RTAC_ADDRESS") {
+            match addr.to_socket_addrs() {
+                Ok(mut addrs) => match addrs.next() {
+                    Some(resolved) => config.rtac_address = resolved,
+                    None => {
+                        warn!(address = %addr, "RTAC_ADDRESS resolved to no addresses, using default")
+                    }
+                },
+                Err(e) => {
+                    warn!(address = %addr, error = %e, "Failed to resolve RTAC_ADDRESS, using default")
+                }
+            }
+        }
+
+        if let Ok(slave_id) = std::env::var("RTAC_SLAVE_ID") {
+            match slave_id.parse::<u8>() {
+                Ok(parsed) => config.slave_id = parsed,
+                Err(e) => {
+                    warn!(slave_id = %slave_id, error = %e, "Invalid RTAC_SLAVE_ID, using default")
+                }
+            }
+        }
+
+        config
     }
 }
 
@@ -475,6 +518,30 @@ mod tests {
 
         assert_eq!(config.rtac_address, addr);
         assert_eq!(config.slave_id, 2);
+    }
+
+    #[test]
+    fn test_rtac_config_from_env() {
+        // Override the address and slave id from the environment.
+        unsafe {
+            std::env::set_var("RTAC_ADDRESS", "10.0.0.5:1502");
+            std::env::set_var("RTAC_SLAVE_ID", "7");
+        }
+        let config = RtacConfig::from_env();
+        assert_eq!(config.rtac_address, "10.0.0.5:1502".parse().unwrap());
+        assert_eq!(config.slave_id, 7);
+
+        // An unparseable address falls back to the default rather than failing.
+        unsafe {
+            std::env::set_var("RTAC_ADDRESS", "definitely not an address");
+        }
+        let config = RtacConfig::from_env();
+        assert_eq!(config.rtac_address, RtacConfig::default().rtac_address);
+
+        unsafe {
+            std::env::remove_var("RTAC_ADDRESS");
+            std::env::remove_var("RTAC_SLAVE_ID");
+        }
     }
 
     #[test]

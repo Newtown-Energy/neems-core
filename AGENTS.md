@@ -59,8 +59,25 @@ cd /Users/slifty/Maestral/Code/open-tech-strategies/newtown/devenv && docker com
 This is a Rust workspace with multiple crates:
 - `neems-api` - Main API server
 - `neems-admin` - CLI administration tool
-- `neems-data` - Data aggregation service
+- `neems-data` - Data aggregation service (contains the RTAC Modbus integration in `src/rtac/`)
+- `neems-rtac-sim` - Simulated RTAC: a Modbus TCP server for exercising the RTAC integration without hardware
 - `crates/fixphrase` - Utility crate for GPS coordinate encoding
+
+## Simulated RTAC (`neems-rtac-sim`)
+
+`neems-rtac-sim` is a standalone Modbus TCP server that simulates an RTAC. It
+reuses the register map from `neems-data`'s `rtac::protocol` (the single source
+of truth), so the simulator and the real client cannot drift apart. Command
+registers (target charge, operating mode) drive a simple internal model whose
+state of charge and alarm list advance once per tick (1 Hz by default).
+
+- Run it interactively: `cargo run -p neems-rtac-sim` (type `help` for stdin
+  control commands like `charge`, `discharge`, `soc 80`, `alarm set 321`).
+- In `devenv` it runs as the `neems-rtac-sim` service (with `--no-stdin`,
+  binding `0.0.0.0:502`). `neems-data` is pointed at it by default via the
+  `RTAC_ADDRESS=neems-rtac-sim:502` env var, read by `RtacConfig::from_env()`.
+  Note: the `ModbusWorker` is not yet started by `neems-data monitor`, so this
+  is configuration plumbing — no RTAC data flows until the worker is enabled.
 
 ## Development Workflow
 
