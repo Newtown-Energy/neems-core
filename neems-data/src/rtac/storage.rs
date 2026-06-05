@@ -8,11 +8,13 @@
 use std::{collections::VecDeque, time::Duration};
 
 use chrono::{DateTime, Utc};
+use diesel::{Connection, sqlite::SqliteConnection};
 use serde_json::json;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
 use super::{alarm_definitions::ALARM_REGISTER_COUNT, state::RtacReading};
+use crate::{insert_readings_batch, models::NewReading};
 
 /// Configuration for the storage writer task
 #[derive(Debug, Clone)]
@@ -68,9 +70,25 @@ pub struct StorageReading {
     pub data: serde_json::Value,
 }
 
+/// Map an RTAC operating-mode string to the `state` value used by the
+/// `charging_state` SoC history (charging / discharging / hold).
+fn soc_state_from_mode(mode: &str) -> &'static str {
+    match mode {
+        "charging" | "trickle_charge" => "charging",
+        "discharging" => "discharging",
+        _ => "hold",
+    }
+}
+
 impl From<RtacReading> for StorageReading {
     fn from(reading: RtacReading) -> Self {
+        // `level` and `state` mirror the shape the `charging_state` collector
+        // writes, so RTAC readings are served by the SoC history endpoint
+        // (which reads `level`/`state`). The remaining fields preserve the full
+        // RTAC reading for richer consumers.
         let data = json!({
+            "level": reading.soc_percent,
+            "state": soc_state_from_mode(&reading.mode),
             "soc_percent": reading.soc_percent,
             "power_kw": reading.power_kw,
             "mode": reading.mode,
@@ -131,6 +149,59 @@ impl StorageBackend for InMemoryStorage {
             }
             self.readings.push_back(reading);
         }
+        Ok(())
+    }
+}
+
+/// Database-backed storage that writes RTAC readings to the site SQLite DB.
+///
+/// Readings are written to the `readings` table under a fixed `source_id` (the
+/// RTAC's `charging_state` source). Each write happens on a blocking thread via
+/// `spawn_blocking` so the async runtime is never blocked on disk I/O.
+pub struct DatabaseStorageBackend {
+    database_url: String,
+    source_id: i32,
+}
+
+impl DatabaseStorageBackend {
+    /// Create a backend that writes readings under `source_id` to
+    /// `database_url`.
+    pub fn new(database_url: String, source_id: i32) -> Self {
+        Self { database_url, source_id }
+    }
+}
+
+impl StorageBackend for DatabaseStorageBackend {
+    async fn write_batch(
+        &mut self,
+        readings: Vec<StorageReading>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if readings.is_empty() {
+            return Ok(());
+        }
+
+        let database_url = self.database_url.clone();
+        let source_id = self.source_id;
+
+        tokio::task::spawn_blocking(
+            move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                let new_readings: Vec<NewReading> = readings
+                    .into_iter()
+                    .map(|r| NewReading {
+                        source_id,
+                        timestamp: Some(r.timestamp.naive_utc()),
+                        data: r.data.to_string(),
+                        quality_flags: None,
+                    })
+                    .collect();
+
+                let mut conn = SqliteConnection::establish(&database_url)?;
+                insert_readings_batch(&mut conn, new_readings)?;
+                Ok(())
+            },
+        )
+        .await??;
+
         Ok(())
     }
 }
@@ -409,5 +480,18 @@ mod tests {
         assert_eq!(storage_reading.data["soc_percent"], 75.5);
         assert_eq!(storage_reading.data["power_kw"], -50.0);
         assert_eq!(storage_reading.data["sequence"], 42);
+        // `level`/`state` make the reading consumable by the SoC history endpoint.
+        // make_test_reading uses mode "charging".
+        assert_eq!(storage_reading.data["level"], 75.5);
+        assert_eq!(storage_reading.data["state"], "charging");
+    }
+
+    #[test]
+    fn test_soc_state_from_mode() {
+        assert_eq!(soc_state_from_mode("charging"), "charging");
+        assert_eq!(soc_state_from_mode("trickle_charge"), "charging");
+        assert_eq!(soc_state_from_mode("discharging"), "discharging");
+        assert_eq!(soc_state_from_mode("standby"), "hold");
+        assert_eq!(soc_state_from_mode("fault"), "hold");
     }
 }

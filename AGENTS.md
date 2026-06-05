@@ -76,8 +76,23 @@ state of charge and alarm list advance once per tick (1 Hz by default).
 - In `devenv` it runs as the `neems-rtac-sim` service (with `--no-stdin`,
   binding `0.0.0.0:502`). `neems-data` is pointed at it by default via the
   `RTAC_ADDRESS=neems-rtac-sim:502` env var, read by `RtacConfig::from_env()`.
-  Note: the `ModbusWorker` is not yet started by `neems-data monitor`, so this
-  is configuration plumbing — no RTAC data flows until the worker is enabled.
+
+### RTAC collector (`rtac::runner`)
+
+`neems-data monitor` starts the RTAC collector alongside the source poller (see
+`DataAggregator::start_aggregation`). `rtac::runner::run_rtac_collector` wires
+the `ModbusWorker` to the storage and alarm tasks, polls the RTAC at 10 Hz, and
+persists SoC readings at 1 Hz to a dedicated `charging_state` source named
+`rtac` (created `active = false` so the generic poller doesn't also write it).
+Those readings surface through the existing `GET /Sites/<id>/SocHistory`
+endpoint and the React dashboard.
+
+- The collector is **read-only**: it reads status but issues no commands, so the
+  simulator stays in standby and SoC is flat. Driving the RTAC from database
+  schedules (`ControlLogicTask` + a DB-backed `ScheduleProvider`) is a future step.
+- It runs on its own thread with a current-thread runtime because the Modbus
+  client context is not `Send`.
+- Disable it with `RTAC_ENABLED=0` (or `false`/`no`).
 
 ## Development Workflow
 
