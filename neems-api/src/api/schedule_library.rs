@@ -396,6 +396,16 @@ pub async fn create_library_item_from_site_defaults_endpoint(
 
         let req = request.into_inner();
 
+        if !(0..=100).contains(&req.end_of_charge_soc_percent) {
+            let err = Json(ErrorResponse {
+                error: format!(
+                    "end_of_charge_soc_percent must be between 0 and 100 (got {})",
+                    req.end_of_charge_soc_percent
+                ),
+            });
+            return Err(status::Custom(Status::BadRequest, err));
+        }
+
         match create_library_item_from_site_defaults(
             conn,
             site_id,
