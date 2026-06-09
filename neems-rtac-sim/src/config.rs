@@ -60,9 +60,11 @@ impl Default for SimConfig {
             soc_floor_percent: 0.0,
             soc_ceiling_percent: 100.0,
 
-            charge_rate_pct: 1.0,
-            discharge_rate_pct: 1.0,
-            trickle_rate_pct: 0.1,
+            // ~5% per 6 minutes at the 1 Hz tick (5 / 360 per second). Trickle
+            // charge is ~5x slower again (~1% per 6 minutes).
+            charge_rate_pct: 5.0 / 360.0,
+            discharge_rate_pct: 5.0 / 360.0,
+            trickle_rate_pct: 1.0 / 360.0,
 
             charge_power_kw: 250.0,
             discharge_power_kw: 250.0,
