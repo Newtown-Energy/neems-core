@@ -13,6 +13,7 @@ pub mod control;
 pub mod modbus_client;
 pub mod protocol;
 pub mod runner;
+pub mod schedule_http;
 pub mod state;
 pub mod storage;
 pub mod worker;

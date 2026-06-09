@@ -196,6 +196,29 @@ pub struct CloneLibraryItemRequest {
     pub description: Option<String>,
 }
 
+/// The schedule command that is active for a site at a given moment.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ActiveScheduleCommand {
+    pub command_id: i32,
+    pub command_type: CommandType,
+    pub target_soc_percent: Option<i32>,
+    pub duration_seconds: Option<i32>,
+    pub ramp_duration_seconds: i32,
+    /// When this command became active (UTC, naive).
+    #[ts(type = "string")]
+    pub starts_at: chrono::NaiveDateTime,
+}
+
+/// Response for the active-command endpoint. `command` is `None` when the site
+/// has no effective schedule (the battery should fall back to standby).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ActiveCommandResponse {
+    pub site_id: i32,
+    pub command: Option<ActiveScheduleCommand>,
+}
+
 // Helper function to convert CommandType to string for database
 impl CommandType {
     pub fn as_str(&self) -> &'static str {

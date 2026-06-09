@@ -181,6 +181,15 @@ struct EditArgs {
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     dotenv().ok();
 
+    // Initialize tracing so the RTAC collector / worker / control logic logs are
+    // visible. Honors RUST_LOG; defaults to info.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .try_init();
+
     let database_path =
         env::var("SITE_DATABASE_URL").unwrap_or_else(|_| "site-data.sqlite".to_string());
     // DataAggregator::new prepends `sqlite://`, so strip any leading

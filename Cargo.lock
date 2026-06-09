@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "neems-api"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "argon2",
  "built",
@@ -1588,6 +1588,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "nix",
+ "reqwest",
  "serde",
  "serde_json",
  "signal-hook",

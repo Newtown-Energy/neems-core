@@ -1,21 +1,28 @@
 //! RTAC collector orchestration.
 //!
 //! Wires the [`ModbusWorker`](super::worker::ModbusWorker) together with the
-//! storage and alarm-handler tasks and runs them as a unit. This is the entry
-//! point used by `neems-data monitor` to poll the RTAC (or the simulated RTAC)
-//! and persist State-of-Charge readings into the site database.
+//! storage, alarm-handler, and control-logic tasks and runs them as a unit.
+//! This is the entry point used by `neems-data monitor` to poll the RTAC (or
+//! the simulated RTAC), persist State-of-Charge readings, and write the active
+//! schedule command back to the RTAC.
 //!
-//! Currently read-only: the worker reads status at 10 Hz and stores SoC at
-//! 1 Hz, but no commands are issued (the command channel stays empty). Driving
-//! the RTAC from database schedules is a separate, future step.
+//! The active command is sourced from neems-api over HTTP (see
+//! [`schedule_http`](super::schedule_http)); the [`ControlLogicTask`] turns it
+//! into RTAC commands and also applies reactive SoC/alarm safety overrides.
 
-use std::{env, error::Error};
+use std::{
+    env,
+    error::Error,
+    sync::{Arc, Mutex},
+};
 
 use diesel::{Connection, sqlite::SqliteConnection};
 use tracing::{error, info};
 
 use super::{
     alarms::{AlarmConfig, AlarmHandlerTask, create_alarm_channel},
+    control::{ControlConfig, ControlLogicTask},
+    schedule_http::{ApiClientConfig, HttpScheduleProvider, run_active_command_poller},
     state::PendingCommand,
     storage::{DatabaseStorageBackend, StorageConfig, StorageWriterTask, create_storage_channel},
     worker::{ModbusWorker, RtacConfig, create_worker_channels},
@@ -82,17 +89,18 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
         address = %config.rtac_address,
         slave_id = config.slave_id,
         source_id,
-        "Starting RTAC collector (read-only)"
+        "Starting RTAC collector"
     );
 
-    // Build the inter-task channels. The command channel stays empty (read-only
-    // mode); `command_tx` and `shutdown_tx` are held for the lifetime of the
-    // collector so their channels are not seen as closed.
+    // Build the inter-task channels. `command_tx` goes to the control logic,
+    // `command_rx` to the worker; `shutdown_tx` is held for the lifetime of the
+    // collector so the worker's shutdown channel is not seen as closed.
     let (command_tx, command_rx) = tokio::sync::watch::channel::<Option<PendingCommand>>(None);
     let (storage_tx, storage_rx) = create_storage_channel(256);
     let (alarm_tx, alarm_rx) = create_alarm_channel();
     let (channels, shutdown_tx) = create_worker_channels(command_rx, storage_tx, alarm_tx);
-    let _command_tx = command_tx;
+    // The control logic reads the same shared state the worker updates.
+    let shared_state = channels.state.clone();
     let _shutdown_tx = shutdown_tx;
 
     // Storage task: persist readings to the site database.
@@ -113,7 +121,29 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
         }
     });
 
-    // Worker loop: reads status, samples to storage, forwards alarm changes.
+    // Active-command poller: fetch the current schedule command from neems-api
+    // into a shared cache that the control logic reads.
+    let command_cache = Arc::new(Mutex::new(None));
+    let api_config = ApiClientConfig::from_env(site_id);
+    tokio::spawn(run_active_command_poller(api_config, command_cache.clone()));
+
+    // Control logic: turn the active command into RTAC commands (with reactive
+    // SoC/alarm safety overrides) and write them via the command channel.
+    let schedule_provider = HttpScheduleProvider::new(command_cache);
+    let mut control_task = ControlLogicTask::new(
+        ControlConfig::default(),
+        schedule_provider,
+        shared_state,
+        command_tx,
+    );
+    tokio::spawn(async move {
+        if let Err(e) = control_task.run().await {
+            error!(error = %e, "RTAC control logic task stopped");
+        }
+    });
+
+    // Worker loop: reads status, samples to storage, forwards alarm changes,
+    // and writes the active command to the RTAC.
     let mut worker = ModbusWorker::new(config, channels);
     worker.run().await?;
 

@@ -87,9 +87,14 @@ persists SoC readings at 1 Hz to a dedicated `charging_state` source named
 Those readings surface through the existing `GET /Sites/<id>/SocHistory`
 endpoint and the React dashboard.
 
-- The collector is **read-only**: it reads status but issues no commands, so the
-  simulator stays in standby and SoC is flat. Driving the RTAC from database
-  schedules (`ControlLogicTask` + a DB-backed `ScheduleProvider`) is a future step.
+- The collector is **closed-loop**: alongside reading status it drives the RTAC
+  from the site's schedule. A background poller (`rtac::schedule_http`) fetches
+  the active command from neems-api's `GET /Sites/<id>/ActiveCommand` endpoint,
+  and `ControlLogicTask` (via `HttpScheduleProvider`) turns it into RTAC commands
+  with reactive SoC/alarm safety overrides. Credentials come from
+  `NEEMS_API_URL` / `NEEMS_API_EMAIL` / `NEEMS_API_PASSWORD` (falling back to
+  `NEEMS_DEFAULT_EMAIL` / `NEEMS_DEFAULT_PASSWORD`); without them the collector
+  stays read-only and logs a warning.
 - It runs on its own thread with a current-thread runtime because the Modbus
   client context is not `Send`.
 - Disable it with `RTAC_ENABLED=0` (or `false`/`no`).

@@ -9,8 +9,8 @@ use ts_rs::TS;
 use crate::{
     logged_json::LoggedJson,
     models::{
-        ApplicationRule, CalendarDaySchedule, CalendarDayScheduleMatches,
-        CreateApplicationRuleRequest, EffectiveScheduleResponse,
+        ActiveCommandResponse, ActiveScheduleCommand, ApplicationRule, CalendarDaySchedule,
+        CalendarDayScheduleMatches, CreateApplicationRuleRequest, EffectiveScheduleResponse,
     },
     orm::{
         DbConn,
@@ -312,6 +312,92 @@ pub async fn get_effective_schedule_endpoint(
     .await
 }
 
+/// Get the schedule command that is active for a site right now.
+///
+/// Computes the active command from the site's effective schedule for today:
+/// the command with the greatest `execution_offset_seconds` not after the
+/// current time of day, or — before the first command of the day — the last
+/// command (which carries over from the previous day, since schedules are
+/// daily-cyclic). Returns `command: None` when the site has no effective
+/// schedule, so the consumer should fall back to standby.
+#[get("/1/Sites/<site_id>/ActiveCommand")]
+pub async fn get_site_active_command(
+    db: DbConn,
+    site_id: i32,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<ActiveCommandResponse>, status::Custom<Json<ErrorResponse>>> {
+    db.run(move |conn| {
+        if !can_view_schedule(&auth_user, site_id, conn) {
+            let err = Json(ErrorResponse {
+                error: "Forbidden: insufficient permissions".to_string(),
+            });
+            return Err(status::Custom(Status::Forbidden, err));
+        }
+
+        let now = chrono::Utc::now();
+        let today = now.date_naive();
+
+        let effective = match get_effective_schedule(conn, site_id, today) {
+            Ok(schedule) => schedule,
+            // No schedule configured for today: no active command.
+            Err(diesel::result::Error::NotFound) => {
+                return Ok(Json(ActiveCommandResponse { site_id, command: None }));
+            }
+            Err(e) => {
+                eprintln!("Error getting effective schedule: {:?}", e);
+                let err = Json(ErrorResponse {
+                    error: "Internal server error".to_string(),
+                });
+                return Err(status::Custom(Status::InternalServerError, err));
+            }
+        };
+
+        let mut commands = effective.library_item.commands;
+        commands.sort_by_key(|c| c.execution_offset_seconds);
+        if commands.is_empty() {
+            return Ok(Json(ActiveCommandResponse { site_id, command: None }));
+        }
+
+        let now_secs = chrono::Timelike::num_seconds_from_midnight(&now.time()) as i32;
+
+        // The active command is the latest one whose offset is at or before the
+        // current time of day. Before the day's first command, the previous
+        // day's last command carries over.
+        let (active, carried_over) =
+            match commands.iter().rev().find(|c| c.execution_offset_seconds <= now_secs) {
+                Some(c) => (c.clone(), false),
+                None => (commands.last().expect("non-empty checked above").clone(), true),
+            };
+
+        let ramp_duration_seconds = get_site_by_id(conn, site_id)
+            .ok()
+            .flatten()
+            .map(|s| s.ramp_duration_seconds)
+            .unwrap_or(120);
+
+        let start_day = if carried_over {
+            today.pred_opt().unwrap_or(today)
+        } else {
+            today
+        };
+        let starts_at = start_day.and_hms_opt(0, 0, 0).unwrap_or_default()
+            + chrono::Duration::seconds(active.execution_offset_seconds as i64);
+
+        Ok(Json(ActiveCommandResponse {
+            site_id,
+            command: Some(ActiveScheduleCommand {
+                command_id: active.id,
+                command_type: active.command_type,
+                target_soc_percent: active.target_soc_percent,
+                duration_seconds: active.duration_seconds,
+                ramp_duration_seconds,
+                starts_at,
+            }),
+        }))
+    })
+    .await
+}
+
 /// Get calendar schedules for a month
 #[get("/1/Sites/<site_id>/CalendarSchedules?<year>&<month>")]
 pub async fn get_calendar_schedules_endpoint(
@@ -499,6 +585,7 @@ pub fn routes() -> Vec<Route> {
         create_application_rule_endpoint,
         delete_application_rule_endpoint,
         get_effective_schedule_endpoint,
+        get_site_active_command,
         get_calendar_schedules_endpoint,
         get_calendar_schedules_with_matches_endpoint,
         season_fill_application_rule_endpoint,
