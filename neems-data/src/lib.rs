@@ -16,8 +16,10 @@ pub mod collectors;
 pub mod models;
 pub mod rtac;
 pub mod schema;
+pub mod seed;
 
 pub use models::*;
+pub use seed::{SeedOutcome, seed_alarm_history, seed_soc_history, seeded_alarm_flags};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -64,15 +66,17 @@ impl DataAggregator {
         let database_url = self.database_url.clone();
 
         // Start the RTAC collector alongside the source poller. It polls the
-        // RTAC (or the simulated RTAC) and stores SoC readings. Enabled by
-        // default; set RTAC_ENABLED=0 (or false/no) to disable.
+        // RTAC (or the simulated RTAC) and stores SoC readings. Disabled by
+        // default so the system does not follow a (possibly absent) RTAC
+        // connection unless explicitly told to; set RTAC_ENABLED=1 (or
+        // true/yes) to enable.
         //
         // The Modbus client context is not `Send`, so the collector runs on its
         // own dedicated thread with a current-thread runtime rather than being
         // spawned onto the shared multi-thread runtime.
         let rtac_enabled = env::var("RTAC_ENABLED")
-            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
-            .unwrap_or(true);
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
         if rtac_enabled {
             let rtac_db_url = self.database_url.clone();
             std::thread::Builder::new().name("rtac-collector".to_string()).spawn(move || {
