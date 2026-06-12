@@ -1,10 +1,12 @@
 --- a/src/schema.rs
 +++ b/src/schema.rs
-@@ -1,7 +1,7 @@
-         description -> Nullable<Text>,
-         is_active -> Bool,
--        created_at -> Timestamp,
-         is_default -> Bool,
-+        created_at -> Timestamp,
-     }
- }
+@@ -126,7 +126,7 @@
+         id -> Integer,
+         name -> Text,
+         address -> Text,
+-        latitude -> Float,
+-        longitude -> Float,
++        latitude -> Double,
++        longitude -> Double,
+         company_id -> Integer,
+         ramp_duration_seconds -> Integer,
