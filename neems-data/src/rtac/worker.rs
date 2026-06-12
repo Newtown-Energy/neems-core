@@ -104,9 +104,20 @@ impl RtacConfig {
     /// Invalid or unresolvable values are logged and the default is kept, so a
     /// misconfigured environment never prevents startup.
     pub fn from_env() -> Self {
+        Self::from_env_values(
+            std::env::var("RTAC_ADDRESS").ok().as_deref(),
+            std::env::var("RTAC_SLAVE_ID").ok().as_deref(),
+        )
+    }
+
+    /// Pure helper backing [`from_env`](Self::from_env): build a config from
+    /// the already-extracted values, falling back to [`Default`] for
+    /// anything missing or invalid. Kept free of environment access so it
+    /// can be tested without mutating the process-wide environment.
+    pub fn from_env_values(addr: Option<&str>, slave_id: Option<&str>) -> Self {
         let mut config = Self::default();
 
-        if let Ok(addr) = std::env::var("RTAC_ADDRESS") {
+        if let Some(addr) = addr {
             match addr.to_socket_addrs() {
                 Ok(mut addrs) => match addrs.next() {
                     Some(resolved) => config.rtac_address = resolved,
@@ -120,7 +131,7 @@ impl RtacConfig {
             }
         }
 
-        if let Ok(slave_id) = std::env::var("RTAC_SLAVE_ID") {
+        if let Some(slave_id) = slave_id {
             match slave_id.parse::<u8>() {
                 Ok(parsed) => config.slave_id = parsed,
                 Err(e) => {
@@ -521,27 +532,25 @@ mod tests {
     }
 
     #[test]
-    fn test_rtac_config_from_env() {
-        // Override the address and slave id from the environment.
-        unsafe {
-            std::env::set_var("RTAC_ADDRESS", "10.0.0.5:1502");
-            std::env::set_var("RTAC_SLAVE_ID", "7");
-        }
-        let config = RtacConfig::from_env();
+    fn test_rtac_config_from_env_values() {
+        // Parsing the address and slave id from supplied values, without
+        // touching the process-wide environment.
+        let config = RtacConfig::from_env_values(Some("10.0.0.5:1502"), Some("7"));
         assert_eq!(config.rtac_address, "10.0.0.5:1502".parse().unwrap());
         assert_eq!(config.slave_id, 7);
 
         // An unparseable address falls back to the default rather than failing.
-        unsafe {
-            std::env::set_var("RTAC_ADDRESS", "definitely not an address");
-        }
-        let config = RtacConfig::from_env();
+        let config = RtacConfig::from_env_values(Some("definitely not an address"), None);
         assert_eq!(config.rtac_address, RtacConfig::default().rtac_address);
 
-        unsafe {
-            std::env::remove_var("RTAC_ADDRESS");
-            std::env::remove_var("RTAC_SLAVE_ID");
-        }
+        // An invalid slave id falls back to the default too.
+        let config = RtacConfig::from_env_values(None, Some("not a number"));
+        assert_eq!(config.slave_id, RtacConfig::default().slave_id);
+
+        // Missing values leave the defaults untouched.
+        let config = RtacConfig::from_env_values(None, None);
+        assert_eq!(config.rtac_address, RtacConfig::default().rtac_address);
+        assert_eq!(config.slave_id, RtacConfig::default().slave_id);
     }
 
     #[test]

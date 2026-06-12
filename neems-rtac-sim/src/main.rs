@@ -29,7 +29,8 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:502")]
     bind: SocketAddr,
 
-    /// Modbus unit/slave identifier.
+    /// Modbus unit/slave identifier (informational; the simulator answers any
+    /// unit id and does not currently enforce this value).
     #[arg(long, default_value_t = 1)]
     unit_id: u8,
 

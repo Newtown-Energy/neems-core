@@ -14,7 +14,11 @@ use std::{
 pub struct SimConfig {
     /// Address the Modbus TCP server binds to.
     pub bind_address: SocketAddr,
-    /// Modbus unit/slave identifier the server responds as.
+    /// Modbus unit/slave identifier the simulator is nominally configured as.
+    ///
+    /// Informational only: the simulator answers requests for any unit id, so
+    /// this value is not currently enforced by the server. It exists to mirror
+    /// the real device's configuration and to document the expected unit id.
     pub unit_id: u8,
     /// How often the simulated physics advances (the "once-per-second" tick).
     pub tick_interval: Duration,

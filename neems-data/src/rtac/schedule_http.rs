@@ -166,7 +166,10 @@ async fn fetch_active_command(
         .header(reqwest::header::COOKIE, format!("session={session_token}"))
         .send()
         .await
-        .map_err(|_| false)?;
+        .map_err(|e| {
+            warn!(error = %e, "ActiveCommand request failed");
+            false
+        })?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED
         || resp.status() == reqwest::StatusCode::FORBIDDEN

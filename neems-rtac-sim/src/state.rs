@@ -5,7 +5,8 @@
 //! registers most recently written over Modbus. The Modbus server reads and
 //! writes registers through [`SimState::read_registers`] /
 //! [`SimState::write_registers`], and [`SimState::tick`] advances the simulated
-//! physics once per tick (driven at 1 Hz by the binary).
+//! physics once per tick (driven at a configurable interval, 1 Hz by default,
+//! by the binary).
 //!
 //! The register layout is taken directly from [`neems_data::rtac::protocol`] so
 //! the simulator and the real client can never drift apart.
