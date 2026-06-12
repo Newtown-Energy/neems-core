@@ -63,6 +63,30 @@ impl DataAggregator {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let database_url = self.database_url.clone();
 
+        // Start the RTAC collector alongside the source poller. It polls the
+        // RTAC (or the simulated RTAC) and stores SoC readings. Enabled by
+        // default; set RTAC_ENABLED=0 (or false/no) to disable.
+        //
+        // The Modbus client context is not `Send`, so the collector runs on its
+        // own dedicated thread with a current-thread runtime rather than being
+        // spawned onto the shared multi-thread runtime.
+        let rtac_enabled = env::var("RTAC_ENABLED")
+            .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+            .unwrap_or(true);
+        if rtac_enabled {
+            let rtac_db_url = self.database_url.clone();
+            std::thread::Builder::new().name("rtac-collector".to_string()).spawn(move || {
+                match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                    Ok(rt) => {
+                        if let Err(e) = rt.block_on(rtac::run_rtac_collector(rtac_db_url)) {
+                            eprintln!("RTAC collector stopped: {}", e);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to start RTAC collector runtime: {}", e),
+                }
+            })?;
+        }
+
         // Create a channel for collecting readings
         let (tx, rx) = mpsc::unbounded_channel::<PendingReading>();
 

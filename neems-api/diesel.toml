@@ -5,11 +5,11 @@
 file = "src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 # print-schema regenerates schema.rs from the live DB on every
-# `diesel migration run`. The schedule_templates table's physical
-# column order (is_active, created_at, is_default) does not match
-# the Rust ScheduleTemplate struct's field order — so without this
-# patch the post-migration build fails with 7 trait-bound errors.
-# The patch swaps created_at and is_default back to struct order.
+# `diesel migration run`. SQLite reports the sites.latitude/longitude
+# columns (declared DOUBLE PRECISION) with REAL affinity, so diesel-cli
+# infers `Float` for them — but the Rust Site model uses f64, which maps
+# to `Double`. Without this patch the post-migration build fails with
+# trait-bound errors. The patch rewrites those two columns back to Double.
 patch_file = "src/schema.patch"
 
 [migrations_directory]

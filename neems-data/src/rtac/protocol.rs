@@ -115,6 +115,22 @@ impl CommandType {
             Self::ClearFaults => 5,
         }
     }
+
+    /// Parse a command type from a command register value
+    ///
+    /// Returns `None` for unrecognized values (so callers can decide how to
+    /// treat an invalid command rather than silently coercing it).
+    pub fn from_register(value: u16) -> Option<Self> {
+        match value {
+            0 => Some(Self::Standby),
+            1 => Some(Self::Charge),
+            2 => Some(Self::Discharge),
+            3 => Some(Self::TrickleCharge),
+            4 => Some(Self::EmergencyStop),
+            5 => Some(Self::ClearFaults),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for CommandType {
@@ -253,6 +269,43 @@ pub fn parse_power_kw(high: u16, low: u16) -> f32 {
     (watts as f32) / 1000.0
 }
 
+/// Convert voltage (volts) to register value (decivolts)
+///
+/// Inverse of [`parse_voltage`]. Clamped to the unsigned 16-bit range.
+pub fn voltage_to_register(volts: f32) -> u16 {
+    (volts * 10.0).clamp(0.0, u16::MAX as f32) as u16
+}
+
+/// Convert current (amps, signed) to register value (deciamps)
+///
+/// Inverse of [`parse_current`]. Negative currents are encoded as a signed
+/// 16-bit value reinterpreted as `u16`.
+pub fn current_to_register(amps: f32) -> u16 {
+    ((amps * 10.0).clamp(i16::MIN as f32, i16::MAX as f32) as i16) as u16
+}
+
+/// Convert temperature (Celsius, signed) to register value (decidegrees)
+///
+/// Inverse of [`parse_temperature`].
+pub fn temperature_to_register(celsius: f32) -> u16 {
+    ((celsius * 10.0).clamp(i16::MIN as f32, i16::MAX as f32) as i16) as u16
+}
+
+/// Convert grid frequency (Hz) to register value (centihertz)
+///
+/// Inverse of [`parse_grid_frequency`].
+pub fn grid_frequency_to_register(hz: f32) -> u16 {
+    (hz * 100.0).clamp(0.0, u16::MAX as f32) as u16
+}
+
+/// Convert power (kW, signed) to two registers (watts, big-endian high/low)
+///
+/// Inverse of [`parse_power_kw`].
+pub fn power_kw_to_registers(kw: f32) -> (u16, u16) {
+    let watts = (kw * 1000.0) as i32;
+    i32_to_registers(watts)
+}
+
 /// Parsed status data from a read operation
 #[derive(Debug, Clone)]
 pub struct ParsedStatus {
@@ -378,6 +431,46 @@ mod tests {
         assert_eq!(parse_temperature(250), 25.0);
         // Test negative temperature (signed)
         assert_eq!(parse_temperature(65526), -1.0); // -10 in signed 16-bit / 10
+    }
+
+    #[test]
+    fn test_command_type_register_roundtrip() {
+        for cmd in [
+            CommandType::Standby,
+            CommandType::Charge,
+            CommandType::Discharge,
+            CommandType::TrickleCharge,
+            CommandType::EmergencyStop,
+            CommandType::ClearFaults,
+        ] {
+            assert_eq!(CommandType::from_register(cmd.to_register()), Some(cmd));
+        }
+        assert_eq!(CommandType::from_register(99), None);
+    }
+
+    #[test]
+    fn test_scaling_inverse_roundtrips() {
+        // Voltage: decivolts
+        assert_eq!(voltage_to_register(480.0), 4800);
+        assert_eq!(parse_voltage(voltage_to_register(480.0)), 480.0);
+
+        // Grid frequency: centihertz
+        assert_eq!(grid_frequency_to_register(60.0), 6000);
+        assert_eq!(parse_grid_frequency(grid_frequency_to_register(60.0)), 60.0);
+
+        // Temperature: signed decidegrees
+        assert_eq!(parse_temperature(temperature_to_register(25.0)), 25.0);
+        assert_eq!(parse_temperature(temperature_to_register(-10.0)), -10.0);
+
+        // Current: signed deciamps
+        assert_eq!(parse_current(current_to_register(100.0)), 100.0);
+        assert_eq!(parse_current(current_to_register(-50.0)), -50.0);
+
+        // Power: signed watts across two registers
+        let (h, l) = power_kw_to_registers(10.0);
+        assert_eq!(parse_power_kw(h, l), 10.0);
+        let (h, l) = power_kw_to_registers(-25.5);
+        assert_eq!(parse_power_kw(h, l), -25.5);
     }
 
     #[test]

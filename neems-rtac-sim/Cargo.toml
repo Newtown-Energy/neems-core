@@ -1,0 +1,23 @@
+[package]
+name = "neems-rtac-sim"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "neems-rtac-sim"
+path = "src/main.rs"
+
+[lib]
+name = "neems_rtac_sim"
+path = "src/lib.rs"
+
+[dependencies]
+neems-data = { path = "../neems-data" }
+clap = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-modbus = { version = "0.14", features = ["tcp-server"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "neems-api"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "argon2",
  "built",
@@ -1588,6 +1588,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "nix",
+ "reqwest",
  "serde",
  "serde_json",
  "signal-hook",
@@ -1599,6 +1600,18 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ts-rs",
+]
+
+[[package]]
+name = "neems-rtac-sim"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "neems-data",
+ "tokio",
+ "tokio-modbus",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2707,6 +2720,7 @@ dependencies = [
  "futures-util",
  "log",
  "smallvec",
+ "socket2",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
