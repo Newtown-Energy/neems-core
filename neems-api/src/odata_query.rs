@@ -99,6 +99,154 @@ pub enum OrderDirection {
     Desc,
 }
 
+/// Accessor used by [`apply_query`] to read a sortable/filterable property off
+/// an in-memory entity. The variant determines which comparison and filter
+/// operators apply.
+///
+/// Note: [`FilterExpression::parse`] currently only produces `eq`/`ne`/`lt`/
+/// `le`/`gt`/`ge`, so the string-only operators below are handled here but not
+/// yet reachable from a `$filter` query string.
+pub enum FieldAccessor<T> {
+    /// Text property. Supports `eq`, `ne`, `contains`, `startswith`, and
+    /// `endswith` filtering plus lexicographic ordering.
+    Str(Box<dyn Fn(&T) -> String + Send + Sync>),
+    /// Integer property. Supports `eq`, `ne`, `lt`, `le`, `gt`, and `ge`
+    /// filtering plus numeric ordering.
+    Int(Box<dyn Fn(&T) -> i64 + Send + Sync>),
+}
+
+/// A single OData-addressable property: the name clients use in `$filter` and
+/// `$orderby`, paired with the accessor that reads it off an entity.
+pub struct ODataField<T> {
+    pub name: &'static str,
+    pub accessor: FieldAccessor<T>,
+}
+
+impl<T> ODataField<T> {
+    /// Declare a text property addressable as `name`.
+    pub fn str(name: &'static str, get: impl Fn(&T) -> String + Send + Sync + 'static) -> Self {
+        Self {
+            name,
+            accessor: FieldAccessor::Str(Box::new(get)),
+        }
+    }
+
+    /// Declare an integer property addressable as `name`.
+    pub fn int(name: &'static str, get: impl Fn(&T) -> i64 + Send + Sync + 'static) -> Self {
+        Self {
+            name,
+            accessor: FieldAccessor::Int(Box::new(get)),
+        }
+    }
+}
+
+/// Apply `$filter`, `$orderby`, `$skip`, and `$top` to an in-memory collection.
+///
+/// `fields` declares which properties are addressable and how to read them;
+/// unknown properties (and value-type mismatches) in `$filter`/`$orderby` are
+/// ignored rather than rejected — the collection is left unchanged for that
+/// clause. This is lenient by design; callers wanting strict 400s on unknown
+/// properties would need to validate the clause against `fields` first.
+///
+/// The whole collection is materialized before this runs: callers fetch every
+/// row, then this filters/sorts/paginates in memory. Fine for the current
+/// table sizes; revisit if any collection grows large.
+///
+/// Only single-clause `$filter` expressions are understood (see
+/// [`FilterExpression::parse`]); compound `and`/`or` filters are not parsed and
+/// will match nothing.
+///
+/// Returns the processed collection together with the total count *after*
+/// filtering but *before* pagination, suitable for `$count`.
+pub fn apply_query<T>(
+    mut items: Vec<T>,
+    query: &ODataQuery,
+    fields: &[ODataField<T>],
+) -> (Vec<T>, i64) {
+    // $filter
+    if let Some(filter) = query.parse_filter() {
+        items.retain(|item| matches_filter(item, &filter, fields));
+    }
+
+    // $orderby. Apply keys least-significant first so a stable sort yields the
+    // requested multi-key ordering.
+    if let Some(orderby) = query.parse_orderby() {
+        for (property, direction) in orderby.iter().rev() {
+            let Some(field) = fields.iter().find(|f| f.name == property) else {
+                continue; // Unknown property, don't sort.
+            };
+            items.sort_by(|a, b| {
+                let cmp = compare_field(a, b, &field.accessor);
+                match direction {
+                    OrderDirection::Asc => cmp,
+                    OrderDirection::Desc => cmp.reverse(),
+                }
+            });
+        }
+    }
+
+    // Count reflects the filtered set, independent of pagination.
+    let total_count = items.len() as i64;
+
+    // $skip / $top. `validate()` already rejects negatives; the `max(0)` guards
+    // are belt-and-suspenders since `apply_query` doesn't validate itself.
+    if let Some(skip) = query.skip {
+        items = items.into_iter().skip(skip.max(0) as usize).collect();
+    }
+    if let Some(top) = query.top {
+        items = items.into_iter().take(top.max(0) as usize).collect();
+    }
+
+    (items, total_count)
+}
+
+/// Evaluate a parsed `$filter` against one entity. Returns `true` (keep the
+/// item) when the property is unknown or the value type is incompatible.
+fn matches_filter<T>(item: &T, filter: &FilterExpression, fields: &[ODataField<T>]) -> bool {
+    let Some(field) = fields.iter().find(|f| f.name == filter.property) else {
+        return true; // Unknown property, don't filter it out.
+    };
+
+    match &field.accessor {
+        FieldAccessor::Str(get) => {
+            let FilterValue::String(rhs) = &filter.value else {
+                return true; // Type mismatch, leave the item in place.
+            };
+            let lhs = get(item);
+            match filter.operator {
+                FilterOperator::Eq => lhs == *rhs,
+                FilterOperator::Ne => lhs != *rhs,
+                FilterOperator::Contains => lhs.contains(rhs.as_str()),
+                FilterOperator::StartsWith => lhs.starts_with(rhs.as_str()),
+                FilterOperator::EndsWith => lhs.ends_with(rhs.as_str()),
+                _ => true,
+            }
+        }
+        FieldAccessor::Int(get) => {
+            let FilterValue::Integer(rhs) = &filter.value else {
+                return true; // Type mismatch, leave the item in place.
+            };
+            let lhs = get(item);
+            match filter.operator {
+                FilterOperator::Eq => lhs == *rhs,
+                FilterOperator::Ne => lhs != *rhs,
+                FilterOperator::Lt => lhs < *rhs,
+                FilterOperator::Le => lhs <= *rhs,
+                FilterOperator::Gt => lhs > *rhs,
+                FilterOperator::Ge => lhs >= *rhs,
+                _ => true,
+            }
+        }
+    }
+}
+
+fn compare_field<T>(a: &T, b: &T, accessor: &FieldAccessor<T>) -> std::cmp::Ordering {
+    match accessor {
+        FieldAccessor::Str(get) => get(a).cmp(&get(b)),
+        FieldAccessor::Int(get) => get(a).cmp(&get(b)),
+    }
+}
+
 /// Basic filter expression support (simplified implementation)
 #[derive(Debug, Clone)]
 pub struct FilterExpression {

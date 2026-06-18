@@ -16,7 +16,10 @@ use ts_rs::TS;
 use crate::{
     company::{get_company_by_name_case_insensitive, insert_company},
     models::{Company, CompanyInput, Site, UserWithRoles},
-    odata_query::ODataQuery,
+    odata_query::{
+        ODataCollectionResponse, ODataField, ODataQuery, apply_query, apply_select,
+        build_context_url,
+    },
     orm::{
         DbConn,
         company::{delete_company, get_all_companies},
@@ -162,63 +165,12 @@ pub async fn list_companies(
         .run(|conn| get_all_companies(conn).map_err(|_| Status::InternalServerError))
         .await?;
 
-    // Apply filtering if specified
-    let mut filtered_companies = companies;
-    if let Some(filter_expr) = query.parse_filter() {
-        // Basic filtering implementation
-        filtered_companies.retain(|company| {
-            match &filter_expr.property.as_str() {
-                &"name" => match &filter_expr.value {
-                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                        crate::odata_query::FilterOperator::Eq => company.name == *s,
-                        crate::odata_query::FilterOperator::Ne => company.name != *s,
-                        crate::odata_query::FilterOperator::Contains => company.name.contains(s),
-                        _ => true,
-                    },
-                    _ => true,
-                },
-                _ => true, // Unknown property, don't filter
-            }
-        });
-    }
-
-    // Apply ordering
-    if let Some(order_props) = query.parse_orderby() {
-        for (property, direction) in order_props {
-            match property.as_str() {
-                "name" => {
-                    filtered_companies.sort_by(|a, b| {
-                        let cmp = a.name.cmp(&b.name);
-                        match direction {
-                            crate::odata_query::OrderDirection::Asc => cmp,
-                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
-                        }
-                    });
-                }
-                "id" => {
-                    filtered_companies.sort_by(|a, b| {
-                        let cmp = a.id.cmp(&b.id);
-                        match direction {
-                            crate::odata_query::OrderDirection::Asc => cmp,
-                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
-                        }
-                    });
-                }
-                _ => {} // Unknown property, don't sort
-            }
-        }
-    }
-
-    // Get count before applying top/skip
-    let total_count = filtered_companies.len() as i64;
-
-    // Apply skip and top
-    if let Some(skip) = query.skip {
-        filtered_companies = filtered_companies.into_iter().skip(skip as usize).collect();
-    }
-    if let Some(top) = query.top {
-        filtered_companies = filtered_companies.into_iter().take(top as usize).collect();
-    }
+    // Apply $filter, $orderby, $skip, and $top.
+    let fields = [
+        ODataField::str("name", |c: &Company| c.name.clone()),
+        ODataField::int("id", |c: &Company| c.id as i64),
+    ];
+    let (filtered_companies, total_count) = apply_query(companies, &query, &fields);
 
     // Handle $expand first, then $select
     let expand_props = query.parse_expand();
@@ -272,19 +224,14 @@ pub async fn list_companies(
     let select_props = query.parse_select();
     let selected_companies: Result<Vec<serde_json::Value>, _> = expanded_companies
         .iter()
-        .map(|company| crate::odata_query::apply_select(company, select_props.as_deref()))
+        .map(|company| apply_select(company, select_props.as_deref()))
         .collect();
 
     let selected_companies = selected_companies.map_err(|_| Status::InternalServerError)?;
 
     // Build OData response
-    let context = crate::odata_query::build_context_url(
-        "http://localhost/api/1",
-        "Companies",
-        select_props.as_deref(),
-    );
-    let mut response =
-        crate::odata_query::ODataCollectionResponse::new(context, selected_companies);
+    let context = build_context_url("http://localhost/api/1", "Companies", select_props.as_deref());
+    let mut response = ODataCollectionResponse::new(context, selected_companies);
 
     // Add count if requested
     if query.count.unwrap_or(false) {

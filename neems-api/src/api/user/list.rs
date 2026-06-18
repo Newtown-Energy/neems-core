@@ -3,7 +3,11 @@
 use rocket::{http::Status, serde::json::Json};
 
 use crate::{
-    odata_query::{ODataCollectionResponse, ODataQuery, apply_select, build_context_url},
+    models::UserWithRoles,
+    odata_query::{
+        ODataCollectionResponse, ODataField, ODataQuery, apply_query, apply_select,
+        build_context_url,
+    },
     orm::{
         DbConn,
         user::{get_users_by_company_with_roles, list_all_users_with_roles},
@@ -88,64 +92,13 @@ pub async fn list_users(
         return Err(Status::Forbidden);
     };
 
-    // Apply filtering if specified
-    let mut filtered_users = users;
-    if let Some(filter_expr) = query.parse_filter() {
-        // Basic filtering implementation - this could be expanded
-        filtered_users.retain(|user| {
-            // Simple implementation - could be much more sophisticated
-            match &filter_expr.property.as_str() {
-                &"email" => match &filter_expr.value {
-                    crate::odata_query::FilterValue::String(s) => match filter_expr.operator {
-                        crate::odata_query::FilterOperator::Eq => user.email == *s,
-                        crate::odata_query::FilterOperator::Ne => user.email != *s,
-                        crate::odata_query::FilterOperator::Contains => user.email.contains(s),
-                        _ => true,
-                    },
-                    _ => true,
-                },
-                _ => true, // Unknown property, don't filter
-            }
-        });
-    }
-
-    // Apply sorting if specified
-    if let Some(orderby) = query.parse_orderby() {
-        for (property, direction) in orderby.iter().rev() {
-            match property.as_str() {
-                "email" => {
-                    filtered_users.sort_by(|a, b| {
-                        let cmp = a.email.cmp(&b.email);
-                        match direction {
-                            crate::odata_query::OrderDirection::Asc => cmp,
-                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
-                        }
-                    });
-                }
-                "id" => {
-                    filtered_users.sort_by(|a, b| {
-                        let cmp = a.id.cmp(&b.id);
-                        match direction {
-                            crate::odata_query::OrderDirection::Asc => cmp,
-                            crate::odata_query::OrderDirection::Desc => cmp.reverse(),
-                        }
-                    });
-                }
-                _ => {} // Unknown property, don't sort
-            }
-        }
-    }
-
-    // Get count before applying top/skip
-    let total_count = filtered_users.len() as i64;
-
-    // Apply skip and top
-    if let Some(skip) = query.skip {
-        filtered_users = filtered_users.into_iter().skip(skip as usize).collect();
-    }
-    if let Some(top) = query.top {
-        filtered_users = filtered_users.into_iter().take(top as usize).collect();
-    }
+    // Apply $filter, $orderby, $skip, and $top.
+    let fields = [
+        ODataField::str("email", |u: &UserWithRoles| u.email.clone()),
+        ODataField::int("id", |u: &UserWithRoles| u.id as i64),
+        ODataField::int("company_id", |u: &UserWithRoles| u.company_id as i64),
+    ];
+    let (filtered_users, total_count) = apply_query(users, &query, &fields);
 
     // Handle $expand and computed properties, then $select
     let expand_props = query.parse_expand();
