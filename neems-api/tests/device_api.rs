@@ -681,3 +681,135 @@ async fn test_device_rbac_newtown_admin() {
 
     assert_eq!(response.status(), Status::Created);
 }
+
+/// Helper to create a device and return the parsed result.
+async fn create_device(
+    client: &Client,
+    admin_cookie: &rocket::http::Cookie<'static>,
+    company_id: i32,
+    site_id: i32,
+    name: &str,
+    type_: &str,
+    model: &str,
+) -> Device {
+    let new_device = json!({
+        "name": name,
+        "type_": type_,
+        "model": model,
+        "company_id": company_id,
+        "site_id": site_id
+    });
+
+    let response = client
+        .post("/api/1/Devices")
+        .cookie(admin_cookie.clone())
+        .json(&new_device)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Created);
+    response.into_json().await.expect("valid device JSON")
+}
+
+/// Helper to GET /Devices with a query string and return the parsed OData body.
+async fn list_devices_query(
+    client: &Client,
+    admin_cookie: &rocket::http::Cookie<'static>,
+    query: &str,
+) -> serde_json::Value {
+    let response = client
+        .get(format!("/api/1/Devices?{query}"))
+        .cookie(admin_cookie.clone())
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    response.into_json().await.expect("valid OData JSON")
+}
+
+#[rocket::async_test]
+async fn test_list_devices_odata_filter_and_select() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+    let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
+    let site = get_site_by_name(&client, &admin_cookie, "Device API Site A").await;
+
+    create_device(&client, &admin_cookie, company.id, site.id, "ZZQ Alpha", "Inverter", "QM-1")
+        .await;
+    create_device(&client, &admin_cookie, company.id, site.id, "ZZQ Bravo", "Sensor", "QM-2").await;
+
+    // $filter by exact name returns only the matching device (URI-encoded
+    // spaces and quotes).
+    let body =
+        list_devices_query(&client, &admin_cookie, "$filter=name%20eq%20%27ZZQ%20Bravo%27").await;
+    let value = body["value"].as_array().expect("value array");
+    assert_eq!(value.len(), 1);
+    assert_eq!(value[0]["name"], "ZZQ Bravo");
+
+    // $filter eq combined with $select returns only the requested property.
+    let body = list_devices_query(
+        &client,
+        &admin_cookie,
+        "$filter=name%20eq%20%27ZZQ%20Alpha%27&$select=name",
+    )
+    .await;
+    let value = body["value"].as_array().expect("value array");
+    assert_eq!(value.len(), 1);
+    let obj = value[0].as_object().expect("device object");
+    assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("ZZQ Alpha"));
+    assert!(obj.get("model").is_none(), "$select=name should drop other fields");
+    assert!(obj.get("id").is_none(), "$select=name should drop other fields");
+}
+
+#[rocket::async_test]
+async fn test_list_devices_odata_orderby_count_and_pagination() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+    let company = get_company_by_name(&client, &admin_cookie, "Device Test Company A").await;
+    let site = get_site_by_name(&client, &admin_cookie, "Device API Site A").await;
+
+    create_device(&client, &admin_cookie, company.id, site.id, "PgN Gamma", "Sensor", "PG-3").await;
+    create_device(&client, &admin_cookie, company.id, site.id, "PgN Alpha", "Sensor", "PG-1").await;
+    create_device(&client, &admin_cookie, company.id, site.id, "PgN Beta", "Sensor", "PG-2").await;
+
+    // $orderby ascending yields a name-sorted collection.
+    let body = list_devices_query(&client, &admin_cookie, "$orderby=name").await;
+    let names: Vec<String> = body["value"]
+        .as_array()
+        .expect("value array")
+        .iter()
+        .map(|d| d["name"].as_str().unwrap().to_string())
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "$orderby=name should return ascending order");
+
+    // $count reports the full filtered total, independent of $top.
+    let body = list_devices_query(&client, &admin_cookie, "$count=true&$top=1").await;
+    let total = body["@odata.count"].as_i64().expect("@odata.count present");
+    assert_eq!(body["value"].as_array().expect("value array").len(), 1);
+    assert!(total >= 3, "count should reflect all devices, not just the $top page");
+
+    // $skip + $top page through the ordered collection.
+    let page = list_devices_query(&client, &admin_cookie, "$orderby=name&$top=2&$skip=1").await;
+    let page_names: Vec<String> = page["value"]
+        .as_array()
+        .expect("value array")
+        .iter()
+        .map(|d| d["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(page_names.len(), 2);
+    assert_eq!(page_names, &sorted[1..3], "page should be items 2 and 3 of the sorted list");
+}
+
+#[rocket::async_test]
+async fn test_list_devices_invalid_query_rejected() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    // $top out of range is rejected by ODataQuery::validate.
+    let response = client
+        .get("/api/1/Devices?$top=99999")
+        .cookie(admin_cookie.clone())
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::BadRequest);
+}

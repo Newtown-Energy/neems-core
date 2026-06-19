@@ -16,7 +16,10 @@ use ts_rs::TS;
 
 use crate::{
     models::{Device, DeviceInput},
-    odata_query::ODataQuery,
+    odata_query::{
+        ODataCollectionResponse, ODataField, ODataQuery, apply_query, apply_select,
+        build_context_url,
+    },
     orm::{
         DbConn,
         device::{
@@ -257,38 +260,66 @@ pub async fn create_device(
 ///   ]
 /// }
 /// ```
-#[get("/1/Devices?<_query..>")]
+#[get("/1/Devices?<query..>")]
 pub async fn list_devices(
     db: DbConn,
     auth_user: AuthenticatedUser,
-    _query: ODataQuery,
+    query: ODataQuery,
 ) -> Result<Json<serde_json::Value>, Status> {
-    db.run(move |conn| {
-        let devices = if auth_user.has_any_role(&["newtown-admin", "newtown-staff"]) {
-            // Newtown roles can see all devices
-            match get_all_devices(conn) {
-                Ok(devices) => devices,
-                Err(_) => return Err(Status::InternalServerError),
+    // Validate query options
+    query.validate().map_err(|_| Status::BadRequest)?;
+
+    // Authorization: newtown roles see all devices, everyone else is scoped to
+    // their own company.
+    let is_newtown = auth_user.has_any_role(&["newtown-admin", "newtown-staff"]);
+    let company_id = auth_user.user.company_id;
+    let devices = db
+        .run(move |conn| {
+            if is_newtown {
+                get_all_devices(conn)
+            } else {
+                get_devices_by_company(conn, company_id)
             }
-        } else {
-            // Regular users can only see devices in their company
-            match get_devices_by_company(conn, auth_user.user.company_id) {
-                Ok(devices) => devices,
-                Err(_) => return Err(Status::InternalServerError),
-            }
-        };
+            .map_err(|_| Status::InternalServerError)
+        })
+        .await?;
 
-        // TODO: Apply OData query options (filtering, sorting, pagination)
-        // For now, return all devices without query processing
+    // Apply $filter, $orderby, $skip, and $top.
+    //
+    // Nullable fields collapse NULL to "" via `unwrap_or_default()`, so a NULL
+    // serial filters/sorts identically to an empty string. `install_date` is
+    // intentionally omitted: there's no date-typed accessor variant.
+    let fields = [
+        ODataField::str("name", |d: &Device| d.name.clone()),
+        ODataField::str("type_", |d: &Device| d.type_.clone()),
+        ODataField::str("model", |d: &Device| d.model.clone()),
+        ODataField::str("serial", |d: &Device| d.serial.clone().unwrap_or_default()),
+        ODataField::str("ip_address", |d: &Device| d.ip_address.clone().unwrap_or_default()),
+        ODataField::str("description", |d: &Device| d.description.clone().unwrap_or_default()),
+        ODataField::int("id", |d: &Device| d.id as i64),
+        ODataField::int("company_id", |d: &Device| d.company_id as i64),
+        ODataField::int("site_id", |d: &Device| d.site_id as i64),
+    ];
+    let (filtered_devices, total_count) = apply_query(devices, &query, &fields);
 
-        let response = serde_json::json!({
-            "@odata.context": "http://localhost/api/1/$metadata#Devices",
-            "value": devices
-        });
+    // Apply $select to each device if specified.
+    let select_props = query.parse_select();
+    let selected_devices: Result<Vec<serde_json::Value>, _> = filtered_devices
+        .iter()
+        .map(|device| apply_select(device, select_props.as_deref()))
+        .collect();
+    let selected_devices = selected_devices.map_err(|_| Status::InternalServerError)?;
 
-        Ok(Json(response))
-    })
-    .await
+    // Build OData response
+    let context = build_context_url("http://localhost/api/1", "Devices", select_props.as_deref());
+    let mut response = ODataCollectionResponse::new(context, selected_devices);
+
+    // Add count if requested
+    if query.count.unwrap_or(false) {
+        response = response.with_count(total_count);
+    }
+
+    Ok(Json(serde_json::to_value(response).map_err(|_| Status::InternalServerError)?))
 }
 
 /// Get Device endpoint.
