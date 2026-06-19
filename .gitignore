@@ -35,3 +35,11 @@ target
 #.idea/
 /neems-api/bindings
 /npm-build/
+
+# Client alarm/SLD source spreadsheet — kept outside the repo on purpose
+# (see docs/alarms/README.md). Safety net against an accidental commit if the
+# workbook is ever placed inside the repo.
+*.xlsx
+
+# Python bytecode cache from the alarm-spec generator
+__pycache__/
