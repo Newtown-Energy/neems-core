@@ -343,6 +343,40 @@ pub fn create_alarm_channel() -> (mpsc::UnboundedSender<Alarm>, mpsc::UnboundedR
     mpsc::unbounded_channel()
 }
 
+/// Alarm handler that persists data-state transitions to the `alarm_state`
+/// table, so the API can compute latched alarm visibility without rescanning
+/// readings. Holds its own SQLite connection to the site database; the worker
+/// only emits on edges, so writes are infrequent.
+pub struct DatabaseAlarmStateHandler {
+    // `AlarmHandler` requires `Sync` but `SqliteConnection` is `Send`-only, so
+    // the connection lives behind a `Mutex`. Edges are infrequent, so the lock
+    // is never contended.
+    conn: std::sync::Mutex<diesel::sqlite::SqliteConnection>,
+}
+
+impl DatabaseAlarmStateHandler {
+    /// Open a connection to the site database for persisting alarm state.
+    pub fn connect(
+        database_url: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        use diesel::Connection;
+        let conn = diesel::sqlite::SqliteConnection::establish(database_url)?;
+        Ok(Self { conn: std::sync::Mutex::new(conn) })
+    }
+}
+
+impl AlarmHandler for DatabaseAlarmStateHandler {
+    fn handle(&mut self, alarm: &Alarm) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let conn = self.conn.get_mut().map_err(|_| "alarm-state DB mutex poisoned")?;
+        crate::upsert_alarm_transition(
+            conn,
+            alarm.alarm_num as i32,
+            alarm.is_active(),
+            alarm.timestamp.naive_utc(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

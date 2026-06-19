@@ -515,6 +515,71 @@ pub fn get_recent_readings(
     Ok(recent_readings)
 }
 
+/// Record an observed alarm data-state transition.
+///
+/// Upserts the `alarm_state` row for `alarm_num`: a rising edge (`active =
+/// true`) stamps `last_rising_at`, a falling edge (`active = false`) stamps
+/// `last_falling_at`, and either updates `data_active` and `updated_at`. The
+/// collector calls this once per observed edge (see
+/// `rtac::alarms::DatabaseAlarmStateHandler`), so writes are rare.
+pub fn upsert_alarm_transition(
+    connection: &mut SqliteConnection,
+    alarm_num: i32,
+    active: bool,
+    at: chrono::NaiveDateTime,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use schema::alarm_state::dsl as s;
+
+    // A rising edge stamps last_rising_at; a falling edge stamps
+    // last_falling_at. The opposite edge column is left untouched on update so
+    // we retain the last time the alarm moved the other direction.
+    if active {
+        diesel::insert_into(s::alarm_state)
+            .values((
+                s::alarm_num.eq(alarm_num),
+                s::data_active.eq(true),
+                s::last_rising_at.eq(Some(at)),
+                s::updated_at.eq(at),
+            ))
+            .on_conflict(s::alarm_num)
+            .do_update()
+            .set((
+                s::data_active.eq(true),
+                s::last_rising_at.eq(Some(at)),
+                s::updated_at.eq(at),
+            ))
+            .execute(connection)?;
+    } else {
+        diesel::insert_into(s::alarm_state)
+            .values((
+                s::alarm_num.eq(alarm_num),
+                s::data_active.eq(false),
+                s::last_falling_at.eq(Some(at)),
+                s::updated_at.eq(at),
+            ))
+            .on_conflict(s::alarm_num)
+            .do_update()
+            .set((
+                s::data_active.eq(false),
+                s::last_falling_at.eq(Some(at)),
+                s::updated_at.eq(at),
+            ))
+            .execute(connection)?;
+    }
+    Ok(())
+}
+
+/// Load the full alarm-state table (one row per alarm that has ever
+/// transitioned). The API joins this with acknowledgements to derive status.
+pub fn get_all_alarm_state(
+    connection: &mut SqliteConnection,
+) -> Result<Vec<AlarmStateRow>, Box<dyn Error + Send + Sync>> {
+    use schema::alarm_state::dsl::*;
+
+    let rows = alarm_state.select(AlarmStateRow::as_select()).load(connection)?;
+    Ok(rows)
+}
+
 /// Read aggregated data - main interface for neems-api
 pub fn read_aggregated_data(database_path: Option<&str>) -> DataResult<SourceReadings> {
     let aggregator = DataAggregator::new(database_path);
