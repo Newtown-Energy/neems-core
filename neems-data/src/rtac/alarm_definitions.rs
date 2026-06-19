@@ -595,6 +595,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_every_definition_has_sld_meta() {
+        // Guards against drift between ALARM_DEFINITIONS and the spec-generated
+        // alarm_sld_meta table: every alarm must resolve message/target metadata.
+        for def in ALARM_DEFINITIONS {
+            assert!(
+                super::super::alarm_sld_meta::sld_meta_for(def.alarm_num).is_some(),
+                "Alarm {} ({}) has no SLD metadata entry",
+                def.alarm_num,
+                def.name,
+            );
+        }
+    }
+
+    #[test]
+    fn test_known_sld_meta_values() {
+        use super::super::alarm_sld_meta::sld_meta_for;
+        // Fire alarm (401): "FIRE!!" message, targets the FACP object.
+        let fire = sld_meta_for(401).expect("alarm 401 meta");
+        assert_eq!(fire.message_opt(), Some("FIRE!!"));
+        assert_eq!(fire.sld_targets, &["FACP"]);
+        // 89L-1 open (101) targets the main switch object.
+        let sw = sld_meta_for(101).expect("alarm 101 meta");
+        assert_eq!(sw.sld_targets, &["52-MAIN-1"]);
+        // A megapack spare (622) has no operator message.
+        assert_eq!(sld_meta_for(622).expect("alarm 622 meta").message_opt(), None);
+    }
+
+    #[test]
     fn test_all_definitions_have_valid_register_index() {
         for def in ALARM_DEFINITIONS {
             assert!(

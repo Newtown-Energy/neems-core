@@ -8,6 +8,7 @@
 //!   values
 
 pub mod alarm_definitions;
+pub mod alarm_sld_meta;
 pub mod alarms;
 pub mod control;
 pub mod modbus_client;
@@ -19,6 +20,7 @@ pub mod storage;
 pub mod worker;
 
 pub use alarm_definitions::{ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone};
+pub use alarm_sld_meta::{AlarmSldMeta, sld_meta_for};
 pub use alarms::{Alarm, AlarmHandlerTask, AlarmSeverity};
 pub use control::ControlLogicTask;
 pub use modbus_client::ModbusClient;
