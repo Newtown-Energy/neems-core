@@ -1,3 +1,4 @@
+pub mod alarm_acknowledgement;
 pub mod application_rule;
 pub mod company;
 pub mod deleted_company;
@@ -12,6 +13,7 @@ pub mod user;
 pub mod user_role;
 
 // Re-export models for easier access
+pub use alarm_acknowledgement::*;
 pub use application_rule::*;
 pub use company::*;
 pub use deleted_company::*;
