@@ -97,7 +97,8 @@ endpoint and the React dashboard.
   stays read-only and logs a warning.
 - It runs on its own thread with a current-thread runtime because the Modbus
   client context is not `Send`.
-- Disable it with `RTAC_ENABLED=0` (or `false`/`no`).
+- Disabled by default so the system doesn't follow a (possibly absent) RTAC
+  connection. Enable it with `RTAC_ENABLED=1` (or `true`/`yes`/`on`).
 
 ## Development Workflow
 

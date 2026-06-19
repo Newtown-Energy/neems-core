@@ -150,6 +150,12 @@ mod tests {
         ForcedAlarmsRequest::export().expect("Failed to export ForcedAlarmsRequest type");
         ForcedAlarmsResponse::export().expect("Failed to export ForcedAlarmsResponse type");
 
+        // Demo API types
+        use crate::api::demo::{InjectHistoryRequest, InjectHistoryResponse, SeedSummary};
+        InjectHistoryRequest::export().expect("Failed to export InjectHistoryRequest type");
+        SeedSummary::export().expect("Failed to export SeedSummary type");
+        InjectHistoryResponse::export().expect("Failed to export InjectHistoryResponse type");
+
         // Data API types
         use crate::api::data::{
             ChargeDischargeBucket, ChargeDischargeSummary, DataSourcesResponse, ReadingsQuery,
