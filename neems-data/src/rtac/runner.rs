@@ -20,7 +20,7 @@ use diesel::{Connection, sqlite::SqliteConnection};
 use tracing::{error, info};
 
 use super::{
-    alarms::{AlarmConfig, AlarmHandlerTask, create_alarm_channel},
+    alarms::{AlarmConfig, AlarmHandlerTask, DatabaseAlarmStateHandler, create_alarm_channel},
     control::{ControlConfig, ControlLogicTask},
     schedule_http::{ApiClientConfig, HttpScheduleProvider, run_active_command_poller},
     state::PendingCommand,
@@ -104,6 +104,7 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
     let _shutdown_tx = shutdown_tx;
 
     // Storage task: persist readings to the site database.
+    let alarm_db_url = database_url.clone();
     let backend = DatabaseStorageBackend::new(database_url, source_id);
     let mut storage_task =
         StorageWriterTask::new(StorageConfig::default(), backend, storage_rx, None);
@@ -113,8 +114,15 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
         }
     });
 
-    // Alarm task: log alarm transitions.
+    // Alarm task: log alarm transitions and persist data state. The
+    // persistence handler maintains the `alarm_state` table the API reads to
+    // compute latched visibility; if its connection can't be opened we log and
+    // carry on with logging-only, rather than failing the collector.
     let mut alarm_task = AlarmHandlerTask::new(AlarmConfig::default(), alarm_rx);
+    match DatabaseAlarmStateHandler::connect(&alarm_db_url) {
+        Ok(handler) => alarm_task.add_handler(Box::new(handler)),
+        Err(e) => error!(error = %e, "Failed to open alarm-state DB handler; alarm state will not persist"),
+    }
     tokio::spawn(async move {
         if let Err(e) = alarm_task.run().await {
             error!(error = %e, "RTAC alarm task stopped");

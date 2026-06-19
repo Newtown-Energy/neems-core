@@ -1,6 +1,16 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    alarm_acknowledgements (id) {
+        id -> Integer,
+        alarm_num -> Integer,
+        user_id -> Integer,
+        acknowledged_at -> Timestamp,
+        note -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     application_rules (id) {
         id -> Integer,
         template_id -> Integer,
@@ -163,6 +173,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(alarm_acknowledgements -> users (user_id));
 diesel::joinable!(application_rules -> schedule_templates (template_id));
 diesel::joinable!(devices -> companies (company_id));
 diesel::joinable!(devices -> sites (site_id));
@@ -177,6 +188,7 @@ diesel::joinable!(user_roles -> users (user_id));
 diesel::joinable!(users -> companies (company_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    alarm_acknowledgements,
     application_rules,
     companies,
     deleted_companies,

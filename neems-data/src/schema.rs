@@ -1,6 +1,16 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    alarm_state (alarm_num) {
+        alarm_num -> Integer,
+        data_active -> Bool,
+        last_rising_at -> Nullable<Timestamp>,
+        last_falling_at -> Nullable<Timestamp>,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     companies (id) {
         id -> Integer,
         name -> Text,
@@ -94,5 +104,5 @@ diesel::joinable!(user_roles -> users (user_id));
 diesel::joinable!(users -> companies (company_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    companies, readings, roles, sessions, sites, sources, user_roles, users,
+    alarm_state, companies, readings, roles, sessions, sites, sources, user_roles, users,
 );
