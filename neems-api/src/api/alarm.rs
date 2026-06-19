@@ -8,6 +8,7 @@ use std::{collections::HashSet, sync::Mutex};
 use chrono::{DateTime, Utc};
 use neems_data::rtac::{
     alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
+    alarm_sld_meta::sld_meta_for,
     state::AlarmFlags,
 };
 use rocket::{FromForm, Route, State, http::Status, serde::json::Json};
@@ -106,6 +107,20 @@ impl From<AlarmZone> for AlarmZoneDto {
     }
 }
 
+/// Operator-facing message for an alarm, sourced from the alarm spreadsheet
+/// ("Mouseover" column). `None` when the spreadsheet left it blank.
+fn message_for(alarm_num: u16) -> Option<String> {
+    sld_meta_for(alarm_num).and_then(|m| m.message_opt()).map(|s| s.to_string())
+}
+
+/// Raw "Related SLD Object" tokens for an alarm. Mapping tokens to concrete UI
+/// elements is the frontend's job; the backend stays UI-agnostic.
+fn sld_targets_for(alarm_num: u16) -> Vec<String> {
+    sld_meta_for(alarm_num)
+        .map(|m| m.sld_targets.iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default()
+}
+
 /// A single alarm definition (static metadata)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -115,6 +130,10 @@ pub struct AlarmDefinitionDto {
     pub name: String,
     pub level: u8,
     pub severity: AlarmSeverityDto,
+    /// Operator-facing message (spreadsheet "Mouseover"); null when blank.
+    pub message: Option<String>,
+    /// Target SLD object tokens (spreadsheet "Related SLD Object").
+    pub sld_targets: Vec<String>,
 }
 
 impl From<&AlarmDefinition> for AlarmDefinitionDto {
@@ -125,6 +144,8 @@ impl From<&AlarmDefinition> for AlarmDefinitionDto {
             name: def.name.to_string(),
             level: def.level,
             severity: AlarmSeverityDto::from_level(def.level),
+            message: message_for(def.alarm_num),
+            sld_targets: sld_targets_for(def.alarm_num),
         }
     }
 }
@@ -137,6 +158,10 @@ pub struct ActiveAlarmDto {
     pub zone: AlarmZoneDto,
     pub name: String,
     pub severity: AlarmSeverityDto,
+    /// Operator-facing message (spreadsheet "Mouseover"); null when blank.
+    pub message: Option<String>,
+    /// Target SLD object tokens (spreadsheet "Related SLD Object").
+    pub sld_targets: Vec<String>,
 }
 
 impl From<&AlarmDefinition> for ActiveAlarmDto {
@@ -146,6 +171,8 @@ impl From<&AlarmDefinition> for ActiveAlarmDto {
             zone: def.zone.into(),
             name: def.name.to_string(),
             severity: AlarmSeverityDto::from_level(def.level),
+            message: message_for(def.alarm_num),
+            sld_targets: sld_targets_for(def.alarm_num),
         }
     }
 }

@@ -28,7 +28,8 @@ alarms and data points across all three components:
 | File | Purpose |
 |------|---------|
 | `newtown-alarms.json` | The generated spec (do not hand-edit; regenerate instead). |
-| `build_alarm_spec.py` | Generator (needs `openpyxl`). See "How to regenerate" below. |
+| `build_alarm_spec.py` | Spreadsheet → JSON generator (needs `openpyxl`). See "How to regenerate" below. |
+| `build_alarm_meta_rs.py` | JSON → Rust generator for `neems-data/src/rtac/alarm_sld_meta.rs`. |
 | _(source `.xlsx`)_ | The client spreadsheet — kept **outside** the repo, never committed. |
 
 Regenerating is deterministic — same spreadsheet in, same JSON out (no
@@ -186,9 +187,23 @@ eye during implementation):
 
 ## How to regenerate
 
+The data flows in two steps — **run both** after the client sends a new
+workbook: spreadsheet → `newtown-alarms.json` → the generated Rust table
+(`neems-data/src/rtac/alarm_sld_meta.rs`). Updating only the JSON leaves the API
+serving stale messages/targets.
+
 ```bash
-# openpyxl required (pip install openpyxl). The source .xlsx is kept outside the
-# repo; point the generator at it. If a single .xlsx sits in the project root
-# (the dir containing neems-core) it is picked up automatically.
+# 1. Spreadsheet -> JSON. openpyxl required (pip install openpyxl). The source
+#    .xlsx is kept outside the repo; point the generator at it. If a single
+#    .xlsx sits in the project root (the dir containing neems-core) it is
+#    picked up automatically.
 ALARM_XLSX=/path/to/source.xlsx python3 neems-core/docs/alarms/build_alarm_spec.py
+
+# 2. JSON -> Rust. Regenerates alarm_sld_meta.rs in place, already formatted to
+#    the workspace rustfmt.toml (no `cargo fmt` step needed; same in, same out).
+python3 neems-core/docs/alarms/build_alarm_meta_rs.py
 ```
+
+The `test_every_definition_has_sld_meta` unit test fails if any
+`ALARM_DEFINITIONS` entry loses its metadata after a regeneration, so CI catches
+drift between the hand-curated Rust definitions and the spec.
