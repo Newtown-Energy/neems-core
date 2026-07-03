@@ -1,0 +1,55 @@
+# DigitalOcean App Platform spec for the public NEEMS demo API.
+#
+# Self-contained: this repo builds its image and deploys THIS App (no
+# coordinator repo). The React front end is a separate App (neems-react) whose
+# Caddy reverse-proxies /api here, so the browser stays same-origin and the
+# SameSite=Lax session cookie keeps working. Keep both Apps on one registrable
+# domain (same-origin or sibling subdomains like api.demo.x / app.demo.x).
+#
+# Routine CD uses `doctl apps create-deployment` (re-pull :latest), so this
+# committed spec is the bootstrap template + reference. Set the real registry
+# credential and secrets on the App itself — never commit them (public repo).
+# See .do/README.md.
+
+name: neems-demo-api
+region: nyc
+
+services:
+  - name: api
+    image:
+      registry_type: GHCR
+      registry: newtown-energy
+      repository: neems-api
+      tag: latest
+      # The neems-api GHCR package is PUBLIC, so App Platform pulls it with no
+      # credential — nothing to create or rotate. If you make the package
+      # private instead, add a durable credential here:
+      #   registry_credentials: "<gh-user>:<read:packages PAT>"
+      # (App Platform stores it encrypted.) Note a PAT expires; public does not.
+    http_port: 8000
+    # Adjust to a current slug from `doctl apps tier instance-size list`.
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    routes:
+      - path: /
+    health_check:
+      http_path: /api/1/status
+    envs:
+      - key: ROCKET_ADDRESS
+        value: "0.0.0.0"
+      - key: ROCKET_PORT
+        value: "8000"
+      - key: DATABASE_URL
+        value: sqlite:///app/data/neems-api.db
+      - key: SITE_DATABASE_URL
+        value: sqlite:///app/data/site-data.sqlite
+      - key: NEEMS_DEFAULT_EMAIL
+        value: admin@example.com
+      # (NEEMS_DEFAULT_SITE / NEEMS_DEFAULT_COMPANY are read only by neems-data,
+      # which the demo doesn't run, so they're omitted here.)
+      # Set as a SECRET on the App (dashboard). Left as a placeholder here so a
+      # stray `doctl apps update --spec` can't reset it — routine CD uses
+      # create-deployment and never re-applies this spec.
+      - key: NEEMS_DEFAULT_PASSWORD
+        type: SECRET
+        value: REPLACE_ME
