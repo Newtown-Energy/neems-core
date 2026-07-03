@@ -1,0 +1,12 @@
+# Keep the build context small and reproducible. target/ especially can be
+# many GB on a dev machine and must not leak host artifacts into the image.
+# NOTE: .git is intentionally NOT ignored — neems-api's build.rs uses the
+# `built` crate (git2) to embed GIT_COMMIT_HASH, surfaced at /api/1/status.
+# Without .git in the context the deployed commit would report as null.
+target/
+local-types/
+*.db
+*.sqlite
+*.sqlite-*
+**/*.swp
+.DS_Store

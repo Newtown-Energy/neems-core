@@ -1,0 +1,71 @@
+# Demo image for the NEEMS backend (production/release build).
+#
+# Built and pushed to GHCR by GitHub Actions (.github/workflows/deploy.yml) on
+# merge to main (and built as a check on PRs); DigitalOcean App Platform pulls
+# the image and deploys it. The demo runs neems-api only, so we build neems-api
+# + neems-admin (for seeding/admin) — not the data aggregator or RTAC simulator.
+#
+# cargo-chef splits dependency compilation into its own layer so the GitHub
+# Actions build cache (cache-to: gha) makes source-only rebuilds fast (deps are
+# recompiled only when Cargo.toml / Cargo.lock change).
+
+# ---- chef: tool base --------------------------------------------------------
+FROM rustlang/rust:nightly-bookworm AS chef
+# Install cargo-chef with the image's default nightly (before the toolchain is
+# pinned) — the chef binary just orchestrates; the pinned toolchain below does
+# the actual compiling.
+RUN cargo install cargo-chef --locked
+WORKDIR /usr/src/app
+
+# ---- planner: capture the dependency recipe ---------------------------------
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ---- builder: cook deps (cached), then build our binaries -------------------
+FROM chef AS builder
+# diesel links against the system libsqlite3 at build time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+# Pin the toolchain BEFORE cooking so the cooked deps match the final build
+# (a toolchain mismatch would silently recompile everything).
+COPY rust-toolchain.toml .
+RUN rustup show
+# Cook dependencies — cached until recipe.json (i.e. Cargo.toml/lock) changes.
+COPY --from=planner /usr/src/app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+# Build our binaries against the pre-built deps.
+COPY . .
+RUN cargo build --release --bin neems-api --bin neems-admin
+
+# ---- runtime ----------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libsqlite3-0 \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Run as a non-root system user.
+RUN useradd --system --create-home --home-dir /app neems
+WORKDIR /app
+
+# Data dir (SQLite lives here; ephemeral on App Platform) and an empty static
+# dir so Rocket's FileServer mount has a valid path. In the demo the React app
+# is served by the neems-web (Caddy) container, not by Rocket.
+RUN mkdir -p /app/data /app/static && chown -R neems:neems /app
+
+COPY --from=builder /usr/src/app/target/release/neems-api   /usr/local/bin/
+COPY --from=builder /usr/src/app/target/release/neems-admin /usr/local/bin/
+
+# Migrations are embedded and applied on startup (neems-api/src/lib.rs attaches
+# run_migrations_fairing()), so no diesel_cli is needed at runtime.
+ENV ROCKET_ADDRESS=0.0.0.0 \
+    ROCKET_PORT=8000 \
+    NEEMS_STATIC_DIR=/app/static
+
+USER neems
+EXPOSE 8000
+
+CMD ["neems-api"]
