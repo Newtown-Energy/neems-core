@@ -13,7 +13,7 @@ name: Demo CD
 #
 # Required repo secrets (beyond the automatic GITHUB_TOKEN, which pushes to GHCR):
 #   DIGITALOCEAN_ACCESS_TOKEN - DO API token (app read/write)
-#   DO_APP_ID                 - id of the demo API App (`doctl apps list`)
+#   DIGITALOCEAN_APP_ID       - id of the demo API App (`doctl apps list`)
 # One-time setup: see .do/README.md.
 
 on:
@@ -83,4 +83,4 @@ jobs:
       # Roll a new deployment that re-pulls the :latest image. Uses the App's
       # stored config, so committed placeholder secrets/creds are never applied.
       - name: Roll a new deployment
-        run: doctl apps create-deployment "${{ secrets.DO_APP_ID }}" --wait
+        run: doctl apps create-deployment "${{ secrets.DIGITALOCEAN_APP_ID }}" --wait

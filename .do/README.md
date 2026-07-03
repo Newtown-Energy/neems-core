@@ -29,7 +29,7 @@ sibling subdomains (`api.demo.x` / `app.demo.x`), never fully cross-site.
    share the URL. Because the SQLite DB is ephemeral, the superadmin is
    recreated from `NEEMS_DEFAULT_EMAIL`/`NEEMS_DEFAULT_PASSWORD` on every deploy,
    so the value takes effect on the next deploy.
-4. Add repo secrets so CI can deploy: `DIGITALOCEAN_ACCESS_TOKEN`, `DO_APP_ID`.
+4. Add repo secrets so CI can deploy: `DIGITALOCEAN_ACCESS_TOKEN`, `DIGITALOCEAN_APP_ID`.
 
 After this, every merge to `main` publishes an image and redeploys the App.
 
