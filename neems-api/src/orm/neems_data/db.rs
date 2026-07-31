@@ -26,9 +26,51 @@ pub fn set_foreign_keys_fairing() -> AdHoc {
     })
 }
 
+/// How many times to attempt the site migrations when SQLite reports a lock.
+const MIGRATION_ATTEMPTS: u32 = 5;
+
+/// Runs the site database migrations, retrying while SQLite reports a lock.
+///
+/// `neems-data` runs this same migration set against the same file on its first
+/// connection, so on a fresh database both processes can race at startup. The
+/// loser gets `database is locked` -- SQLite's default `busy_timeout` is 0, so
+/// it fails immediately rather than waiting. Retrying with a linear backoff
+/// lets the winner finish; the migrations are bookkept in
+/// `__diesel_schema_migrations`, so the loser then finds nothing pending.
+///
+/// # Panics
+/// Panics if the migrations fail for any other reason, or if they are still
+/// locked out after [`MIGRATION_ATTEMPTS`] tries. A site DB we cannot migrate
+/// serves nothing but 500s, so failing the boot is preferable to starting.
 pub fn run_site_migrations(conn: &mut diesel::SqliteConnection) {
-    conn.run_pending_migrations(SITE_MIGRATIONS)
-        .expect("Failed to run site database migrations");
+    for attempt in 1..=MIGRATION_ATTEMPTS {
+        let err = match conn.run_pending_migrations(SITE_MIGRATIONS) {
+            Ok(_) => return,
+            Err(e) => e,
+        };
+
+        if !is_locked_error(&err) {
+            panic!("Failed to run site database migrations: {}", err);
+        }
+
+        if attempt == MIGRATION_ATTEMPTS {
+            panic!(
+                "Failed to run site database migrations: still locked after {} attempts: {}",
+                MIGRATION_ATTEMPTS, err
+            );
+        }
+
+        warn!(
+            "[site-migrations] Database locked, retrying ({}/{})",
+            attempt, MIGRATION_ATTEMPTS
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(attempt)));
+    }
+}
+
+/// Whether a migration error is SQLite's transient "database is locked".
+fn is_locked_error<E: std::fmt::Display>(err: &E) -> bool {
+    err.to_string().contains("database is locked")
 }
 
 pub fn run_site_migrations_fairing() -> AdHoc {
