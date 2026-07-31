@@ -138,6 +138,7 @@ pub fn rocket() -> Rocket<Build> {
         .attach(orm::set_foreign_keys_fairing())
         .attach(orm::neems_data::set_foreign_keys_fairing())
         .attach(orm::run_migrations_fairing())
+        .attach(orm::neems_data::run_site_migrations_fairing())
         .attach(admin_init_fairing::admin_init_fairing())
         .register(
             "/",
