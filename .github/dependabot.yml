@@ -6,3 +6,8 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
+    # One PR per week for all Action bumps rather than one PR per Action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
