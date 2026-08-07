@@ -1,3 +1,4 @@
+pub mod alarm_acknowledgement;
 pub mod application_rule;
 pub mod company;
 mod db;
