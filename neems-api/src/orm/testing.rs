@@ -161,6 +161,52 @@ pub fn test_rocket() -> Rocket<Build> {
     crate::mount_api_routes(rocket)
 }
 
+/// How long a per-test database copy has to be untouched before it is taken to
+/// be a leftover rather than in use.
+///
+/// Generous on purpose: test binaries run in parallel, and deleting a copy out
+/// from under a running test would be far worse than leaving a stray file.
+const STALE_TEST_DB_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Delete test database copies left behind by earlier runs.
+///
+/// Each `fast_test_rocket()` copies the golden database to its own file, and
+/// nothing owns that copy afterwards — the Rocket instance is handed to the
+/// caller and the file outlives it. 782 of them had accumulated before this
+/// existed (issue #94).
+///
+/// Sweeping on the way in rather than tracking ownership on the way out keeps
+/// this to one place instead of every call site, and is safe under parallel
+/// test binaries because only files older than [`STALE_TEST_DB_AGE`] are
+/// touched. Runs once per process; any error is ignored, since failing to tidy
+/// up is never a reason to fail a test.
+fn sweep_stale_test_dbs(dir: &std::path::Path) {
+    use std::sync::Once;
+    static SWEPT: Once = Once::new();
+
+    SWEPT.call_once(|| {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if !name.starts_with("test_db_") || !name.ends_with(".db") {
+                continue;
+            }
+            let is_stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .and_then(|m| m.elapsed().map_err(std::io::Error::other))
+                .map(|age| age > STALE_TEST_DB_AGE)
+                .unwrap_or(false);
+            if is_stale {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    });
+}
+
 /// Creates a fast Rocket instance for testing by copying a pre-populated golden
 /// database. This is much faster than test_rocket() because it skips all the
 /// initialization fairings.
@@ -182,10 +228,9 @@ pub fn fast_test_rocket() -> Rocket<Build> {
 
     // Create a unique copy for this test in the same directory as the golden
     // database
-    let test_db_path = golden_db_path
-        .parent()
-        .expect("Golden DB should have a parent directory")
-        .join(format!("test_db_{}.db", Uuid::new_v4()));
+    let test_db_dir = golden_db_path.parent().expect("Golden DB should have a parent directory");
+    sweep_stale_test_dbs(test_db_dir);
+    let test_db_path = test_db_dir.join(format!("test_db_{}.db", Uuid::new_v4()));
 
     // Copy the golden database - this creates a brand new file with no existing
     // connections

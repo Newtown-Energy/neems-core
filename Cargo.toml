@@ -36,3 +36,19 @@ signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 tokio = { version = "1.46.1", features = ["full", "macros", "rt-multi-thread"] }
 ts-rs  = { version = "10.1", features = ["chrono-impl"] }
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
+
+[profile.dev]
+# Line tables only, rather than the full DWARF type tree.
+#
+# This lives here rather than in RUSTFLAGS so that every cargo invocation
+# agrees on it. RUSTFLAGS is part of a build's fingerprint, so when only some
+# invocations set it — as was the case when the neems-api entrypoint exported
+# it and a one-off `docker compose run ... cargo test` did not — cargo builds
+# and keeps a *second* complete set of artifacts for the same code. See
+# issue #94.
+#
+# The original reason for reducing it stands: full debug info (debuginfo = 2)
+# was tipping aarch64 debug links over ~1.5 GB each, and with cargo running
+# several test-binary links in parallel, ld was getting OOM-killed (signal 9).
+# Line tables keep panics pointing at real source lines.
+debug = 1
