@@ -4,13 +4,14 @@
 [print_schema]
 file = "src/schema.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
-# print-schema regenerates schema.rs from the live DB on every
-# `diesel migration run`. SQLite reports the sites.latitude/longitude
-# columns (declared DOUBLE PRECISION) with REAL affinity, so diesel-cli
-# infers `Float` for them — but the Rust Site model uses f64, which maps
-# to `Double`. Without this patch the post-migration build fails with
-# trait-bound errors. The patch rewrites those two columns back to Double.
-patch_file = "src/schema.patch"
+# No patch_file. There used to be one (src/schema.patch) rewriting the
+# sites.latitude/longitude columns from Float back to Double: SQLite
+# reports them (declared DOUBLE PRECISION) with REAL affinity, and
+# older diesel-cli inferred `Float`, which does not match the f64 in
+# the Rust Site model. diesel-cli 2.3 infers `Double` for them by
+# itself, so the patch had nothing left to match and every
+# `diesel migration run` failed on it — taking the API container down
+# with it, since print-schema runs as part of the migration step.
 
 [migrations_directory]
 dir = "migrations"
