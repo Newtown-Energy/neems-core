@@ -26,7 +26,7 @@ use crate::{
     models::AlarmAcknowledgement,
     orm::{
         DbConn,
-        alarm_acknowledgement::{create_acknowledgement, latest_ack_by_alarm},
+        alarm_acknowledgement::{acks_in_range, create_acknowledgement, latest_ack_by_alarm},
         neems_data::db::SiteDbConn,
     },
     session_guards::AuthenticatedUser,
@@ -607,20 +607,43 @@ pub async fn get_alarm_definitions(_user: AuthenticatedUser) -> Json<AlarmDefini
 
 // --- Alarm history ---
 
-/// A single alarm-state transition emitted by the history endpoint.
+/// What happened to an alarm at a given point in the history timeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum AlarmHistoryEventDto {
+    /// The alarm's data bit went from inactive to active.
+    Activated,
+    /// The alarm's data bit went from active to inactive.
+    Cleared,
+    /// A user acknowledged the alarm. Carries the acknowledger and note; does
+    /// not imply any change in data state.
+    Acknowledged,
+}
+
+/// A single event on an alarm's history timeline: a data-state transition
+/// observed in a reading, or an operator acknowledgement.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AlarmHistoryEntry {
-    /// ISO 8601 timestamp (UTC) of the reading in which the transition was
-    /// observed.
+    /// ISO 8601 timestamp (UTC): the reading the transition was observed in,
+    /// or the moment the acknowledgement was recorded.
     pub timestamp: String,
     pub alarm_num: u16,
     pub zone: AlarmZoneDto,
     pub name: String,
     pub severity: AlarmSeverityDto,
-    /// `true` if the alarm became active at this reading, `false` if it
-    /// cleared.
+    /// What happened. Switch on this; `active` is the older two-state view.
+    pub event: AlarmHistoryEventDto,
+    /// `true` only for [`AlarmHistoryEventDto::Activated`]. Retained so
+    /// existing consumers that render Activated/Cleared keep working;
+    /// acknowledgement entries report `false`.
     pub active: bool,
+    /// User id of the acknowledger — `Acknowledged` entries only.
+    pub acknowledged_by_user_id: Option<i32>,
+    /// Email of the acknowledger — `Acknowledged` entries only.
+    pub acknowledged_by_email: Option<String>,
+    /// Free-form note recorded with the acknowledgement, if any.
+    pub note: Option<String>,
 }
 
 /// Response for the alarm-history endpoint.
@@ -668,10 +691,16 @@ fn parse_alarm_nums_filter(raw: &str) -> HashSet<u16> {
 /// before `from`, so a transition that occurred right before the range start
 /// won't appear — extend the range to capture it, or cross-reference with
 /// `/Alarms/Active` for current state.
+///
+/// Acknowledgements recorded in the same range are interleaved into the same
+/// timeline as `Acknowledged` entries, so an operator can see when an alarm was
+/// acknowledged relative to when it activated and cleared. Entries are sorted
+/// by timestamp; transitions precede acknowledgements at the same instant.
 #[get("/1/Alarms/History?<query..>")]
 pub async fn get_alarm_history(
     query: AlarmHistoryQuery,
     _user: AuthenticatedUser,
+    db: DbConn,
     site_db: SiteDbConn,
 ) -> Result<Json<AlarmHistoryResponse>, Status> {
     let from_str = query.from.clone().ok_or(Status::BadRequest)?;
@@ -704,7 +733,17 @@ pub async fn get_alarm_history(
         })
         .await?;
 
-    let mut entries: Vec<AlarmHistoryEntry> = Vec::new();
+    /// An entry plus the raw sort keys used to merge the two sources. The
+    /// wire type carries only a formatted timestamp string, which is a lossy
+    /// key to sort on.
+    struct TimedEntry {
+        at: NaiveDateTime,
+        /// Tie-break within the same instant: transitions (`false`) first.
+        is_ack: bool,
+        entry: AlarmHistoryEntry,
+    }
+
+    let mut entries: Vec<TimedEntry> = Vec::new();
     let mut prev_flags: Option<AlarmFlags> = None;
 
     for reading in &readings {
@@ -723,19 +762,93 @@ pub async fn get_alarm_history(
                 let was_active = prev.is_alarm_active(def);
                 let is_active = flags.is_alarm_active(def);
                 if was_active != is_active {
-                    entries.push(AlarmHistoryEntry {
-                        timestamp: reading.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-                        alarm_num: def.alarm_num,
-                        zone: def.zone.into(),
-                        name: def.name.to_string(),
-                        severity: AlarmSeverityDto::from_level(def.level),
-                        active: is_active,
+                    entries.push(TimedEntry {
+                        at: reading.timestamp,
+                        is_ack: false,
+                        entry: AlarmHistoryEntry {
+                            timestamp: reading.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                            alarm_num: def.alarm_num,
+                            zone: def.zone.into(),
+                            name: def.name.to_string(),
+                            severity: AlarmSeverityDto::from_level(def.level),
+                            event: if is_active {
+                                AlarmHistoryEventDto::Activated
+                            } else {
+                                AlarmHistoryEventDto::Cleared
+                            },
+                            active: is_active,
+                            acknowledged_by_user_id: None,
+                            acknowledged_by_email: None,
+                            note: None,
+                        },
                     });
                 }
             }
         }
         prev_flags = Some(flags);
     }
+
+    // Acknowledgements live in the main DB, so they're fetched separately and
+    // merged into the same timeline.
+    let (acks, emails) = db
+        .run(move |conn| {
+            use diesel::prelude::*;
+
+            use crate::schema::users;
+
+            let acks = acks_in_range(conn, from_dt, to_dt).map_err(|e| {
+                eprintln!("Error loading acknowledgements for alarm history: {:?}", e);
+                Status::InternalServerError
+            })?;
+            let ids: Vec<i32> = acks.iter().map(|a| a.user_id).collect();
+            let email_pairs: Vec<(i32, String)> = users::table
+                .filter(users::id.eq_any(&ids))
+                .select((users::id, users::email))
+                .load(conn)
+                .map_err(|_| Status::InternalServerError)?;
+            Ok::<_, Status>((acks, email_pairs.into_iter().collect::<HashMap<i32, String>>()))
+        })
+        .await?;
+
+    let defs_by_num: HashMap<u16, &AlarmDefinition> =
+        ALARM_DEFINITIONS.iter().map(|d| (d.alarm_num, d)).collect();
+
+    for ack in &acks {
+        let Ok(num) = u16::try_from(ack.alarm_num) else {
+            continue;
+        };
+        if let Some(filter) = &alarm_filter {
+            if !filter.contains(&num) {
+                continue;
+            }
+        }
+        // An ack for an alarm_num with no definition (e.g. one retired from the
+        // spec) has nothing to render, so it is skipped rather than guessed at.
+        let Some(def) = defs_by_num.get(&num) else {
+            continue;
+        };
+        entries.push(TimedEntry {
+            at: ack.acknowledged_at,
+            is_ack: true,
+            entry: AlarmHistoryEntry {
+                timestamp: ack.acknowledged_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                alarm_num: num,
+                zone: def.zone.into(),
+                name: def.name.to_string(),
+                severity: AlarmSeverityDto::from_level(def.level),
+                event: AlarmHistoryEventDto::Acknowledged,
+                active: false,
+                acknowledged_by_user_id: Some(ack.user_id),
+                acknowledged_by_email: emails.get(&ack.user_id).cloned(),
+                note: ack.note.clone(),
+            },
+        });
+    }
+
+    // Stable merge: chronological, with transitions ahead of acknowledgements
+    // recorded at the same instant (you can't ack an alarm before it fires).
+    entries.sort_by(|a, b| a.at.cmp(&b.at).then(a.is_ack.cmp(&b.is_ack)));
+    let entries: Vec<AlarmHistoryEntry> = entries.into_iter().map(|e| e.entry).collect();
 
     Ok(Json(AlarmHistoryResponse { entries, from: from_str, to: to_str }))
 }

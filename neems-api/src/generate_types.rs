@@ -136,8 +136,8 @@ mod tests {
         use crate::api::alarm::{
             AcknowledgeAlarmRequest, AcknowledgeAlarmResponse, ActiveAlarmDto,
             ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse, AlarmHistoryEntry,
-            AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto, AlarmStatusDto,
-            AlarmZoneDto, ForcedAlarmsRequest, ForcedAlarmsResponse,
+            AlarmHistoryEventDto, AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto,
+            AlarmStatusDto, AlarmZoneDto, ForcedAlarmsRequest, ForcedAlarmsResponse,
         };
         AlarmSeverityDto::export().expect("Failed to export AlarmSeverityDto type");
         AlarmZoneDto::export().expect("Failed to export AlarmZoneDto type");
@@ -146,6 +146,7 @@ mod tests {
         ActiveAlarmDto::export().expect("Failed to export ActiveAlarmDto type");
         ActiveAlarmsResponse::export().expect("Failed to export ActiveAlarmsResponse type");
         AlarmDefinitionsResponse::export().expect("Failed to export AlarmDefinitionsResponse type");
+        AlarmHistoryEventDto::export().expect("Failed to export AlarmHistoryEventDto type");
         AlarmHistoryEntry::export().expect("Failed to export AlarmHistoryEntry type");
         AlarmHistoryResponse::export().expect("Failed to export AlarmHistoryResponse type");
         AlarmHistoryQuery::export().expect("Failed to export AlarmHistoryQuery type");
