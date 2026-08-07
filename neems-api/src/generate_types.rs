@@ -150,6 +150,11 @@ mod tests {
         ForcedAlarmsRequest::export().expect("Failed to export ForcedAlarmsRequest type");
         ForcedAlarmsResponse::export().expect("Failed to export ForcedAlarmsResponse type");
 
+        // E-stop API types
+        EstopRequestStatus::export().expect("Failed to export EstopRequestStatus type");
+        EstopRequestDto::export().expect("Failed to export EstopRequestDto type");
+        EstopStatusResponse::export().expect("Failed to export EstopStatusResponse type");
+
         // Demo API types
         use crate::api::demo::{InjectHistoryRequest, InjectHistoryResponse, SeedSummary};
         InjectHistoryRequest::export().expect("Failed to export InjectHistoryRequest type");

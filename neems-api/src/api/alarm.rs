@@ -34,7 +34,7 @@ pub struct DemoForcedAlarms {
 }
 
 impl DemoForcedAlarms {
-    fn snapshot(&self) -> HashSet<u16> {
+    pub fn snapshot(&self) -> HashSet<u16> {
         self.inner.lock().map(|g| g.clone()).unwrap_or_default()
     }
 

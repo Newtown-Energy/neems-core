@@ -311,6 +311,22 @@ impl PendingCommand {
         }
     }
 
+    /// Create an emergency stop command.
+    ///
+    /// Ramp duration is zero: an emergency stop is not a power transition to be
+    /// eased into. `source_id` carries the id of the operator request that
+    /// asked for it, so a trip can be traced back to who requested it.
+    pub fn emergency_stop(request_id: i64) -> Self {
+        Self {
+            command_type: CommandType::EmergencyStop,
+            duration_seconds: None,
+            target_soc_percent: None,
+            ramp_duration_seconds: 0,
+            created_at: Utc::now(),
+            source_id: Some(request_id),
+        }
+    }
+
     /// Set the source ID for tracking
     pub fn with_source_id(mut self, source_id: i64) -> Self {
         self.source_id = Some(source_id);

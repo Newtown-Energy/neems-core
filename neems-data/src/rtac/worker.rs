@@ -156,6 +156,16 @@ pub struct WorkerChannels {
     pub alarm_tx: mpsc::UnboundedSender<Alarm>,
     /// Receiver for shutdown signal (any value triggers shutdown)
     pub shutdown_rx: watch::Receiver<bool>,
+    /// Receiver for operator E-stop requests to signal, carrying the request id
+    ///
+    /// Deliberately separate from `command_rx`: that is a `watch`, which keeps
+    /// only the latest value, so an E-stop placed there could be overwritten by
+    /// the next schedule command before the worker ever wrote it. Sending the
+    /// signal is the one thing this system owes an operator who asks for a
+    /// trip.
+    pub estop_rx: mpsc::UnboundedReceiver<i64>,
+    /// Sender reporting the request ids whose E-stop reached the RTAC
+    pub estop_sent_tx: mpsc::UnboundedSender<i64>,
 }
 
 /// Statistics for the worker
@@ -186,6 +196,11 @@ pub struct ModbusWorker {
     tick_count: u64,
     sequence: u64,
     last_alarm_flags: AlarmFlags,
+    /// Request id of an E-stop that has been asked for but not yet written.
+    ///
+    /// Held until the write succeeds so a failed or disconnected write is
+    /// retried on the next tick rather than lost.
+    pending_estop: Option<i64>,
 }
 
 impl ModbusWorker {
@@ -208,6 +223,7 @@ impl ModbusWorker {
             tick_count: 0,
             sequence: 0,
             last_alarm_flags: AlarmFlags::default(),
+            pending_estop: None,
         }
     }
 
@@ -256,6 +272,11 @@ impl ModbusWorker {
 
                     // Perform read operation (every tick = 10Hz)
                     let read_success = self.perform_read().await;
+
+                    // Signal any operator E-stop (every tick = 10Hz, and ahead
+                    // of the scheduled write). An operator asking for a trip
+                    // should not wait out a write slot.
+                    self.perform_estop_write().await;
 
                     // Perform write operation (every Nth tick = 2Hz)
                     if self.tick_count.is_multiple_of(self.config.write_every_n_ticks as u64) {
@@ -335,6 +356,58 @@ impl ModbusWorker {
                 self.update_connection_status(self.client.connection_status()).await;
 
                 false
+            }
+        }
+    }
+
+    /// Write an operator's E-stop signal to the RTAC, if one has been asked
+    /// for.
+    ///
+    /// This is the whole of the system's responsibility for an operator E-stop:
+    /// get the signal to the RTAC. What the RTAC does with it — whether it
+    /// latches, trips, or ignores it — is the RTAC's business, and is reported
+    /// separately through alarm 104 in the readings feed.
+    ///
+    /// The signal is therefore retried until a write actually succeeds, and is
+    /// only reported as sent once one has. A disconnected RTAC delays the
+    /// signal; it must not silently swallow it.
+    async fn perform_estop_write(&mut self) {
+        // Take the most recent request; an older un-sent one is superseded
+        // rather than queued behind, since both ask for the same thing.
+        while let Ok(request_id) = self.channels.estop_rx.try_recv() {
+            if let Some(superseded) = self.pending_estop.replace(request_id) {
+                if superseded != request_id {
+                    debug!(superseded, request_id, "Newer E-stop request supersedes an unsent one");
+                }
+            }
+        }
+
+        let Some(request_id) = self.pending_estop else {
+            return;
+        };
+
+        let command = PendingCommand::emergency_stop(request_id);
+        self.stats.total_writes += 1;
+
+        match self.client.write_command(&command).await {
+            Ok(()) => {
+                self.stats.successful_writes += 1;
+                warn!(request_id, "Operator E-stop signal written to RTAC");
+                self.pending_estop = None;
+                if self.channels.estop_sent_tx.send(request_id).is_err() {
+                    error!(
+                        request_id,
+                        "E-stop was written but nothing is listening to report it as sent"
+                    );
+                }
+            }
+            Err(e) => {
+                self.stats.failed_writes += 1;
+                error!(
+                    error = %e,
+                    request_id,
+                    "Operator E-stop write failed, retrying on the next tick"
+                );
             }
         }
     }
@@ -490,24 +563,37 @@ impl ModbusWorker {
     }
 }
 
+/// The ends of the worker's channels that other tasks hold.
+pub struct WorkerHandles {
+    /// Send `true` to request graceful shutdown.
+    pub shutdown_tx: watch::Sender<bool>,
+    /// Ask the worker to signal an operator E-stop, by request id.
+    pub estop_tx: mpsc::UnboundedSender<i64>,
+    /// Receives request ids once their E-stop has been written to the RTAC.
+    pub estop_sent_rx: mpsc::UnboundedReceiver<i64>,
+}
+
 /// Create the channels needed for the worker
 ///
-/// Returns the worker channels and a shutdown sender. Send `true` to the
-/// shutdown sender to request graceful shutdown.
+/// Returns the worker channels and the handles other tasks use to drive it.
 pub fn create_worker_channels(
     command_rx: watch::Receiver<Option<PendingCommand>>,
     storage_tx: mpsc::Sender<RtacReading>,
     alarm_tx: mpsc::UnboundedSender<Alarm>,
-) -> (WorkerChannels, watch::Sender<bool>) {
+) -> (WorkerChannels, WorkerHandles) {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (estop_tx, estop_rx) = mpsc::unbounded_channel();
+    let (estop_sent_tx, estop_sent_rx) = mpsc::unbounded_channel();
     let channels = WorkerChannels {
         state: Arc::new(RwLock::new(RtacState::default())),
         command_rx,
         storage_tx,
         alarm_tx,
         shutdown_rx,
+        estop_rx,
+        estop_sent_tx,
     };
-    (channels, shutdown_tx)
+    (channels, WorkerHandles { shutdown_tx, estop_tx, estop_sent_rx })
 }
 
 #[cfg(test)]
