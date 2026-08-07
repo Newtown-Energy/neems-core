@@ -21,7 +21,8 @@ use tracing::{error, info};
 
 use super::{
     alarms::{AlarmConfig, AlarmHandlerTask, create_alarm_channel},
-    control::{ControlConfig, ControlLogicTask},
+    control::{ControlConfig, ControlLogicTask, EstopRequestSource},
+    estop_http::{HttpEstopSource, run_estop_poller},
     schedule_http::{ApiClientConfig, HttpScheduleProvider, run_active_command_poller},
     state::PendingCommand,
     storage::{DatabaseStorageBackend, StorageConfig, StorageWriterTask, create_storage_channel},
@@ -98,10 +99,12 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
     let (command_tx, command_rx) = tokio::sync::watch::channel::<Option<PendingCommand>>(None);
     let (storage_tx, storage_rx) = create_storage_channel(256);
     let (alarm_tx, alarm_rx) = create_alarm_channel();
-    let (channels, shutdown_tx) = create_worker_channels(command_rx, storage_tx, alarm_tx);
+    let (channels, handles) = create_worker_channels(command_rx, storage_tx, alarm_tx);
     // The control logic reads the same shared state the worker updates.
     let shared_state = channels.state.clone();
-    let _shutdown_tx = shutdown_tx;
+    let estop_tx = handles.estop_tx;
+    let mut estop_sent_rx = handles.estop_sent_rx;
+    let _shutdown_tx = handles.shutdown_tx;
 
     // Storage task: persist readings to the site database.
     let backend = DatabaseStorageBackend::new(database_url, source_id);
@@ -127,15 +130,40 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
     let api_config = ApiClientConfig::from_env(site_id);
     tokio::spawn(run_active_command_poller(api_config, command_cache.clone()));
 
+    // E-stop poller: watch neems-api for operator-requested trips and report
+    // back once the signal has been written to the RTAC.
+    let estop_cache = Arc::new(Mutex::new(None));
+    let (dispatched_tx, dispatched_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(run_estop_poller(
+        ApiClientConfig::from_env(site_id),
+        estop_cache.clone(),
+        dispatched_rx,
+    ));
+    let estop_source = Arc::new(HttpEstopSource::new(estop_cache, dispatched_tx));
+
+    // Report an E-stop as sent only once the worker's write actually landed.
+    // The control logic hands requests to the worker; the worker retries until
+    // one succeeds, so this is what closes the loop back to neems-api.
+    {
+        let estop_source = estop_source.clone();
+        tokio::spawn(async move {
+            while let Some(request_id) = estop_sent_rx.recv().await {
+                estop_source.mark_dispatched(request_id);
+            }
+        });
+    }
+
     // Control logic: turn the active command into RTAC commands (with reactive
     // SoC/alarm safety overrides) and write them via the command channel.
+    // Operator E-stops travel their own path to the worker.
     let schedule_provider = HttpScheduleProvider::new(command_cache);
     let mut control_task = ControlLogicTask::new(
         ControlConfig::default(),
         schedule_provider,
         shared_state,
         command_tx,
-    );
+    )
+    .with_estop_source(estop_source, estop_tx);
     tokio::spawn(async move {
         if let Err(e) = control_task.run().await {
             error!(error = %e, "RTAC control logic task stopped");

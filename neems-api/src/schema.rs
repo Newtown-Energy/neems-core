@@ -69,6 +69,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    estop_requests (id) {
+        id -> Integer,
+        site_id -> Integer,
+        status -> Text,
+        requested_by -> Nullable<Integer>,
+        requested_at -> Timestamp,
+        dispatched_at -> Nullable<Timestamp>,
+        resolved_at -> Nullable<Timestamp>,
+        failure_reason -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     roles (id) {
         id -> Integer,
         name -> Text,
@@ -166,6 +179,8 @@ diesel::table! {
 diesel::joinable!(application_rules -> schedule_templates (template_id));
 diesel::joinable!(devices -> companies (company_id));
 diesel::joinable!(devices -> sites (site_id));
+diesel::joinable!(estop_requests -> sites (site_id));
+diesel::joinable!(estop_requests -> users (requested_by));
 diesel::joinable!(schedule_commands -> sites (site_id));
 diesel::joinable!(schedule_template_entries -> schedule_commands (schedule_command_id));
 diesel::joinable!(schedule_template_entries -> schedule_templates (template_id));
@@ -183,6 +198,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     deleted_users,
     devices,
     entity_activity,
+    estop_requests,
     roles,
     schedule_commands,
     schedule_template_entries,

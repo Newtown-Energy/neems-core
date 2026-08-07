@@ -140,7 +140,10 @@ impl WireCommand {
 /// neems-api flags the session cookie `Secure`, so reqwest's cookie store will
 /// not resend it over plain http between containers. We capture the token from
 /// the login response and attach it manually on subsequent requests.
-async fn login(client: &reqwest::Client, config: &ApiClientConfig) -> Result<String, String> {
+pub(super) async fn login(
+    client: &reqwest::Client,
+    config: &ApiClientConfig,
+) -> Result<String, String> {
     let url = format!("{}/api/1/login", config.base_url);
     let body = serde_json::json!({ "email": config.email, "password": config.password });
     let resp = client.post(&url).json(&body).send().await.map_err(|e| e.to_string())?;
