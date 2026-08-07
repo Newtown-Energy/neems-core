@@ -256,6 +256,14 @@ if [ -n "$DEVICE_SITE2_ID" ]; then
     $NEEMS_ADMIN_BIN device add --name "SEL-735B" --type "Meter" --model "SEL-735" --serial "TEST003" --company "$DEVICE_COMPANY2_ID" --site "$DEVICE_SITE2_ID"
 fi
 
+# Only the newest golden database is ever used (see the `ls -t | head -1` at the
+# top of this script and get_golden_db_path() in orm/testing.rs), so the older
+# ones are dead weight in the shared target volume. See issue #94.
+ls -t "$TARGET_DIR"/golden_test_*.db 2>/dev/null | tail -n +2 | while read -r old_db; do
+    echo "Removing superseded golden database: $(basename "$old_db")"
+    rm -f "$old_db"
+done
+
 echo "Golden database v$VERSION_TIMESTAMP created successfully at: $GOLDEN_DB_PATH"
 echo "You can now run tests with: cargo test --features test-staging"
 echo ""

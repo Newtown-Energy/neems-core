@@ -4,12 +4,15 @@ FROM rustlang/rust:nightly-bookworm
 # Install Rust tooling components (clippy, rustfmt, rust-src)
 RUN rustup component add clippy rustfmt rust-src
 
-# Install sqlite3, cargo-watch for live reload, and diesel_cli for migrations
+# Install sqlite3, cargo-watch for live reload, diesel_cli for migrations, and
+# cargo-sweep to keep the shared target volume from growing without bound
+# (see issue #94 and the entrypoint).
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && cargo install cargo-watch \
+    && cargo install cargo-sweep \
     && cargo install diesel_cli --no-default-features --features sqlite
 
 # Set working directory

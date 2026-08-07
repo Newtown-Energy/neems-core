@@ -122,6 +122,65 @@ _install-cranelift() {
     fi
 }
 
+disk() {
+    # Report what the shared target/ volume is holding
+
+    local target="${BASEDIR}/target"
+    [ -d "$target" ] || { echo "No target/ directory at $target"; return 0; }
+
+    echo "target/ total: $(du -sh "$target" 2>/dev/null | cut -f1)"
+    # `|| true` throughout: dosh runs under `set -eo pipefail`, and a missing
+    # path or an unmatched glob would otherwise abort a read-only report.
+    { du -sh "$target"/debug/deps "$target"/debug/incremental "$target"/debug/build \
+        2>/dev/null || true; } | sort -rh || true
+    local strays=0
+    local f
+    for f in "$target"/test_db_*.db; do
+        [ -e "$f" ] && strays=$((strays + 1))
+    done
+    echo "leftover test databases: ${strays}"
+    echo
+    echo "Run './bin/dosh sweep' to prune. Cargo never does this on its own —"
+    echo "see the 'shared target/ volume' section in AGENTS.md."
+}
+
+sweep() {
+    # Prune the shared target/ volume down to a size ceiling
+    #
+    # Cargo never garbage-collects target/, which is how it reached 173 GB
+    # (issue #94). The neems-api container does this on a timer; this is the
+    # same thing on demand. Pass a size to override, e.g. './bin/dosh sweep 8GB'.
+
+    local maxsize="${1:-${CARGO_TARGET_MAXSIZE:-10GB}}"
+    local incremental_max_mb="${CARGO_INCREMENTAL_MAXSIZE_MB:-3072}"
+    local target="${BASEDIR}/target"
+
+    if ! command -v cargo-sweep >/dev/null 2>&1; then
+        echo "❌ cargo-sweep is not installed. Install it with:"
+        echo "     cargo install cargo-sweep    (or './bin/dosh depends')"
+        return 1
+    fi
+
+    echo "Before: $(du -sh "$target" 2>/dev/null | cut -f1)"
+
+    # Bound target/debug/incremental first and separately. cargo-sweep will not
+    # touch it but does count it, so leaving it large makes cargo-sweep delete
+    # everything it *can* reach to compensate — a full rebuild for nothing.
+    if [ -d "$target/debug/incremental" ]; then
+        local size_mb
+        size_mb=$(du -sm "$target/debug/incremental" 2>/dev/null | cut -f1)
+        if [ -n "$size_mb" ] && [ "$size_mb" -gt "$incremental_max_mb" ]; then
+            echo "Incremental cache is ${size_mb}MB (limit ${incremental_max_mb}MB), clearing it"
+            rm -rf "${target:?}/debug/incremental"/* 2>/dev/null || true
+        fi
+    fi
+
+    cargo sweep --maxsize "$maxsize" "${BASEDIR}" || echo "cargo sweep failed"
+
+    rm -f "$target"/test_db_*.db 2>/dev/null || true
+    echo "After:  $(du -sh "$target" 2>/dev/null | cut -f1)"
+}
+
 build() {
     # Build a dev bin
 
@@ -176,6 +235,10 @@ depends() {
 
   # We don't actually use machete in dosh, but it is useful generally
   which cargo-machete > /dev/null || ${CARGO} binstall --no-confirm cargo-machete
+
+  # Backs './bin/dosh sweep'. Cargo never garbage-collects target/, which is how
+  # it reached 173 GB (issue #94).
+  which cargo-sweep > /dev/null || ${CARGO} binstall --no-confirm cargo-sweep
 
   # We should probably change this to a binstall
   ${CARGO} nextest --version &> /dev/null || cargo install --locked cargo-nextest || { echo "Can't install nextest"; exit 1; }

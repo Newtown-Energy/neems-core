@@ -100,6 +100,42 @@ endpoint and the React dashboard.
 - Disabled by default so the system doesn't follow a (possibly absent) RTAC
   connection. Enable it with `RTAC_ENABLED=1` (or `true`/`yes`/`on`).
 
+## The shared `target/` volume
+
+`neems-api`, `neems-data`, and `neems-rtac-sim` all mount the same
+`target-cache` volume at `/usr/src/app/target`. Cargo never garbage-collects
+`target/`, so without help that volume grows without bound — it reached 173 GB
+and filled the Docker VM's disk (issue #94).
+
+**Check it with `./bin/dosh disk`. Prune it with `./bin/dosh sweep`.** The
+neems-api container does the same sweep on start and every 6 hours after.
+
+Reference numbers, so a future change can be judged against them: one clean
+build of everything — every bin, every test binary, single fingerprint, no
+incremental — is about **5.7 GB**. The default ceiling is 10 GB.
+
+Four things hold that line, and each is easy to undo by accident:
+
+- **Never set `RUSTFLAGS` for a one-off command.** Debug info is capped in
+  `[profile.dev]` in the workspace `Cargo.toml`. `RUSTFLAGS` is part of a
+  build's fingerprint, so setting it for some invocations and not others makes
+  cargo build and keep a second complete set of artifacts for the same code.
+  Two `libneems_api` rlibs, 300 MB each, is what that looked like.
+- **`cargo sweep --maxsize` enforces the ceiling**, oldest artifacts first. A
+  ceiling rather than an age cutoff, because only a ceiling answers "this will
+  never exceed N".
+- **`target/debug/incremental` is bounded separately, and first.** cargo-sweep
+  will not touch that directory but does count it toward the total, so a large
+  incremental cache makes cargo-sweep delete everything it *can* reach to
+  compensate — a full rebuild for nothing. Keep the incremental prune ahead of
+  the sweep.
+- `fast_test_rocket()` sweeps per-test database copies older than an hour, and
+  `bin/create-golden-db.sh` removes superseded golden databases.
+
+Tunable via environment (defaults in `neems-api/docker-entrypoint.sh`, set in
+`devenv/docker-compose.yml`): `CARGO_TARGET_MAXSIZE`,
+`CARGO_TARGET_SWEEP_INTERVAL`, `CARGO_INCREMENTAL_MAXSIZE_MB`.
+
 ## Development Workflow
 
 ### Linting
