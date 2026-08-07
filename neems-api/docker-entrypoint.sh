@@ -58,7 +58,15 @@ sweep_target() {
   fi
 
   # Test database copies from runs that died before their own sweep could run.
-  rm -f /usr/src/app/target/test_db_*.db 2>/dev/null || true
+  #
+  # Only ones untouched for an hour, matching STALE_TEST_DB_AGE in
+  # orm/testing.rs. A test run in progress owns its copies, and this sweep fires
+  # on a timer with no idea whether one is underway — `docker compose exec
+  # neems-api ... test` is how AGENTS.md says to run tests, so that overlap is
+  # routine rather than hypothetical. Deleting a database out from under a
+  # running test would be far worse than leaving a stray file.
+  find /usr/src/app/target -maxdepth 1 -name 'test_db_*.db' -mmin +60 -delete \
+    2>/dev/null || true
 }
 
 echo "Sweeping build artifacts down to ${CARGO_TARGET_MAXSIZE}..."

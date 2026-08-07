@@ -177,7 +177,10 @@ sweep() {
 
     cargo sweep --maxsize "$maxsize" "${BASEDIR}" || echo "cargo sweep failed"
 
-    rm -f "$target"/test_db_*.db 2>/dev/null || true
+    # Only test databases untouched for an hour, matching STALE_TEST_DB_AGE in
+    # orm/testing.rs. A test run in another shell owns its copies, and pulling
+    # one out from under it would be far worse than leaving a stray file.
+    find "$target" -maxdepth 1 -name 'test_db_*.db' -mmin +60 -delete 2>/dev/null || true
     echo "After:  $(du -sh "$target" 2>/dev/null | cut -f1)"
 }
 
