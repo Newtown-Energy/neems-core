@@ -17,6 +17,7 @@ use rocket::{
 pub mod admin_init_fairing;
 pub mod api;
 pub mod company;
+pub mod demo_seed_fairing;
 pub mod logged_json;
 pub mod models;
 pub mod odata_query;
@@ -139,6 +140,8 @@ pub fn rocket() -> Rocket<Build> {
         .attach(orm::run_migrations_fairing())
         .attach(orm::neems_data::run_site_migrations_fairing())
         .attach(admin_init_fairing::admin_init_fairing())
+        // After admin_init: the demo site attaches to the company it creates.
+        .attach(demo_seed_fairing::demo_seed_fairing())
         .register(
             "/",
             catchers![

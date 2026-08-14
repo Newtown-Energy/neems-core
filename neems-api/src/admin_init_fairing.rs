@@ -55,17 +55,28 @@ async fn setup_company(
     conn.run(find_or_create_company).await.map_err(|_| rocket::build())
 }
 
-fn find_or_create_company(
-    c: &mut SqliteConnection,
-) -> Result<crate::models::Company, diesel::result::Error> {
-    let candidate_names = ["Newtown Energy", "Newtown Energy, Inc", "Newtown Energy, Inc."];
+/// Spellings that all mean "the Newtown Energy company".
+///
+/// A deployment may carry any of these historical forms, so identifying the
+/// company means trying each. Only the canonical first entry is ever created.
+pub(crate) const COMPANY_CANDIDATE_NAMES: [&str; 3] =
+    ["Newtown Energy", "Newtown Energy, Inc", "Newtown Energy, Inc."];
 
-    for cand in candidate_names {
+/// The Newtown Energy company under whichever spelling this deployment uses,
+/// or `None` if it has not been created yet.
+///
+/// Shared so that everything resolving the company agrees on what counts as a
+/// match. Looking it up by a single hard-coded name elsewhere would silently
+/// miss a deployment carrying one of the other spellings.
+pub(crate) fn find_company(
+    c: &mut SqliteConnection,
+) -> Result<Option<crate::models::Company>, diesel::result::Error> {
+    for cand in COMPANY_CANDIDATE_NAMES {
         let comp_input = CompanyInput { name: cand.to_string() };
         match get_company_by_name(c, &comp_input) {
             Ok(Some(found)) => {
                 info!("[admin-init] Matched company: '{}'", cand);
-                return Ok(found);
+                return Ok(Some(found));
             }
             Ok(None) => continue,
             Err(e) => {
@@ -74,9 +85,19 @@ fn find_or_create_company(
             }
         }
     }
+    Ok(None)
+}
 
-    println!("[admin-init] No matching company found. Creating 'Newtown Energy'.");
-    match insert_company(c, "Newtown Energy".to_string(), None) {
+fn find_or_create_company(
+    c: &mut SqliteConnection,
+) -> Result<crate::models::Company, diesel::result::Error> {
+    if let Some(found) = find_company(c)? {
+        return Ok(found);
+    }
+
+    let canonical = COMPANY_CANDIDATE_NAMES[0];
+    println!("[admin-init] No matching company found. Creating '{}'.", canonical);
+    match insert_company(c, canonical.to_string(), None) {
         Ok(inst) => Ok(inst),
         Err(e) => {
             error!("[admin-init] ERROR creating company: {:?}", e);
