@@ -13,6 +13,14 @@ use crate::{
 /// Record an acknowledgement of `alarm_num` by `user_id`. Append-only: always
 /// inserts a new row. Returns the persisted row (including its server-assigned
 /// `acknowledged_at`).
+///
+/// The timestamp is stamped here rather than left to the column default.
+/// SQLite's `CURRENT_TIMESTAMP` has whole-second resolution, but the alarm
+/// data-state edges this is compared against (`last_rising_at` /
+/// `last_falling_at`, written by the RTAC collector and the demo endpoints)
+/// carry sub-second precision. Truncating one side made an acknowledgement
+/// recorded in the same second as the rising edge compare as *older* than it,
+/// so a genuinely acknowledged alarm read back as unacknowledged.
 pub fn create_acknowledgement(
     conn: &mut SqliteConnection,
     alarm_num: i32,
@@ -22,7 +30,7 @@ pub fn create_acknowledgement(
     let new = NewAlarmAcknowledgement {
         alarm_num,
         user_id,
-        acknowledged_at: None,
+        acknowledged_at: Some(Utc::now().naive_utc()),
         note,
     };
     diesel::insert_into(alarm_acknowledgements::table).values(&new).execute(conn)?;
