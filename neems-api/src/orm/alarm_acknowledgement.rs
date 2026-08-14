@@ -34,8 +34,18 @@ pub fn create_acknowledgement(
         note,
     };
     diesel::insert_into(alarm_acknowledgements::table).values(&new).execute(conn)?;
+
+    // Read back by rowid rather than "highest id wins": the insert and the
+    // select are separate statements, so a concurrent acknowledgement on
+    // another pooled connection could land in between and be returned instead —
+    // attributing this operator's acknowledgement to someone else in the
+    // response. `last_insert_rowid()` is per-connection, so it can only name
+    // the row this call just wrote.
+    let id: i64 =
+        diesel::select(diesel::dsl::sql::<diesel::sql_types::BigInt>("last_insert_rowid()"))
+            .get_result(conn)?;
     alarm_acknowledgements::table
-        .order(alarm_acknowledgements::id.desc())
+        .find(id as i32)
         .first::<AlarmAcknowledgement>(conn)
 }
 
