@@ -134,8 +134,11 @@ pub fn test_rocket() -> Rocket<Build> {
         databases.insert("site_db", site_db_config);
     }
 
-    // Merge DB config into Rocket's figment
-    let figment = rocket::Config::figment().merge(("databases", databases));
+    // Merge DB config into Rocket's figment. Demo mode is on for tests so the
+    // demo-only endpoints are reachable without a live RTAC feed.
+    let figment = rocket::Config::figment()
+        .merge(("databases", databases))
+        .merge(("demo_mode", true));
 
     // Build the Rocket instance with the DB fairing attached
     let mut rocket = rocket::custom(figment)
@@ -213,6 +216,15 @@ fn sweep_stale_test_dbs(dir: &std::path::Path) {
 ///
 /// Use this for tests that don't need to modify the core test data structure.
 pub fn fast_test_rocket() -> Rocket<Build> {
+    fast_test_rocket_with_demo_mode(true)
+}
+
+/// [`fast_test_rocket`] with demo mode set explicitly.
+///
+/// Tests default to demo mode on because the demo endpoints are how a test
+/// drives alarm state without a live RTAC feed. Pass `false` to assert that the
+/// demo-only routes are hidden when a deployment has not opted in.
+pub fn fast_test_rocket_with_demo_mode(demo_mode: bool) -> Rocket<Build> {
     use uuid::Uuid;
 
     // Get the golden database template
@@ -271,7 +283,9 @@ pub fn fast_test_rocket() -> Rocket<Build> {
     ];
 
     // Merge DB config into Rocket's figment
-    let figment = rocket::Config::figment().merge(("databases", databases));
+    let figment = rocket::Config::figment()
+        .merge(("databases", databases))
+        .merge(("demo_mode", demo_mode));
 
     // Build the Rocket instance with minimal fairings (no initialization fairings
     // needed!) The golden database is already fully set up, so we only need

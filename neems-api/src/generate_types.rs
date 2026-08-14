@@ -162,10 +162,16 @@ mod tests {
         EstopStatusResponse::export().expect("Failed to export EstopStatusResponse type");
 
         // Demo API types
-        use crate::api::demo::{InjectHistoryRequest, InjectHistoryResponse, SeedSummary};
+        use crate::api::demo::{
+            DemoAlarmStateDto, DemoAlarmStateResponse, InjectHistoryRequest, InjectHistoryResponse,
+            SeedSummary, SetAlarmStateRequest,
+        };
         InjectHistoryRequest::export().expect("Failed to export InjectHistoryRequest type");
         SeedSummary::export().expect("Failed to export SeedSummary type");
         InjectHistoryResponse::export().expect("Failed to export InjectHistoryResponse type");
+        SetAlarmStateRequest::export().expect("Failed to export SetAlarmStateRequest type");
+        DemoAlarmStateDto::export().expect("Failed to export DemoAlarmStateDto type");
+        DemoAlarmStateResponse::export().expect("Failed to export DemoAlarmStateResponse type");
 
         // Data API types
         use crate::api::data::{

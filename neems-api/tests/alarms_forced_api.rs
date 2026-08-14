@@ -1,9 +1,11 @@
 //! Integration tests for the demo forced-alarms endpoint.
 //!
-//! The endpoint is temporary scaffolding for demos — it lets an
-//! admin / newtown-admin / newtown-staff push a synthetic set of alarm
-//! numbers that get unioned into the `/Alarms/Active` response, without
-//! needing the RTAC feed to be live.
+//! The endpoint lets an admin / newtown-admin / newtown-staff drive a set of
+//! alarms without a live RTAC feed. It is a set-oriented view over the same
+//! `alarm_state` table that `/1/Demo/AlarmState` writes per alarm, so alarms
+//! raised here observe real rising/falling edges and latch accordingly —
+//! see `demo_alarm_state_api.rs` for the per-alarm tests. Demo mode must be
+//! enabled for any of it to be reachable.
 
 use neems_api::orm::testing::fast_test_rocket;
 use rocket::{http::Status, local::asynchronous::Client, tokio};
@@ -67,14 +69,38 @@ async fn forced_alarms_round_trip_as_newtown_admin() {
     let cleared: Value = clear.into_json().await.expect("json");
     assert_eq!(cleared["alarm_nums"], json!([]));
 
-    // /Active no longer shows the forced alarm.
-    let active2 = client.get("/api/1/Alarms/Active").cookie(session).dispatch().await;
+    // Clearing lowers the condition but does NOT hide the alarm: it was never
+    // acknowledged, so it stays visible as `ReturnedUnacknowledged` until an
+    // operator acknowledges it. This is the whole point of the latch — an
+    // alarm that blipped and cleared must not slip by unseen.
+    let active2 = client.get("/api/1/Alarms/Active").cookie(session.clone()).dispatch().await;
     let active2_body: Value = active2.into_json().await.expect("json");
-    let nums2: Vec<u16> = active2_body["alarms"]
+    let entry = active2_body["alarms"]
+        .as_array()
+        .expect("alarms array")
+        .iter()
+        .find(|a| a["alarm_num"].as_u64() == Some(401))
+        .cloned()
+        .expect("a cleared but unacknowledged alarm must stay visible");
+    assert_eq!(entry["status"], json!("ReturnedUnacknowledged"));
+    assert_eq!(entry["data_active"], json!(false));
+
+    // Acknowledging it now — after it has returned to normal — clears it.
+    let ack = client
+        .post("/api/1/Alarms/Acknowledge")
+        .cookie(session.clone())
+        .json(&json!({ "alarm_num": 401 }))
+        .dispatch()
+        .await;
+    assert_eq!(ack.status(), Status::Ok);
+
+    let active3 = client.get("/api/1/Alarms/Active").cookie(session).dispatch().await;
+    let active3_body: Value = active3.into_json().await.expect("json");
+    let nums3: Vec<u16> = active3_body["alarms"]
         .as_array()
         .map(|arr| arr.iter().map(|a| a["alarm_num"].as_u64().unwrap_or(0) as u16).collect())
         .unwrap_or_default();
-    assert!(!nums2.contains(&401));
+    assert!(!nums3.contains(&401), "acknowledged-after-return alarm should clear");
 }
 
 #[tokio::test]

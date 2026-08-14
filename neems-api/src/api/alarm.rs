@@ -3,10 +3,7 @@
 //! This module provides HTTP endpoints for accessing alarm information
 //! derived from RTAC readings stored in the site database.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Mutex,
-};
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use neems_data::{
@@ -17,12 +14,14 @@ use neems_data::{
         alarm_sld_meta::sld_meta_for,
         state::AlarmFlags,
     },
+    upsert_alarm_transition,
 };
 use rocket::{FromForm, Route, State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
+    api::demo::{DemoMode, forbid_unless_demo_mode},
     models::AlarmAcknowledgement,
     orm::{
         DbConn,
@@ -35,30 +34,6 @@ use crate::{
 /// Roles allowed to control the demo forced-alarm set — mirrors the
 /// frontend Demo Controls drawer's gate.
 const DEMO_CONTROL_ROLES: &[&str] = &["admin", "newtown-admin", "newtown-staff"];
-
-/// In-memory set of alarm numbers the demo drawer has forced on. Unioned
-/// into [`get_active_alarms`] responses so the SLD, alarms page, and
-/// anything else polling `/Alarms/Active` see them as if they were real.
-///
-/// Temporary scaffolding for the demo — meant to be deleted once the
-/// real RTAC feed is hooked up. Lives in memory only; resets on server
-/// restart, which is the desired demo behavior.
-#[derive(Default)]
-pub struct DemoForcedAlarms {
-    inner: Mutex<HashSet<u16>>,
-}
-
-impl DemoForcedAlarms {
-    pub fn snapshot(&self) -> HashSet<u16> {
-        self.inner.lock().map(|g| g.clone()).unwrap_or_default()
-    }
-
-    fn replace(&self, nums: HashSet<u16>) {
-        if let Ok(mut g) = self.inner.lock() {
-            *g = nums;
-        }
-    }
-}
 
 /// Alarm severity level for API responses
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -339,10 +314,7 @@ pub async fn get_active_alarms(
     _user: AuthenticatedUser,
     db: DbConn,
     site_db: SiteDbConn,
-    forced: &State<DemoForcedAlarms>,
 ) -> Result<Json<ActiveAlarmsResponse>, Status> {
-    let forced_nums = forced.snapshot();
-
     // Site DB: the latest reading's active alarm set (+ its timestamp) and the
     // materialised per-alarm data-state rows.
     let (mut reading_active, reading_ts, alarm_state) = site_db
@@ -392,11 +364,19 @@ pub async fn get_active_alarms(
         })
         .await?;
 
-    // Overlay demo-forced alarms onto the "currently active" set.
-    let valid: HashSet<u16> = ALARM_DEFINITIONS.iter().map(|d| d.alarm_num).collect();
-    for n in &forced_nums {
-        if valid.contains(n) {
-            reading_active.insert(*n);
+    // Union the materialised data-state into the "currently active" set.
+    //
+    // For the real feed this is redundant — the collector derives `alarm_state`
+    // from the same readings — but it is what makes a demo-driven alarm (see
+    // `/1/Demo/AlarmState`) behave like a real one when no RTAC feed is
+    // present. Where the two disagree, because the collector lags a reading,
+    // the union biases toward showing the alarm, which is the safe direction
+    // for an alarm system.
+    for s in &alarm_state {
+        if s.data_active
+            && let Ok(num) = u16::try_from(s.alarm_num)
+        {
+            reading_active.insert(num);
         }
     }
 
@@ -544,48 +524,94 @@ fn forbid_unless_demo_role(user: &AuthenticatedUser) -> Result<(), Status> {
     }
 }
 
-/// Read the current demo forced-alarm set.
+/// Read the set of alarms currently active by demo data-state.
 ///
 /// - **URL:** `/api/1/Alarms/Forced`
 /// - **Method:** `GET`
 /// - **Authentication:** Required; one of `admin`, `newtown-admin`,
-///   `newtown-staff`.
+///   `newtown-staff`. Demo mode must be enabled.
+///
+/// Retained as a set-oriented view over the same `alarm_state` table that
+/// `/1/Demo/AlarmState` writes; see that endpoint for per-alarm control.
 #[get("/1/Alarms/Forced")]
-pub fn get_forced_alarms(
+pub async fn get_forced_alarms(
     user: AuthenticatedUser,
-    forced: &State<DemoForcedAlarms>,
+    demo: &State<DemoMode>,
+    site_db: SiteDbConn,
 ) -> Result<Json<ForcedAlarmsResponse>, Status> {
+    forbid_unless_demo_mode(demo)?;
     forbid_unless_demo_role(&user)?;
-    let mut nums: Vec<u16> = forced.snapshot().into_iter().collect();
+
+    let rows = site_db
+        .run(move |conn| get_all_alarm_state(conn).map_err(|_| Status::InternalServerError))
+        .await?;
+
+    let mut nums: Vec<u16> = rows
+        .iter()
+        .filter(|r| r.data_active)
+        .filter_map(|r| u16::try_from(r.alarm_num).ok())
+        .collect();
     nums.sort_unstable();
     Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
 }
 
-/// Replace the demo forced-alarm set.
+/// Replace the set of demo-active alarms.
 ///
 /// - **URL:** `/api/1/Alarms/Forced`
 /// - **Method:** `PUT`
 /// - **Body:** `{ "alarm_nums": [u16, ...] }`
 /// - **Authentication:** Required; one of `admin`, `newtown-admin`,
-///   `newtown-staff`.
+///   `newtown-staff`. Demo mode must be enabled.
 ///
-/// The supplied list replaces the in-memory set (it is not additive). Pass
-/// an empty list to clear all forced alarms. Unknown alarm numbers are
+/// The supplied list replaces the active set (it is not additive). Pass an
+/// empty list to return every alarm to normal. Unknown alarm numbers are
 /// silently filtered against [`ALARM_DEFINITIONS`].
+///
+/// Writes real edges: alarms entering the set get a rising edge, alarms
+/// leaving it get a falling edge (and so latch as `ReturnedUnacknowledged`
+/// until acknowledged). Alarms whose state is unchanged are left alone, so
+/// re-sending the same set does not re-stamp their timestamps.
 #[put("/1/Alarms/Forced", data = "<body>")]
-pub fn put_forced_alarms(
+pub async fn put_forced_alarms(
     user: AuthenticatedUser,
-    forced: &State<DemoForcedAlarms>,
+    demo: &State<DemoMode>,
+    site_db: SiteDbConn,
     body: Json<ForcedAlarmsRequest>,
 ) -> Result<Json<ForcedAlarmsResponse>, Status> {
+    forbid_unless_demo_mode(demo)?;
     forbid_unless_demo_role(&user)?;
+
     let valid: HashSet<u16> = ALARM_DEFINITIONS.iter().map(|d| d.alarm_num).collect();
     let next: HashSet<u16> =
         body.alarm_nums.iter().copied().filter(|n| valid.contains(n)).collect();
-    forced.replace(next.clone());
-    let mut nums: Vec<u16> = next.into_iter().collect();
-    nums.sort_unstable();
-    Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
+
+    let rows = site_db
+        .run(move |conn| {
+            let now = chrono::Utc::now().naive_utc();
+            let current = get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)?;
+            let active_now: HashSet<u16> = current
+                .iter()
+                .filter(|r| r.data_active)
+                .filter_map(|r| u16::try_from(r.alarm_num).ok())
+                .collect();
+
+            // Only write the alarms that actually change state.
+            for num in next.difference(&active_now) {
+                upsert_alarm_transition(conn, *num as i32, true, now)
+                    .map_err(|_| Status::InternalServerError)?;
+            }
+            for num in active_now.difference(&next) {
+                upsert_alarm_transition(conn, *num as i32, false, now)
+                    .map_err(|_| Status::InternalServerError)?;
+            }
+
+            let mut nums: Vec<u16> = next.into_iter().collect();
+            nums.sort_unstable();
+            Ok::<Vec<u16>, Status>(nums)
+        })
+        .await?;
+
+    Ok(Json(ForcedAlarmsResponse { alarm_nums: rows }))
 }
 
 /// Get all alarm definitions.
