@@ -728,10 +728,9 @@ fn parse_alarm_nums_filter(raw: &str) -> HashSet<u16> {
 ///
 /// Walks readings in `[from, to]`, decodes each reading's alarm register
 /// bitfield, and emits a transition entry each time a given alarm's active bit
-/// flips relative to the prior reading in range. Does not seed a baseline from
-/// before `from`, so a transition that occurred right before the range start
-/// won't appear — extend the range to capture it, or cross-reference with
-/// `/Alarms/Active` for current state.
+/// flips relative to the prior reading. The most recent reading before `from`
+/// seeds the diff baseline, so a flip carried by the very first in-range
+/// reading is reported rather than swallowed.
 ///
 /// Acknowledgements recorded in the same range are interleaved into the same
 /// timeline as `Acknowledged` entries, so an operator can see when an alarm was
@@ -757,12 +756,15 @@ pub async fn get_alarm_history(
     let from_naive = from_dt.naive_utc();
     let to_naive = to_dt.naive_utc();
 
-    let readings: Vec<neems_data::models::Reading> = site_db
+    let (readings, baseline): (
+        Vec<neems_data::models::Reading>,
+        Option<neems_data::models::Reading>,
+    ) = site_db
         .run(move |conn| {
             use diesel::prelude::*;
             use neems_data::schema::readings::dsl::*;
 
-            readings
+            let in_range: Vec<neems_data::models::Reading> = readings
                 .filter(timestamp.ge(from_naive))
                 .filter(timestamp.le(to_naive))
                 .order(timestamp.asc())
@@ -770,7 +772,25 @@ pub async fn get_alarm_history(
                 .map_err(|e| {
                     eprintln!("Error loading readings for alarm history: {:?}", e);
                     Status::InternalServerError
-                })
+                })?;
+
+            // The most recent reading *before* the range, used only as the
+            // diff baseline. Without it the first in-range reading has nothing
+            // to compare against and silently emits no transition — so the
+            // opening event of any window is invisible. That is barely
+            // noticeable against a 1 Hz RTAC feed, but demo-driven readings are
+            // sparse, and the first one is usually the whole point.
+            let prior = readings
+                .filter(timestamp.lt(from_naive))
+                .order(timestamp.desc())
+                .first(conn)
+                .optional()
+                .map_err(|e| {
+                    eprintln!("Error loading baseline reading for alarm history: {:?}", e);
+                    Status::InternalServerError
+                })?;
+
+            Ok::<_, Status>((in_range, prior))
         })
         .await?;
 
@@ -785,7 +805,10 @@ pub async fn get_alarm_history(
     }
 
     let mut entries: Vec<TimedEntry> = Vec::new();
-    let mut prev_flags: Option<AlarmFlags> = None;
+    let mut prev_flags: Option<AlarmFlags> = baseline
+        .as_ref()
+        .and_then(|r| parse_alarm_registers(&r.data))
+        .map(|regs| AlarmFlags::from_registers(&regs));
 
     for reading in &readings {
         let Some(regs) = parse_alarm_registers(&reading.data) else {
