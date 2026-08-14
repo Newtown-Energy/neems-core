@@ -1,0 +1,83 @@
+//! Persistence for alarm acknowledgements (main app database).
+
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use diesel::prelude::*;
+
+use crate::{
+    models::{AlarmAcknowledgement, NewAlarmAcknowledgement},
+    schema::alarm_acknowledgements,
+};
+
+/// Record an acknowledgement of `alarm_num` by `user_id`. Append-only: always
+/// inserts a new row. Returns the persisted row (including its server-assigned
+/// `acknowledged_at`).
+///
+/// The timestamp is stamped here rather than left to the column default.
+/// SQLite's `CURRENT_TIMESTAMP` has whole-second resolution, but the alarm
+/// data-state edges this is compared against (`last_rising_at` /
+/// `last_falling_at`, written by the RTAC collector and the demo endpoints)
+/// carry sub-second precision. Truncating one side made an acknowledgement
+/// recorded in the same second as the rising edge compare as *older* than it,
+/// so a genuinely acknowledged alarm read back as unacknowledged.
+pub fn create_acknowledgement(
+    conn: &mut SqliteConnection,
+    alarm_num: i32,
+    user_id: i32,
+    note: Option<String>,
+) -> QueryResult<AlarmAcknowledgement> {
+    let new = NewAlarmAcknowledgement {
+        alarm_num,
+        user_id,
+        acknowledged_at: Some(Utc::now().naive_utc()),
+        note,
+    };
+    diesel::insert_into(alarm_acknowledgements::table).values(&new).execute(conn)?;
+
+    // Read back by rowid rather than "highest id wins": the insert and the
+    // select are separate statements, so a concurrent acknowledgement on
+    // another pooled connection could land in between and be returned instead —
+    // attributing this operator's acknowledgement to someone else in the
+    // response. `last_insert_rowid()` is per-connection, so it can only name
+    // the row this call just wrote.
+    let id: i64 =
+        diesel::select(diesel::dsl::sql::<diesel::sql_types::BigInt>("last_insert_rowid()"))
+            .get_result(conn)?;
+    alarm_acknowledgements::table
+        .find(id as i32)
+        .first::<AlarmAcknowledgement>(conn)
+}
+
+/// The most recent acknowledgement per `alarm_num`, keyed by alarm number.
+///
+/// Loads acknowledgements oldest-first and folds, so the last write wins per
+/// alarm. The set of distinct alarms ever acknowledged is small, so this is
+/// cheap relative to the alarm-state scan it complements.
+pub fn latest_ack_by_alarm(
+    conn: &mut SqliteConnection,
+) -> QueryResult<HashMap<i32, AlarmAcknowledgement>> {
+    let all: Vec<AlarmAcknowledgement> = alarm_acknowledgements::table
+        .order(alarm_acknowledgements::acknowledged_at.asc())
+        .load(conn)?;
+
+    let mut latest: HashMap<i32, AlarmAcknowledgement> = HashMap::new();
+    for ack in all {
+        latest.insert(ack.alarm_num, ack);
+    }
+    Ok(latest)
+}
+
+/// All acknowledgements with `acknowledged_at` in `[from, to]`, oldest-first.
+/// Used to interleave ack events into the alarm history endpoint.
+pub fn acks_in_range(
+    conn: &mut SqliteConnection,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> QueryResult<Vec<AlarmAcknowledgement>> {
+    alarm_acknowledgements::table
+        .filter(alarm_acknowledgements::acknowledged_at.ge(from.naive_utc()))
+        .filter(alarm_acknowledgements::acknowledged_at.le(to.naive_utc()))
+        .order(alarm_acknowledgements::acknowledged_at.asc())
+        .load::<AlarmAcknowledgement>(conn)
+}

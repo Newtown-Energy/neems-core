@@ -3,47 +3,38 @@
 //! This module provides HTTP endpoints for accessing alarm information
 //! derived from RTAC readings stored in the site database.
 
-use std::{collections::HashSet, sync::Mutex};
+use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
-use neems_data::rtac::{
-    alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
-    alarm_sld_meta::sld_meta_for,
-    state::AlarmFlags,
+use chrono::{DateTime, NaiveDateTime, Utc};
+use neems_data::{
+    get_all_alarm_state,
+    models::AlarmStateRow,
+    record_alarm_snapshot,
+    rtac::{
+        alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
+        alarm_sld_meta::sld_meta_for,
+        state::AlarmFlags,
+    },
+    upsert_alarm_transition,
 };
 use rocket::{FromForm, Route, State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{orm::neems_data::db::SiteDbConn, session_guards::AuthenticatedUser};
+use crate::{
+    api::demo::{DEMO_SITE_ID, DemoMode, forbid_unless_demo_mode},
+    models::AlarmAcknowledgement,
+    orm::{
+        DbConn,
+        alarm_acknowledgement::{acks_in_range, create_acknowledgement, latest_ack_by_alarm},
+        neems_data::db::SiteDbConn,
+    },
+    session_guards::AuthenticatedUser,
+};
 
 /// Roles allowed to control the demo forced-alarm set — mirrors the
 /// frontend Demo Controls drawer's gate.
 const DEMO_CONTROL_ROLES: &[&str] = &["admin", "newtown-admin", "newtown-staff"];
-
-/// In-memory set of alarm numbers the demo drawer has forced on. Unioned
-/// into [`get_active_alarms`] responses so the SLD, alarms page, and
-/// anything else polling `/Alarms/Active` see them as if they were real.
-///
-/// Temporary scaffolding for the demo — meant to be deleted once the
-/// real RTAC feed is hooked up. Lives in memory only; resets on server
-/// restart, which is the desired demo behavior.
-#[derive(Default)]
-pub struct DemoForcedAlarms {
-    inner: Mutex<HashSet<u16>>,
-}
-
-impl DemoForcedAlarms {
-    pub fn snapshot(&self) -> HashSet<u16> {
-        self.inner.lock().map(|g| g.clone()).unwrap_or_default()
-    }
-
-    fn replace(&self, nums: HashSet<u16>) {
-        if let Ok(mut g) = self.inner.lock() {
-            *g = nums;
-        }
-    }
-}
 
 /// Alarm severity level for API responses
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -150,7 +141,26 @@ impl From<&AlarmDefinition> for AlarmDefinitionDto {
     }
 }
 
-/// A currently active alarm
+/// Effective status of a visible alarm, combining raw data state with
+/// acknowledgement. Cleared alarms (acknowledged after returning to normal,
+/// with no activity since) are omitted from the active list entirely.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum AlarmStatusDto {
+    /// Data is currently active and has not been acknowledged since it last
+    /// went active.
+    Active,
+    /// Data is currently active and has been acknowledged — the operator has
+    /// seen it, but the condition is still physically present.
+    AcknowledgedActive,
+    /// Data is no longer active, but the alarm was active at some point since
+    /// the last acknowledgement (the "blip" / returned-to-normal-unacked). It
+    /// still requires acknowledgement before it clears.
+    ReturnedUnacknowledged,
+}
+
+/// A currently visible alarm: either active now, or latched (returned to
+/// normal but not yet acknowledged).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ActiveAlarmDto {
@@ -162,10 +172,29 @@ pub struct ActiveAlarmDto {
     pub message: Option<String>,
     /// Target SLD object tokens (spreadsheet "Related SLD Object").
     pub sld_targets: Vec<String>,
+    /// Effective status (active / acknowledged-active / returned-unacked).
+    pub status: AlarmStatusDto,
+    /// Raw current data state, independent of acknowledgement. `false` for a
+    /// returned-to-normal alarm that is still latched awaiting acknowledgement.
+    pub data_active: bool,
+    /// ISO 8601 timestamp of the most recent acknowledgement, if any.
+    pub acknowledged_at: Option<String>,
+    /// User id of the most recent acknowledger, if any.
+    pub acknowledged_by_user_id: Option<i32>,
+    /// Email of the most recent acknowledger, if any.
+    pub acknowledged_by_email: Option<String>,
 }
 
-impl From<&AlarmDefinition> for ActiveAlarmDto {
-    fn from(def: &AlarmDefinition) -> Self {
+impl ActiveAlarmDto {
+    /// Build a visible-alarm DTO from its definition plus the computed status
+    /// and the most recent acknowledgement (if any).
+    fn build(
+        def: &AlarmDefinition,
+        status: AlarmStatusDto,
+        data_active: bool,
+        ack: Option<&AlarmAcknowledgement>,
+        emails: &HashMap<i32, String>,
+    ) -> Self {
         Self {
             alarm_num: def.alarm_num,
             zone: def.zone.into(),
@@ -173,6 +202,56 @@ impl From<&AlarmDefinition> for ActiveAlarmDto {
             severity: AlarmSeverityDto::from_level(def.level),
             message: message_for(def.alarm_num),
             sld_targets: sld_targets_for(def.alarm_num),
+            status,
+            data_active,
+            acknowledged_at: ack
+                .map(|a| a.acknowledged_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+            acknowledged_by_user_id: ack.map(|a| a.user_id),
+            acknowledged_by_email: ack.and_then(|a| emails.get(&a.user_id).cloned()),
+        }
+    }
+}
+
+/// Effective visible status of a single alarm.
+///
+/// Inputs are the raw current data state, the last rising/falling edge
+/// timestamps, and the timestamp of the most recent acknowledgement (all UTC).
+/// Returns `None` when the alarm is cleared (not visible).
+///
+/// Rules (see issue #76):
+/// - Active now: `AcknowledgedActive` if an ack landed at/after the rising edge
+///   that started the current activation, else `Active`. With no recorded
+///   rising edge (seeded/forced data) any ack counts as acknowledged.
+/// - Inactive now: visible as `ReturnedUnacknowledged` only if it went active
+///   since the last ack — i.e. the last falling edge is after the most recent
+///   ack (or it was never acked). Otherwise it has cleared.
+fn effective_status(
+    data_active: bool,
+    last_rising_at: Option<NaiveDateTime>,
+    last_falling_at: Option<NaiveDateTime>,
+    last_ack_at: Option<NaiveDateTime>,
+) -> Option<AlarmStatusDto> {
+    if data_active {
+        let acked = match (last_ack_at, last_rising_at) {
+            (Some(ack), Some(rise)) => ack >= rise,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        Some(if acked {
+            AlarmStatusDto::AcknowledgedActive
+        } else {
+            AlarmStatusDto::Active
+        })
+    } else {
+        match last_falling_at {
+            Some(fall) => {
+                let visible = match last_ack_at {
+                    Some(ack) => fall > ack,
+                    None => true,
+                };
+                visible.then_some(AlarmStatusDto::ReturnedUnacknowledged)
+            }
+            None => None,
         }
     }
 }
@@ -215,96 +294,213 @@ pub fn parse_alarm_registers(data_json: &str) -> Option<[u16; ALARM_REGISTER_COU
     Some(registers)
 }
 
-/// Get currently active alarms.
+/// Get currently visible alarms.
 ///
 /// - **URL:** `/api/1/Alarms/Active`
 /// - **Method:** `GET`
 /// - **Authentication:** Required
 ///
-/// Reads the most recent RTAC reading from the site database, decodes
-/// the alarm register bitfield, and returns all currently active alarms.
+/// Combines the latest RTAC reading (current raw data state) with the
+/// materialised `alarm_state` table and acknowledgement history to return
+/// every alarm that is still visible to operators:
+///
+/// - currently active (`Active` or `AcknowledgedActive`), or
+/// - returned to normal but active at some point since the last acknowledgement
+///   (`ReturnedUnacknowledged`, the "blip").
+///
+/// An alarm clears (and drops out of this list) only once it has been
+/// acknowledged *after* its data returned to normal, with no activity since.
 #[get("/1/Alarms/Active")]
 pub async fn get_active_alarms(
     _user: AuthenticatedUser,
+    db: DbConn,
     site_db: SiteDbConn,
-    forced: &State<DemoForcedAlarms>,
 ) -> Result<Json<ActiveAlarmsResponse>, Status> {
-    let forced_nums = forced.snapshot();
-    let mut response: ActiveAlarmsResponse = site_db
+    // Site DB: the latest reading's active alarm set (+ its timestamp) and the
+    // materialised per-alarm data-state rows.
+    let (mut reading_active, reading_ts, alarm_state) = site_db
         .run(|conn| {
             use diesel::prelude::*;
             use neems_data::schema::readings::dsl::*;
 
-            // Get the most recent readings and find one with alarm_registers
-            let recent: Vec<neems_data::models::Reading> =
-                readings.order(timestamp.desc()).limit(10).load(conn).map_err(|e| {
-                    eprintln!("Error loading readings for alarms: {:?}", e);
-                    Status::InternalServerError
-                })?;
+            let recent: Vec<neems_data::models::Reading> = readings
+                .order(timestamp.desc())
+                .limit(10)
+                .load(conn)
+                .map_err(|_| Status::InternalServerError)?;
 
-            // Find the first reading that contains alarm_registers
+            let mut active_set: HashSet<u16> = HashSet::new();
+            let mut ts: Option<NaiveDateTime> = None;
             for reading in &recent {
-                if let Some(registers) = parse_alarm_registers(&reading.data) {
-                    let flags = AlarmFlags::from_registers(&registers);
-                    let active_defs = flags.active_alarms();
-
-                    let alarms: Vec<ActiveAlarmDto> =
-                        active_defs.iter().map(|def| ActiveAlarmDto::from(*def)).collect();
-
-                    let has_emergency = flags.has_emergency_alarm();
-                    let has_critical = flags.has_critical_alarm();
-
-                    let reading_timestamp = reading.timestamp;
-                    let now = Utc::now().naive_utc();
-                    let age_seconds = (now - reading_timestamp).num_seconds();
-
-                    return Ok(ActiveAlarmsResponse {
-                        alarms,
-                        has_critical,
-                        has_emergency,
-                        timestamp: Some(reading_timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
-                        data_age_seconds: Some(age_seconds),
-                    });
+                if let Some(regs) = parse_alarm_registers(&reading.data) {
+                    let flags = AlarmFlags::from_registers(&regs);
+                    active_set = flags.active_alarms().iter().map(|d| d.alarm_num).collect();
+                    ts = Some(reading.timestamp);
+                    break;
                 }
             }
 
-            // No readings with alarm data found — return empty response
-            Ok(ActiveAlarmsResponse {
-                alarms: vec![],
-                has_critical: false,
-                has_emergency: false,
-                timestamp: None,
-                data_age_seconds: None,
-            })
+            let state = get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)?;
+            Ok::<_, Status>((active_set, ts, state))
         })
         .await?;
 
-    // Overlay demo-forced alarms. We dedupe by alarm_num so a forced
-    // alarm that's also currently active in the real feed doesn't
-    // appear twice.
-    if !forced_nums.is_empty() {
-        let already: HashSet<u16> = response.alarms.iter().map(|a| a.alarm_num).collect();
-        for def in ALARM_DEFINITIONS.iter() {
-            if forced_nums.contains(&def.alarm_num) && !already.contains(&def.alarm_num) {
-                response.alarms.push(ActiveAlarmDto::from(def));
-            }
-        }
-        response.has_emergency = response
-            .alarms
-            .iter()
-            .any(|a| matches!(a.severity, AlarmSeverityDto::Emergency));
-        response.has_critical =
-            response.alarms.iter().any(|a| matches!(a.severity, AlarmSeverityDto::Critical));
-        // Surface a synthetic timestamp so the SLD's stale-data banner
-        // doesn't fire purely because no readings exist in dev.
-        if response.timestamp.is_none() {
-            let now = Utc::now().naive_utc();
-            response.timestamp = Some(now.format("%Y-%m-%dT%H:%M:%SZ").to_string());
-            response.data_age_seconds = Some(0);
+    // Main DB: most recent acknowledgement per alarm, plus the acknowledgers'
+    // emails so the UI can show who acked.
+    let (latest_ack, emails) = db
+        .run(|conn| {
+            use diesel::prelude::*;
+
+            use crate::schema::users;
+
+            let latest = latest_ack_by_alarm(conn).map_err(|_| Status::InternalServerError)?;
+            let ids: Vec<i32> = latest.values().map(|a| a.user_id).collect();
+            let email_pairs: Vec<(i32, String)> = users::table
+                .filter(users::id.eq_any(&ids))
+                .select((users::id, users::email))
+                .load(conn)
+                .map_err(|_| Status::InternalServerError)?;
+            let emails: HashMap<i32, String> = email_pairs.into_iter().collect();
+            Ok::<_, Status>((latest, emails))
+        })
+        .await?;
+
+    // Union the materialised data-state into the "currently active" set.
+    //
+    // For the real feed this is redundant — the collector derives `alarm_state`
+    // from the same readings — but it is what makes a demo-driven alarm (see
+    // `/1/Demo/AlarmState`) behave like a real one when no RTAC feed is
+    // present. Where the two disagree, because the collector lags a reading,
+    // the union biases toward showing the alarm, which is the safe direction
+    // for an alarm system.
+    for s in &alarm_state {
+        if s.data_active
+            && let Ok(num) = u16::try_from(s.alarm_num)
+        {
+            reading_active.insert(num);
         }
     }
 
-    Ok(Json(response))
+    let state_by_num: HashMap<i32, &AlarmStateRow> =
+        alarm_state.iter().map(|s| (s.alarm_num, s)).collect();
+
+    // Consider every alarm that is active now or has any recorded data state,
+    // and keep the ones [`effective_status`] deems still visible. Iterating
+    // ALARM_DEFINITIONS gives a stable (definition) order.
+    let mut consider: HashSet<u16> = reading_active.clone();
+    for s in &alarm_state {
+        if let Ok(num) = u16::try_from(s.alarm_num) {
+            consider.insert(num);
+        }
+    }
+
+    let mut alarms: Vec<ActiveAlarmDto> = Vec::new();
+    for def in ALARM_DEFINITIONS.iter() {
+        if !consider.contains(&def.alarm_num) {
+            continue;
+        }
+        let num_i32 = def.alarm_num as i32;
+        let ack = latest_ack.get(&num_i32);
+        let state = state_by_num.get(&num_i32).copied();
+        let data_active = reading_active.contains(&def.alarm_num);
+
+        let status = effective_status(
+            data_active,
+            state.and_then(|s| s.last_rising_at),
+            state.and_then(|s| s.last_falling_at),
+            ack.map(|a| a.acknowledged_at),
+        );
+
+        if let Some(status) = status {
+            alarms.push(ActiveAlarmDto::build(def, status, data_active, ack, &emails));
+        }
+    }
+
+    let has_emergency = alarms.iter().any(|a| matches!(a.severity, AlarmSeverityDto::Emergency));
+    let has_critical = alarms.iter().any(|a| matches!(a.severity, AlarmSeverityDto::Critical));
+
+    // Timestamp/age: prefer the real reading. With no readings but visible
+    // alarms (demo/forced), synthesise a fresh timestamp so the SLD's
+    // stale-data banner doesn't fire spuriously.
+    let (timestamp, data_age_seconds) = match reading_ts {
+        Some(t) => {
+            let age = (Utc::now().naive_utc() - t).num_seconds();
+            (Some(t.format("%Y-%m-%dT%H:%M:%SZ").to_string()), Some(age))
+        }
+        None if !alarms.is_empty() => {
+            let now = Utc::now().naive_utc();
+            (Some(now.format("%Y-%m-%dT%H:%M:%SZ").to_string()), Some(0))
+        }
+        None => (None, None),
+    };
+
+    Ok(Json(ActiveAlarmsResponse {
+        alarms,
+        has_critical,
+        has_emergency,
+        timestamp,
+        data_age_seconds,
+    }))
+}
+
+/// Body for `POST /1/Alarms/Acknowledge`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AcknowledgeAlarmRequest {
+    pub alarm_num: u16,
+    /// Optional free-form note recorded with the acknowledgement.
+    pub note: Option<String>,
+}
+
+/// Response for `POST /1/Alarms/Acknowledge`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AcknowledgeAlarmResponse {
+    pub alarm_num: u16,
+    /// ISO 8601 timestamp the acknowledgement was recorded.
+    pub acknowledged_at: String,
+    pub acknowledged_by_user_id: i32,
+    pub acknowledged_by_email: Option<String>,
+    pub note: Option<String>,
+}
+
+/// Acknowledge an alarm on behalf of the authenticated user.
+///
+/// - **URL:** `/api/1/Alarms/Acknowledge`
+/// - **Method:** `POST`
+/// - **Body:** `{ "alarm_num": u16, "note": "optional" }`
+/// - **Authentication:** Required
+///
+/// Append-only: records a new acknowledgement row tied to the current user.
+/// Acknowledging an alarm that is still active does not clear it — the alarm
+/// stays visible (as `AcknowledgedActive`) and must be acknowledged again once
+/// it has returned to normal. Re-poll `/Alarms/Active` for the updated status.
+#[post("/1/Alarms/Acknowledge", data = "<body>")]
+pub async fn acknowledge_alarm(
+    user: AuthenticatedUser,
+    db: DbConn,
+    body: Json<AcknowledgeAlarmRequest>,
+) -> Result<Json<AcknowledgeAlarmResponse>, Status> {
+    let alarm_num = body.alarm_num;
+    if !ALARM_DEFINITIONS.iter().any(|d| d.alarm_num == alarm_num) {
+        return Err(Status::BadRequest);
+    }
+    let user_id = user.user.id;
+    let email = user.user.email.clone();
+    let note = body.note.clone();
+
+    let ack = db
+        .run(move |conn| create_acknowledgement(conn, alarm_num as i32, user_id, note))
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+    Ok(Json(AcknowledgeAlarmResponse {
+        alarm_num,
+        acknowledged_at: ack.acknowledged_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        acknowledged_by_user_id: ack.user_id,
+        acknowledged_by_email: Some(email),
+        note: ack.note,
+    }))
 }
 
 /// Body for `PUT /1/Alarms/Forced`.
@@ -329,48 +525,108 @@ fn forbid_unless_demo_role(user: &AuthenticatedUser) -> Result<(), Status> {
     }
 }
 
-/// Read the current demo forced-alarm set.
+/// Read the set of alarms currently active by demo data-state.
 ///
 /// - **URL:** `/api/1/Alarms/Forced`
 /// - **Method:** `GET`
 /// - **Authentication:** Required; one of `admin`, `newtown-admin`,
-///   `newtown-staff`.
+///   `newtown-staff`. Demo mode must be enabled.
+///
+/// Retained as a set-oriented view over the same `alarm_state` table that
+/// `/1/Demo/AlarmState` writes; see that endpoint for per-alarm control.
 #[get("/1/Alarms/Forced")]
-pub fn get_forced_alarms(
+pub async fn get_forced_alarms(
     user: AuthenticatedUser,
-    forced: &State<DemoForcedAlarms>,
+    demo: &State<DemoMode>,
+    site_db: SiteDbConn,
 ) -> Result<Json<ForcedAlarmsResponse>, Status> {
+    forbid_unless_demo_mode(demo)?;
     forbid_unless_demo_role(&user)?;
-    let mut nums: Vec<u16> = forced.snapshot().into_iter().collect();
+
+    let rows = site_db
+        .run(move |conn| get_all_alarm_state(conn).map_err(|_| Status::InternalServerError))
+        .await?;
+
+    let mut nums: Vec<u16> = rows
+        .iter()
+        .filter(|r| r.data_active)
+        .filter_map(|r| u16::try_from(r.alarm_num).ok())
+        .collect();
     nums.sort_unstable();
     Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
 }
 
-/// Replace the demo forced-alarm set.
+/// Replace the set of demo-active alarms.
 ///
 /// - **URL:** `/api/1/Alarms/Forced`
 /// - **Method:** `PUT`
 /// - **Body:** `{ "alarm_nums": [u16, ...] }`
 /// - **Authentication:** Required; one of `admin`, `newtown-admin`,
-///   `newtown-staff`.
+///   `newtown-staff`. Demo mode must be enabled.
 ///
-/// The supplied list replaces the in-memory set (it is not additive). Pass
-/// an empty list to clear all forced alarms. Unknown alarm numbers are
+/// The supplied list replaces the active set (it is not additive). Pass an
+/// empty list to return every alarm to normal. Unknown alarm numbers are
 /// silently filtered against [`ALARM_DEFINITIONS`].
+///
+/// Writes real edges: alarms entering the set get a rising edge, alarms
+/// leaving it get a falling edge (and so latch as `ReturnedUnacknowledged`
+/// until acknowledged). Alarms whose state is unchanged are left alone, so
+/// re-sending the same set does not re-stamp their timestamps.
 #[put("/1/Alarms/Forced", data = "<body>")]
-pub fn put_forced_alarms(
+pub async fn put_forced_alarms(
     user: AuthenticatedUser,
-    forced: &State<DemoForcedAlarms>,
+    demo: &State<DemoMode>,
+    site_db: SiteDbConn,
     body: Json<ForcedAlarmsRequest>,
 ) -> Result<Json<ForcedAlarmsResponse>, Status> {
+    forbid_unless_demo_mode(demo)?;
     forbid_unless_demo_role(&user)?;
+
     let valid: HashSet<u16> = ALARM_DEFINITIONS.iter().map(|d| d.alarm_num).collect();
     let next: HashSet<u16> =
         body.alarm_nums.iter().copied().filter(|n| valid.contains(n)).collect();
-    forced.replace(next.clone());
-    let mut nums: Vec<u16> = next.into_iter().collect();
-    nums.sort_unstable();
-    Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
+
+    let rows = site_db
+        .run(move |conn| {
+            let now = chrono::Utc::now().naive_utc();
+            let current = get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)?;
+            let active_now: HashSet<u16> = current
+                .iter()
+                .filter(|r| r.data_active)
+                .filter_map(|r| u16::try_from(r.alarm_num).ok())
+                .collect();
+
+            // Only write the alarms that actually change state.
+            let mut changed = false;
+            for num in next.difference(&active_now) {
+                upsert_alarm_transition(conn, *num as i32, true, now)
+                    .map_err(|_| Status::InternalServerError)?;
+                changed = true;
+            }
+            for num in active_now.difference(&next) {
+                upsert_alarm_transition(conn, *num as i32, false, now)
+                    .map_err(|_| Status::InternalServerError)?;
+                changed = true;
+            }
+
+            // Snapshot the new bitfield so the change appears in
+            // `/Alarms/History`, matching `POST /1/Demo/AlarmState`. Skipped
+            // when nothing moved, so re-sending the same set doesn't pile up
+            // identical readings.
+            if changed {
+                record_alarm_snapshot(conn, DEMO_SITE_ID, &next, now).map_err(|e| {
+                    eprintln!("Demo alarm snapshot write failed: {e}");
+                    Status::InternalServerError
+                })?;
+            }
+
+            let mut nums: Vec<u16> = next.into_iter().collect();
+            nums.sort_unstable();
+            Ok::<Vec<u16>, Status>(nums)
+        })
+        .await?;
+
+    Ok(Json(ForcedAlarmsResponse { alarm_nums: rows }))
 }
 
 /// Get all alarm definitions.
@@ -392,20 +648,43 @@ pub async fn get_alarm_definitions(_user: AuthenticatedUser) -> Json<AlarmDefini
 
 // --- Alarm history ---
 
-/// A single alarm-state transition emitted by the history endpoint.
+/// What happened to an alarm at a given point in the history timeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum AlarmHistoryEventDto {
+    /// The alarm's data bit went from inactive to active.
+    Activated,
+    /// The alarm's data bit went from active to inactive.
+    Cleared,
+    /// A user acknowledged the alarm. Carries the acknowledger and note; does
+    /// not imply any change in data state.
+    Acknowledged,
+}
+
+/// A single event on an alarm's history timeline: a data-state transition
+/// observed in a reading, or an operator acknowledgement.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AlarmHistoryEntry {
-    /// ISO 8601 timestamp (UTC) of the reading in which the transition was
-    /// observed.
+    /// ISO 8601 timestamp (UTC): the reading the transition was observed in,
+    /// or the moment the acknowledgement was recorded.
     pub timestamp: String,
     pub alarm_num: u16,
     pub zone: AlarmZoneDto,
     pub name: String,
     pub severity: AlarmSeverityDto,
-    /// `true` if the alarm became active at this reading, `false` if it
-    /// cleared.
+    /// What happened. Switch on this; `active` is the older two-state view.
+    pub event: AlarmHistoryEventDto,
+    /// `true` only for [`AlarmHistoryEventDto::Activated`]. Retained so
+    /// existing consumers that render Activated/Cleared keep working;
+    /// acknowledgement entries report `false`.
     pub active: bool,
+    /// User id of the acknowledger — `Acknowledged` entries only.
+    pub acknowledged_by_user_id: Option<i32>,
+    /// Email of the acknowledger — `Acknowledged` entries only.
+    pub acknowledged_by_email: Option<String>,
+    /// Free-form note recorded with the acknowledgement, if any.
+    pub note: Option<String>,
 }
 
 /// Response for the alarm-history endpoint.
@@ -449,14 +728,19 @@ fn parse_alarm_nums_filter(raw: &str) -> HashSet<u16> {
 ///
 /// Walks readings in `[from, to]`, decodes each reading's alarm register
 /// bitfield, and emits a transition entry each time a given alarm's active bit
-/// flips relative to the prior reading in range. Does not seed a baseline from
-/// before `from`, so a transition that occurred right before the range start
-/// won't appear — extend the range to capture it, or cross-reference with
-/// `/Alarms/Active` for current state.
+/// flips relative to the prior reading. The most recent reading before `from`
+/// seeds the diff baseline, so a flip carried by the very first in-range
+/// reading is reported rather than swallowed.
+///
+/// Acknowledgements recorded in the same range are interleaved into the same
+/// timeline as `Acknowledged` entries, so an operator can see when an alarm was
+/// acknowledged relative to when it activated and cleared. Entries are sorted
+/// by timestamp; transitions precede acknowledgements at the same instant.
 #[get("/1/Alarms/History?<query..>")]
 pub async fn get_alarm_history(
     query: AlarmHistoryQuery,
     _user: AuthenticatedUser,
+    db: DbConn,
     site_db: SiteDbConn,
 ) -> Result<Json<AlarmHistoryResponse>, Status> {
     let from_str = query.from.clone().ok_or(Status::BadRequest)?;
@@ -472,12 +756,15 @@ pub async fn get_alarm_history(
     let from_naive = from_dt.naive_utc();
     let to_naive = to_dt.naive_utc();
 
-    let readings: Vec<neems_data::models::Reading> = site_db
+    let (readings, baseline): (
+        Vec<neems_data::models::Reading>,
+        Option<neems_data::models::Reading>,
+    ) = site_db
         .run(move |conn| {
             use diesel::prelude::*;
             use neems_data::schema::readings::dsl::*;
 
-            readings
+            let in_range: Vec<neems_data::models::Reading> = readings
                 .filter(timestamp.ge(from_naive))
                 .filter(timestamp.le(to_naive))
                 .order(timestamp.asc())
@@ -485,12 +772,43 @@ pub async fn get_alarm_history(
                 .map_err(|e| {
                     eprintln!("Error loading readings for alarm history: {:?}", e);
                     Status::InternalServerError
-                })
+                })?;
+
+            // The most recent reading *before* the range, used only as the
+            // diff baseline. Without it the first in-range reading has nothing
+            // to compare against and silently emits no transition — so the
+            // opening event of any window is invisible. That is barely
+            // noticeable against a 1 Hz RTAC feed, but demo-driven readings are
+            // sparse, and the first one is usually the whole point.
+            let prior = readings
+                .filter(timestamp.lt(from_naive))
+                .order(timestamp.desc())
+                .first(conn)
+                .optional()
+                .map_err(|e| {
+                    eprintln!("Error loading baseline reading for alarm history: {:?}", e);
+                    Status::InternalServerError
+                })?;
+
+            Ok::<_, Status>((in_range, prior))
         })
         .await?;
 
-    let mut entries: Vec<AlarmHistoryEntry> = Vec::new();
-    let mut prev_flags: Option<AlarmFlags> = None;
+    /// An entry plus the raw sort keys used to merge the two sources. The
+    /// wire type carries only a formatted timestamp string, which is a lossy
+    /// key to sort on.
+    struct TimedEntry {
+        at: NaiveDateTime,
+        /// Tie-break within the same instant: transitions (`false`) first.
+        is_ack: bool,
+        entry: AlarmHistoryEntry,
+    }
+
+    let mut entries: Vec<TimedEntry> = Vec::new();
+    let mut prev_flags: Option<AlarmFlags> = baseline
+        .as_ref()
+        .and_then(|r| parse_alarm_registers(&r.data))
+        .map(|regs| AlarmFlags::from_registers(&regs));
 
     for reading in &readings {
         let Some(regs) = parse_alarm_registers(&reading.data) else {
@@ -508,19 +826,93 @@ pub async fn get_alarm_history(
                 let was_active = prev.is_alarm_active(def);
                 let is_active = flags.is_alarm_active(def);
                 if was_active != is_active {
-                    entries.push(AlarmHistoryEntry {
-                        timestamp: reading.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-                        alarm_num: def.alarm_num,
-                        zone: def.zone.into(),
-                        name: def.name.to_string(),
-                        severity: AlarmSeverityDto::from_level(def.level),
-                        active: is_active,
+                    entries.push(TimedEntry {
+                        at: reading.timestamp,
+                        is_ack: false,
+                        entry: AlarmHistoryEntry {
+                            timestamp: reading.timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                            alarm_num: def.alarm_num,
+                            zone: def.zone.into(),
+                            name: def.name.to_string(),
+                            severity: AlarmSeverityDto::from_level(def.level),
+                            event: if is_active {
+                                AlarmHistoryEventDto::Activated
+                            } else {
+                                AlarmHistoryEventDto::Cleared
+                            },
+                            active: is_active,
+                            acknowledged_by_user_id: None,
+                            acknowledged_by_email: None,
+                            note: None,
+                        },
                     });
                 }
             }
         }
         prev_flags = Some(flags);
     }
+
+    // Acknowledgements live in the main DB, so they're fetched separately and
+    // merged into the same timeline.
+    let (acks, emails) = db
+        .run(move |conn| {
+            use diesel::prelude::*;
+
+            use crate::schema::users;
+
+            let acks = acks_in_range(conn, from_dt, to_dt).map_err(|e| {
+                eprintln!("Error loading acknowledgements for alarm history: {:?}", e);
+                Status::InternalServerError
+            })?;
+            let ids: Vec<i32> = acks.iter().map(|a| a.user_id).collect();
+            let email_pairs: Vec<(i32, String)> = users::table
+                .filter(users::id.eq_any(&ids))
+                .select((users::id, users::email))
+                .load(conn)
+                .map_err(|_| Status::InternalServerError)?;
+            Ok::<_, Status>((acks, email_pairs.into_iter().collect::<HashMap<i32, String>>()))
+        })
+        .await?;
+
+    let defs_by_num: HashMap<u16, &AlarmDefinition> =
+        ALARM_DEFINITIONS.iter().map(|d| (d.alarm_num, d)).collect();
+
+    for ack in &acks {
+        let Ok(num) = u16::try_from(ack.alarm_num) else {
+            continue;
+        };
+        if let Some(filter) = &alarm_filter {
+            if !filter.contains(&num) {
+                continue;
+            }
+        }
+        // An ack for an alarm_num with no definition (e.g. one retired from the
+        // spec) has nothing to render, so it is skipped rather than guessed at.
+        let Some(def) = defs_by_num.get(&num) else {
+            continue;
+        };
+        entries.push(TimedEntry {
+            at: ack.acknowledged_at,
+            is_ack: true,
+            entry: AlarmHistoryEntry {
+                timestamp: ack.acknowledged_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                alarm_num: num,
+                zone: def.zone.into(),
+                name: def.name.to_string(),
+                severity: AlarmSeverityDto::from_level(def.level),
+                event: AlarmHistoryEventDto::Acknowledged,
+                active: false,
+                acknowledged_by_user_id: Some(ack.user_id),
+                acknowledged_by_email: emails.get(&ack.user_id).cloned(),
+                note: ack.note.clone(),
+            },
+        });
+    }
+
+    // Stable merge: chronological, with transitions ahead of acknowledgements
+    // recorded at the same instant (you can't ack an alarm before it fires).
+    entries.sort_by(|a, b| a.at.cmp(&b.at).then(a.is_ack.cmp(&b.is_ack)));
+    let entries: Vec<AlarmHistoryEntry> = entries.into_iter().map(|e| e.entry).collect();
 
     Ok(Json(AlarmHistoryResponse { entries, from: from_str, to: to_str }))
 }
@@ -529,9 +921,85 @@ pub async fn get_alarm_history(
 pub fn routes() -> Vec<Route> {
     routes![
         get_active_alarms,
+        acknowledge_alarm,
         get_alarm_definitions,
         get_alarm_history,
         get_forced_alarms,
         put_forced_alarms
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Duration, NaiveDate, NaiveDateTime};
+
+    use super::{AlarmStatusDto, effective_status};
+
+    /// Test timestamp `base + secs` seconds.
+    fn t(secs: i64) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(2026, 6, 19).unwrap().and_hms_opt(0, 0, 0).unwrap()
+            + Duration::seconds(secs)
+    }
+
+    #[test]
+    fn active_and_never_acked_is_active() {
+        assert_eq!(effective_status(true, Some(t(10)), None, None), Some(AlarmStatusDto::Active));
+    }
+
+    #[test]
+    fn acked_after_rise_while_active_is_acknowledged_active() {
+        // rose at 10, acked at 20, still active
+        assert_eq!(
+            effective_status(true, Some(t(10)), None, Some(t(20))),
+            Some(AlarmStatusDto::AcknowledgedActive)
+        );
+    }
+
+    #[test]
+    fn stale_ack_before_current_rise_does_not_acknowledge() {
+        // a new activation rose at 30; the ack at 10 predates it
+        assert_eq!(
+            effective_status(true, Some(t(30)), Some(t(20)), Some(t(10))),
+            Some(AlarmStatusDto::Active)
+        );
+    }
+
+    #[test]
+    fn blip_never_acked_stays_visible() {
+        // rose 10, fell 15, now inactive, never acked
+        assert_eq!(
+            effective_status(false, Some(t(10)), Some(t(15)), None),
+            Some(AlarmStatusDto::ReturnedUnacknowledged)
+        );
+    }
+
+    #[test]
+    fn ack_while_active_then_return_requires_second_ack() {
+        // rose 10, acked 20 (while active), fell 30 -> still needs ack
+        assert_eq!(
+            effective_status(false, Some(t(10)), Some(t(30)), Some(t(20))),
+            Some(AlarmStatusDto::ReturnedUnacknowledged)
+        );
+    }
+
+    #[test]
+    fn ack_after_return_to_normal_clears() {
+        // rose 10, fell 30, acked 40 (after it returned) -> cleared
+        assert_eq!(effective_status(false, Some(t(10)), Some(t(30)), Some(t(40))), None);
+    }
+
+    #[test]
+    fn never_active_is_cleared() {
+        assert_eq!(effective_status(false, None, None, None), None);
+    }
+
+    #[test]
+    fn active_without_recorded_edges_falls_back_to_ack_presence() {
+        // forced/seeded data has no edges recorded
+        assert_eq!(effective_status(true, None, None, None), Some(AlarmStatusDto::Active));
+        assert_eq!(
+            effective_status(true, None, None, Some(t(5))),
+            Some(AlarmStatusDto::AcknowledgedActive)
+        );
+    }
 }

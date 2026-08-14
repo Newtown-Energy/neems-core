@@ -134,21 +134,27 @@ mod tests {
 
         // Alarm API types
         use crate::api::alarm::{
-            ActiveAlarmDto, ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse,
-            AlarmHistoryEntry, AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto,
-            AlarmZoneDto, ForcedAlarmsRequest, ForcedAlarmsResponse,
+            AcknowledgeAlarmRequest, AcknowledgeAlarmResponse, ActiveAlarmDto,
+            ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse, AlarmHistoryEntry,
+            AlarmHistoryEventDto, AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto,
+            AlarmStatusDto, AlarmZoneDto, ForcedAlarmsRequest, ForcedAlarmsResponse,
         };
         AlarmSeverityDto::export().expect("Failed to export AlarmSeverityDto type");
         AlarmZoneDto::export().expect("Failed to export AlarmZoneDto type");
+        AlarmStatusDto::export().expect("Failed to export AlarmStatusDto type");
         AlarmDefinitionDto::export().expect("Failed to export AlarmDefinitionDto type");
         ActiveAlarmDto::export().expect("Failed to export ActiveAlarmDto type");
         ActiveAlarmsResponse::export().expect("Failed to export ActiveAlarmsResponse type");
         AlarmDefinitionsResponse::export().expect("Failed to export AlarmDefinitionsResponse type");
+        AlarmHistoryEventDto::export().expect("Failed to export AlarmHistoryEventDto type");
         AlarmHistoryEntry::export().expect("Failed to export AlarmHistoryEntry type");
         AlarmHistoryResponse::export().expect("Failed to export AlarmHistoryResponse type");
         AlarmHistoryQuery::export().expect("Failed to export AlarmHistoryQuery type");
         ForcedAlarmsRequest::export().expect("Failed to export ForcedAlarmsRequest type");
         ForcedAlarmsResponse::export().expect("Failed to export ForcedAlarmsResponse type");
+        AcknowledgeAlarmRequest::export().expect("Failed to export AcknowledgeAlarmRequest type");
+        AcknowledgeAlarmResponse::export().expect("Failed to export AcknowledgeAlarmResponse type");
+        AlarmAcknowledgement::export().expect("Failed to export AlarmAcknowledgement type");
 
         // E-stop API types
         EstopRequestStatus::export().expect("Failed to export EstopRequestStatus type");
@@ -156,10 +162,16 @@ mod tests {
         EstopStatusResponse::export().expect("Failed to export EstopStatusResponse type");
 
         // Demo API types
-        use crate::api::demo::{InjectHistoryRequest, InjectHistoryResponse, SeedSummary};
+        use crate::api::demo::{
+            DemoAlarmStateDto, DemoAlarmStateResponse, InjectHistoryRequest, InjectHistoryResponse,
+            SeedSummary, SetAlarmStateRequest,
+        };
         InjectHistoryRequest::export().expect("Failed to export InjectHistoryRequest type");
         SeedSummary::export().expect("Failed to export SeedSummary type");
         InjectHistoryResponse::export().expect("Failed to export InjectHistoryResponse type");
+        SetAlarmStateRequest::export().expect("Failed to export SetAlarmStateRequest type");
+        DemoAlarmStateDto::export().expect("Failed to export DemoAlarmStateDto type");
+        DemoAlarmStateResponse::export().expect("Failed to export DemoAlarmStateResponse type");
 
         // Data API types
         use crate::api::data::{

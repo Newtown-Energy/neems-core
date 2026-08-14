@@ -16,11 +16,11 @@
 
 use chrono::Utc;
 use neems_data::rtac::{alarm_definitions::ESTOP_ALARM_NUM, state::AlarmFlags};
-use rocket::{Route, State, http::Status, response::status, serde::json::Json};
+use rocket::{Route, http::Status, response::status, serde::json::Json};
 
 use super::application_rule::ErrorResponse;
 use crate::{
-    api::alarm::{DemoForcedAlarms, parse_alarm_registers},
+    api::alarm::parse_alarm_registers,
     models::{EstopRequestDto, EstopRequestStatus, EstopStatusResponse},
     orm::{
         DbConn,
@@ -91,25 +91,30 @@ struct ObservedEstop {
 /// Read alarm 104 from the most recent reading that carries alarm registers.
 ///
 /// Like `/1/Alarms/Active`, this reads the single site database rather than
-/// selecting per site — the deployment is single-site today — and overlays the
-/// demo forced-alarm set. Both endpoints must agree about alarm 104; two
-/// answers to "is the site tripped" is exactly the sort of split-brain this
-/// whole feature exists to remove.
+/// selecting per site — the deployment is single-site today — and unions in the
+/// materialised `alarm_state` row for alarm 104, which is what a demo-driven
+/// trip writes. Both endpoints must agree about alarm 104; two answers to "is
+/// the site tripped" is exactly the sort of split-brain this whole feature
+/// exists to remove.
 ///
 /// When no reading carries alarm data, `active` is false because nothing is
 /// known. Callers must not read that as "the site is confirmed running": the
 /// accompanying `observed_at`/`age_seconds` are `None` precisely so a stale or
 /// absent feed is distinguishable from a healthy one.
-async fn read_observed_estop(
-    site_db: &SiteDbConn,
-    forced: &DemoForcedAlarms,
-) -> Result<ObservedEstop, diesel::result::Error> {
-    let forced_estop = forced.snapshot().contains(&ESTOP_ALARM_NUM);
-
-    let mut observed = site_db
-        .run(|conn| -> Result<ObservedEstop, diesel::result::Error> {
+async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, diesel::result::Error> {
+    let (mut observed, forced_estop) = site_db
+        .run(|conn| -> Result<(ObservedEstop, bool), diesel::result::Error> {
             use diesel::prelude::*;
             use neems_data::schema::readings::dsl::*;
+
+            // The demo path drives alarm 104 through `alarm_state`, the same
+            // table the collector writes, so both readers agree about whether
+            // the site is tripped.
+            let state_estop = neems_data::get_all_alarm_state(conn)
+                .map(|rows| {
+                    rows.iter().any(|r| r.alarm_num == ESTOP_ALARM_NUM as i32 && r.data_active)
+                })
+                .unwrap_or(false);
 
             let recent: Vec<neems_data::models::Reading> =
                 readings.order(timestamp.desc()).limit(10).load(conn)?;
@@ -118,19 +123,25 @@ async fn read_observed_estop(
                 if let Some(registers) = parse_alarm_registers(&reading.data) {
                     let flags = AlarmFlags::from_registers(&registers);
                     let now = Utc::now().naive_utc();
-                    return Ok(ObservedEstop {
-                        active: flags.is_estop_active(),
-                        observed_at: Some(reading.timestamp),
-                        age_seconds: Some((now - reading.timestamp).num_seconds()),
-                    });
+                    return Ok((
+                        ObservedEstop {
+                            active: flags.is_estop_active(),
+                            observed_at: Some(reading.timestamp),
+                            age_seconds: Some((now - reading.timestamp).num_seconds()),
+                        },
+                        state_estop,
+                    ));
                 }
             }
 
-            Ok(ObservedEstop {
-                active: false,
-                observed_at: None,
-                age_seconds: None,
-            })
+            Ok((
+                ObservedEstop {
+                    active: false,
+                    observed_at: None,
+                    age_seconds: None,
+                },
+                state_estop,
+            ))
         })
         .await?;
 
@@ -195,11 +206,10 @@ fn fail_if_undelivered(
 pub async fn request_site_estop(
     db: DbConn,
     site_db: SiteDbConn,
-    forced: &State<DemoForcedAlarms>,
     site_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<EstopStatusResponse>, status::Custom<Json<ErrorResponse>>> {
-    let observed = read_observed_estop(&site_db, forced)
+    let observed = read_observed_estop(&site_db)
         .await
         .map_err(|e| internal_error("Error reading observed E-stop state", e))?;
 
@@ -243,11 +253,10 @@ pub async fn request_site_estop(
 pub async fn get_site_estop(
     db: DbConn,
     site_db: SiteDbConn,
-    forced: &State<DemoForcedAlarms>,
     site_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<EstopStatusResponse>, status::Custom<Json<ErrorResponse>>> {
-    let observed = read_observed_estop(&site_db, forced)
+    let observed = read_observed_estop(&site_db)
         .await
         .map_err(|e| internal_error("Error reading observed E-stop state", e))?;
 
