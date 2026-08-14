@@ -14,3 +14,8 @@ CREATE TABLE alarm_acknowledgements (
 
 -- "Most recent ack per alarm" is the hot query.
 CREATE INDEX idx_alarm_ack_alarm_num ON alarm_acknowledgements(alarm_num);
+
+-- /Alarms/History selects acknowledgements by acknowledged_at range and orders
+-- by it. This table only grows, so without an index that range scans the whole
+-- audit log on every history request.
+CREATE INDEX idx_alarm_ack_acknowledged_at ON alarm_acknowledgements(acknowledged_at);
