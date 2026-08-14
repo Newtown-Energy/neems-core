@@ -14,17 +14,14 @@ use diesel::prelude::*;
 use rocket::fairing::AdHoc;
 
 use crate::{
+    admin_init_fairing::find_company,
     api::demo::DemoMode,
-    models::{CompanyInput, Site},
+    models::Site,
     orm::{
         DbConn,
-        company::get_company_by_name,
         site::{get_all_sites, insert_site},
     },
 };
-
-/// Company the demo site is attached to — the one `admin_init_fairing` creates.
-const DEMO_COMPANY_NAME: &str = "Newtown Energy";
 
 /// Name of the seeded site. Intentionally generic: this repository is public,
 /// so nothing here names a real customer, vendor or location.
@@ -34,7 +31,7 @@ const DEMO_SITE_ADDRESS: &str = "New York, NY";
 /// particular installation.
 const DEMO_SITE_LATITUDE: f64 = 40.7128;
 const DEMO_SITE_LONGITUDE: f64 = -74.0060;
-/// Matches the ramp used by the seeded schedules.
+/// Five minutes. An unremarkable ramp for a demo; nothing depends on the value.
 const DEMO_SITE_RAMP_SECONDS: i32 = 300;
 
 /// Create the demo site when demo mode is on and no site exists.
@@ -78,17 +75,17 @@ fn seed_demo_site(conn: &mut SqliteConnection) -> Result<Option<Site>, diesel::r
         return Ok(None);
     }
 
-    let company =
-        match get_company_by_name(conn, &CompanyInput { name: DEMO_COMPANY_NAME.to_string() })? {
-            Some(company) => company,
-            None => {
-                error!(
-                    "[demo-seed] Company '{}' not found; skipping demo site.",
-                    DEMO_COMPANY_NAME
-                );
-                return Ok(None);
-            }
-        };
+    // Resolve through admin_init's own lookup rather than a name of our own.
+    // It accepts several historical spellings and only creates the canonical
+    // one, so a deployment carrying "Newtown Energy, Inc." would never match a
+    // hard-coded name here — and the demo would silently get no site.
+    let company = match find_company(conn)? {
+        Some(company) => company,
+        None => {
+            error!("[demo-seed] No Newtown Energy company found; skipping demo site.");
+            return Ok(None);
+        }
+    };
 
     let site = insert_site(
         conn,
@@ -114,7 +111,7 @@ mod tests {
     // needs, and starts with no sites.
 
     fn demo_company(conn: &mut SqliteConnection) -> crate::models::Company {
-        get_company_by_name(conn, &CompanyInput { name: DEMO_COMPANY_NAME.to_string() })
+        find_company(conn)
             .expect("company query")
             .expect("migrations seed the demo company")
     }
@@ -160,6 +157,30 @@ mod tests {
         let sites = get_all_sites(&mut conn).expect("sites");
         assert_eq!(sites.len(), 1);
         assert_eq!(sites[0].name, "Existing Site");
+    }
+
+    /// A deployment carrying one of the older company spellings must still get
+    /// its demo site.
+    ///
+    /// `admin_init` matches several forms and only creates the canonical one,
+    /// so a deployment named "Newtown Energy, Inc." never has a company called
+    /// exactly "Newtown Energy" — and seeding against a hard-coded name would
+    /// silently do nothing.
+    #[test]
+    fn finds_the_company_under_an_older_spelling() {
+        use crate::{admin_init_fairing::COMPANY_CANDIDATE_NAMES, schema::companies};
+
+        let mut conn = setup_test_db();
+        let company = demo_company(&mut conn);
+        let variant = COMPANY_CANDIDATE_NAMES[2];
+        diesel::update(companies::table.find(company.id))
+            .set(companies::name.eq(variant))
+            .execute(&mut conn)
+            .expect("rename the company to an older spelling");
+
+        let created = seed_demo_site(&mut conn).expect("seed").expect("a site");
+        assert_eq!(created.company_id, company.id);
+        assert_eq!(get_all_sites(&mut conn).expect("sites").len(), 1);
     }
 
     /// Without the company there is nothing to attach to; report it rather than
