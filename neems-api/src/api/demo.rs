@@ -9,8 +9,9 @@
 //! once the real RTAC feed is the source of truth.
 
 use neems_data::{
-    SeedOutcome, get_all_alarm_state, rtac::alarm_definitions::ALARM_DEFINITIONS,
-    seed_alarm_history, seed_soc_history, upsert_alarm_transition,
+    SeedOutcome, get_all_alarm_state, record_alarm_snapshot,
+    rtac::alarm_definitions::ALARM_DEFINITIONS, seed_alarm_history, seed_soc_history,
+    upsert_alarm_transition,
 };
 use rocket::{Route, State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,14 @@ pub fn forbid_unless_demo_mode(demo: &DemoMode) -> Result<(), Status> {
         Err(Status::NotFound)
     }
 }
+
+/// Site the demo alarm endpoints write readings for.
+///
+/// The alarm read path (`/Alarms/Active`, E-stop, history) already treats the
+/// site database as single-site and never filters by site, so the writes match
+/// that assumption rather than inventing a per-site parameter the readers would
+/// ignore. Revisit when the deployment becomes multi-site.
+pub(crate) const DEMO_SITE_ID: i32 = 1;
 
 /// Default days of history to backfill when the request omits it.
 const DEFAULT_DAYS: u32 = 14;
@@ -262,6 +271,10 @@ pub async fn get_alarm_state(
 /// returning it to normal stamps `last_falling_at` and leaves the alarm
 /// visible as `ReturnedUnacknowledged` until it is acknowledged again.
 ///
+/// Also appends a reading carrying the full alarm bitfield, so the change shows
+/// up as an `Activated`/`Cleared` entry in `GET /Alarms/History` (and the FDNY
+/// timeline built on it) the same way a real RTAC reading would.
+///
 /// Idempotent in effect but not in timestamps — posting the same `active`
 /// value twice re-stamps that edge.
 #[post("/1/Demo/AlarmState", data = "<body>")]
@@ -285,11 +298,35 @@ pub async fn set_alarm_state(
             let now = chrono::Utc::now().naive_utc();
             upsert_alarm_transition(conn, alarm_num as i32, active, now)
                 .map_err(|_| Status::InternalServerError)?;
-            get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)
+            let rows = get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)?;
+            record_snapshot(conn, &rows, now)?;
+            Ok::<_, Status>(rows)
         })
         .await?;
 
     Ok(Json(build_state_response(&rows)))
+}
+
+/// Append a reading for the full current alarm set, so the change lands in
+/// `/Alarms/History` as a real transition.
+///
+/// Snapshots every active alarm rather than just the one that changed: history
+/// is derived by diffing consecutive bitfields, so a partial bitfield would
+/// read as every other alarm clearing at once.
+fn record_snapshot(
+    conn: &mut diesel::SqliteConnection,
+    rows: &[neems_data::models::AlarmStateRow],
+    at: chrono::NaiveDateTime,
+) -> Result<(), Status> {
+    let active_nums: std::collections::HashSet<u16> = rows
+        .iter()
+        .filter(|r| r.data_active)
+        .filter_map(|r| u16::try_from(r.alarm_num).ok())
+        .collect();
+    record_alarm_snapshot(conn, DEMO_SITE_ID, &active_nums, at).map_err(|e| {
+        eprintln!("Demo alarm snapshot write failed: {e}");
+        Status::InternalServerError
+    })
 }
 
 pub fn routes() -> Vec<Route> {

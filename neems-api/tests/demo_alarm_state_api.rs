@@ -11,6 +11,7 @@
 //! alarm_num would do. The fast test fixture has no readings carrying alarm
 //! registers, so demo-driven state is the only thing in the active set.
 
+use chrono::{Duration, SecondsFormat, Utc};
 use neems_api::orm::testing::{fast_test_rocket, fast_test_rocket_with_demo_mode};
 use rocket::{http::Status, local::asynchronous::Client, tokio};
 use serde_json::{Value, json};
@@ -146,6 +147,44 @@ async fn get_reports_current_state_and_edges() {
         .expect("alarm should have state");
     assert_eq!(entry["active"], json!(false));
     assert!(entry["last_falling_at"].as_str().is_some(), "expected a falling edge timestamp");
+}
+
+/// A demo alarm change must appear in `/Alarms/History` as a real
+/// Activated/Cleared transition, not just in `/Alarms/Active`.
+///
+/// History is derived by diffing consecutive readings, so driving alarm state
+/// without writing a reading leaves the FDNY timeline empty — which is exactly
+/// what the in-memory forced set used to do.
+#[tokio::test]
+async fn demo_alarm_changes_appear_in_history() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let from = (Utc::now() - Duration::hours(1)).to_rfc3339_opts(SecondsFormat::Secs, true);
+
+    set_alarm_state(&client, &session, ALARM, true).await;
+    // A second reading is what makes the first one a diffable baseline.
+    set_alarm_state(&client, &session, ALARM, false).await;
+
+    let to = (Utc::now() + Duration::hours(1)).to_rfc3339_opts(SecondsFormat::Secs, true);
+    let resp = client
+        .get(format!("/api/1/Alarms/History?from={from}&to={to}&alarm_nums={ALARM}"))
+        .cookie(session.clone())
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: Value = resp.into_json().await.expect("json");
+    let events: Vec<String> = body["entries"]
+        .as_array()
+        .expect("entries array")
+        .iter()
+        .map(|e| e["event"].as_str().unwrap_or_default().to_string())
+        .collect();
+
+    assert!(
+        events.iter().any(|e| e == "Cleared"),
+        "expected a Cleared transition in history, got {events:?}"
+    );
 }
 
 /// The set-replace view over the same table stays in agreement with the

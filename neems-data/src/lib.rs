@@ -561,6 +561,79 @@ pub fn upsert_alarm_transition(
     Ok(())
 }
 
+/// Append a reading capturing the full alarm bitfield at `at`.
+///
+/// `alarm_state` records only the *latest* edge per alarm, which is enough to
+/// derive current visibility but cannot reconstruct a timeline. History
+/// (`GET /Alarms/History`, and the FDNY view built on it) is derived by walking
+/// `readings` and diffing consecutive alarm bitfields, so anything that drives
+/// alarms without writing a reading is invisible there. The demo endpoints call
+/// this so demo-driven alarms produce real Activated/Cleared history exactly as
+/// the RTAC collector's readings do.
+///
+/// Writes to the site's `alarm_status` source, creating it if absent — the same
+/// source the history seeder uses, so seeded and demo-driven readings share one
+/// timeline.
+pub fn record_alarm_snapshot(
+    connection: &mut SqliteConnection,
+    site_id: i32,
+    active: &std::collections::HashSet<u16>,
+    at: chrono::NaiveDateTime,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    use schema::sources;
+
+    let existing: Option<Option<i32>> = sources::table
+        .filter(sources::test_type.eq("alarm_status"))
+        .select(sources::id)
+        .first(connection)
+        .optional()?;
+
+    let source_id = match existing {
+        Some(Some(id)) => id,
+        _ => {
+            let created = create_source(
+                connection,
+                models::NewSource {
+                    name: format!("alarm_history_site_{}", site_id),
+                    description: Some(format!("Alarm status for site {}", site_id)),
+                    // Not polled live; written directly by the demo endpoints.
+                    active: Some(false),
+                    interval_seconds: Some(360),
+                    test_type: Some("alarm_status".to_string()),
+                    arguments: Some("{}".to_string()),
+                    site_id: Some(site_id),
+                    company_id: None,
+                },
+            )?;
+            created.id.ok_or("create_source returned a row with no id")?
+        }
+    };
+
+    let mut flags = rtac::state::AlarmFlags::default();
+    for num in active {
+        flags.set_alarm_num(*num, true);
+    }
+
+    let data = serde_json::json!({
+        "source_id": source_id,
+        "alarm_registers": flags.to_registers().to_vec(),
+        "timestamp_utc": at.and_utc().to_rfc3339(),
+        "demo": true,
+    })
+    .to_string();
+
+    insert_reading(
+        connection,
+        models::NewReading {
+            source_id,
+            timestamp: Some(at),
+            data,
+            quality_flags: None,
+        },
+    )?;
+    Ok(())
+}
+
 /// Load the full alarm-state table (one row per alarm that has ever
 /// transitioned). The API joins this with acknowledgements to derive status.
 pub fn get_all_alarm_state(

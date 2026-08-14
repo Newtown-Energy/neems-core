@@ -9,6 +9,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use neems_data::{
     get_all_alarm_state,
     models::AlarmStateRow,
+    record_alarm_snapshot,
     rtac::{
         alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
         alarm_sld_meta::sld_meta_for,
@@ -21,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    api::demo::{DemoMode, forbid_unless_demo_mode},
+    api::demo::{DEMO_SITE_ID, DemoMode, forbid_unless_demo_mode},
     models::AlarmAcknowledgement,
     orm::{
         DbConn,
@@ -596,13 +597,27 @@ pub async fn put_forced_alarms(
                 .collect();
 
             // Only write the alarms that actually change state.
+            let mut changed = false;
             for num in next.difference(&active_now) {
                 upsert_alarm_transition(conn, *num as i32, true, now)
                     .map_err(|_| Status::InternalServerError)?;
+                changed = true;
             }
             for num in active_now.difference(&next) {
                 upsert_alarm_transition(conn, *num as i32, false, now)
                     .map_err(|_| Status::InternalServerError)?;
+                changed = true;
+            }
+
+            // Snapshot the new bitfield so the change appears in
+            // `/Alarms/History`, matching `POST /1/Demo/AlarmState`. Skipped
+            // when nothing moved, so re-sending the same set doesn't pile up
+            // identical readings.
+            if changed {
+                record_alarm_snapshot(conn, DEMO_SITE_ID, &next, now).map_err(|e| {
+                    eprintln!("Demo alarm snapshot write failed: {e}");
+                    Status::InternalServerError
+                })?;
             }
 
             let mut nums: Vec<u16> = next.into_iter().collect();
