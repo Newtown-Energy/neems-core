@@ -582,8 +582,15 @@ pub fn record_alarm_snapshot(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     use schema::sources;
 
+    // Scope the lookup to `site_id`, and order it, so the snapshot always joins
+    // the timeline it belongs to. Matching on test_type alone would attach this
+    // site's readings to whichever alarm_status source the database happened to
+    // return first once a second site exists — and the row it creates on the
+    // miss path is site-scoped, so an unscoped read could never find it again.
     let existing: Option<Option<i32>> = sources::table
         .filter(sources::test_type.eq("alarm_status"))
+        .filter(sources::site_id.eq(site_id))
+        .order(sources::id.asc())
         .select(sources::id)
         .first(connection)
         .optional()?;
