@@ -216,6 +216,65 @@ const response = await fetch('/api/1/data/readings?source_ids=1,2,3&latest=10', 
 }
 ```
 
+### Get Latest Analog Values for a Site
+
+- **URL:** `/api/1/Sites/<site_id>/LatestAnalogs`
+- **Method:** `GET`
+- **Purpose:** Returns the most recent per-Megapack analog measurements for a site
+- **Authentication:** Required
+
+Reads the single newest `charging_state` reading for the site and returns the
+analog values it carries. This is deliberately not a time series: callers poll
+it for "what is true now", and making them fetch a window in order to read its
+last point would push that cost onto every caller. Use
+`/api/1/Sites/<id>/SocHistory` when you want the series.
+
+#### Response
+
+**Success (HTTP 200 OK):**
+```json
+{
+  "site_id": 1,
+  "timestamp": "2026-08-21T17:34:10.549730133",
+  "zones": {
+    "Mp1a": {
+      "state_of_energy": 46.25,
+      "ac_voltage": 480.0,
+      "max_battery_temperature": 24.0
+    },
+    "Mp1b": {
+      "state_of_energy": 47.75,
+      "ac_voltage": 480.0,
+      "max_battery_temperature": 24.4
+    }
+  }
+}
+```
+
+#### Reading the response
+
+- **Zones are keyed by alarm zone** (`Mp1a`...`Mp2c`), not by SLD component id.
+  The diagram's component ids are a frontend layout concern; keying by zone
+  matches how alarms are already published and keeps the API independent of
+  how any particular diagram is drawn.
+- **Field names come from the client spreadsheet's `Analogs` sheet**, not from
+  the display slots they end up in. `state_of_energy` is the charge
+  percentage; the frontend maps it to whatever it calls that.
+- **Absence means "no reading", never zero.** A pack that did not answer is
+  omitted from `zones`; a field we could not parse is `null`. A gauge showing
+  0% and a gauge with no reading are opposite claims and must not arrive
+  looking alike.
+- **`timestamp` is `null`** when the site has no readings at all. Otherwise it
+  is the timestamp of the reading the values came from, so a caller can judge
+  staleness rather than assume what it received is current.
+
+#### Caveat: scaling is assumed, not specified
+
+The values are parsed on an assumed encoding (see
+`neems-data/src/rtac/protocol.rs`). The client spreadsheet gives no analog
+point its units, so the scaling was copied from the site-level status
+registers. Confirm it with the client alongside the register addresses.
+
 ## Data System Overview
 
 ### Data Sources
