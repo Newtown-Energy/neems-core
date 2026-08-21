@@ -23,6 +23,23 @@ use super::{
     state::{ConnectionStatus, PendingCommand},
 };
 
+/// What came back from a single Megapack analog block read.
+///
+/// Separate from [`ModbusError`] because none of these mean the link is
+/// broken: they are answers about one pack, and the caller keeps polling the
+/// others.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MegapackAnalogRead {
+    /// The pack answered with a usable block.
+    Read(MegapackAnalogs),
+    /// The device refused the read — a Modbus exception such as
+    /// `IllegalDataAddress`. Expected while our analog addresses are still
+    /// provisional, so callers should back off rather than retry hard.
+    Refused,
+    /// The pack answered, but with a block we cannot trust.
+    Unusable,
+}
+
 /// Configuration for the Modbus client
 #[derive(Debug, Clone)]
 pub struct ModbusClientConfig {
@@ -197,69 +214,73 @@ impl ModbusClient {
         Err(ModbusError::ReconnectFailed)
     }
 
-    /// Read every Megapack's analog block.
+    /// Read one Megapack's analog block.
     ///
-    /// One Modbus read per pack rather than a single sweep of the whole
-    /// 200-391 range: 192 registers is past the 125-register ceiling on a
-    /// single holding-register read, and per-pack reads mean one unresponsive
-    /// pack costs us that pack rather than all six.
+    /// Deliberately a single pack rather than a sweep of all six. The caller
+    /// runs on a 10Hz tick that also carries E-stop signalling, and six
+    /// serialized round trips there would put seconds of avoidable latency in
+    /// front of an operator asking for a trip.
     ///
-    /// A pack whose read fails, comes back short, or reports an impossible
-    /// charge level is omitted from the result rather than defaulted. Callers
-    /// must treat absence as "no reading", never as zero.
-    pub async fn read_megapack_analogs(&mut self) -> Result<Vec<MegapackAnalogs>, ModbusError> {
+    /// `Err` means the link is gone and the caller must reconnect. The other
+    /// outcomes are per-pack and leave the connection usable.
+    pub async fn read_megapack_analog_block(
+        &mut self,
+        pack_index: usize,
+    ) -> Result<MegapackAnalogRead, ModbusError> {
+        let Some(zone) = MEGAPACK_ZONES.get(pack_index).copied() else {
+            return Ok(MegapackAnalogRead::Unusable);
+        };
         let operation_timeout = self.config.operation_timeout;
+        let start = RegisterMap::mp_analog_address(pack_index, 0);
         let ctx = self.context.as_mut().ok_or(ModbusError::NotConnected)?;
-        let mut analogs = Vec::with_capacity(MEGAPACK_ZONES.len());
 
-        for (pack_index, zone) in MEGAPACK_ZONES.iter().enumerate() {
-            let start = RegisterMap::mp_analog_address(pack_index, 0);
-            trace!(
-                zone = %zone,
-                start_address = start,
-                count = MP_ANALOG_POINT_COUNT,
-                "Reading Megapack analog block"
-            );
+        trace!(
+            zone = %zone,
+            start_address = start,
+            count = MP_ANALOG_POINT_COUNT,
+            "Reading Megapack analog block"
+        );
 
-            let read_result = timeout(
-                operation_timeout,
-                ctx.read_holding_registers(start, MP_ANALOG_POINT_COUNT as u16),
-            )
-            .await;
+        let read_result = timeout(
+            operation_timeout,
+            ctx.read_holding_registers(start, MP_ANALOG_POINT_COUNT as u16),
+        )
+        .await;
 
-            match read_result {
-                Ok(Ok(Ok(registers))) => match MegapackAnalogs::from_registers(*zone, &registers) {
-                    Some(parsed) => analogs.push(parsed),
-                    None => warn!(
+        match read_result {
+            Ok(Ok(Ok(registers))) => Ok(match MegapackAnalogs::from_registers(zone, &registers) {
+                Some(parsed) => MegapackAnalogRead::Read(parsed),
+                None => {
+                    warn!(
                         zone = %zone,
                         expected = MP_ANALOG_POINT_COUNT,
                         got = registers.len(),
-                        "Unusable Megapack analog block (short, or charge level \
-                         outside 0-100% under our assumed scaling); skipping pack"
-                    ),
-                },
-                Ok(Ok(Err(exception))) => {
-                    warn!(zone = %zone, exception = ?exception, "Modbus exception reading analogs")
+                        "Unusable Megapack analog block (short, or charge level outside \
+                         0-100% under our assumed scaling)"
+                    );
+                    MegapackAnalogRead::Unusable
                 }
-                Ok(Err(e)) => {
-                    // A transport error kills the connection for every pack, so
-                    // stop here and let the caller reconnect rather than
-                    // grinding through five more certain failures.
-                    warn!(zone = %zone, error = %e, "Failed to read Megapack analogs");
-                    self.connection_status = ConnectionStatus::Disconnected;
-                    self.context.take();
-                    return Err(ModbusError::ReadFailed(e.to_string()));
-                }
-                Err(_) => {
-                    warn!(zone = %zone, "Megapack analog read timeout");
-                    self.connection_status = ConnectionStatus::Disconnected;
-                    self.context.take();
-                    return Err(ModbusError::OperationTimeout);
-                }
+            }),
+            Ok(Ok(Err(exception))) => {
+                // Logged at debug, not warn: until the client confirms the
+                // analog addresses, a refusal is the expected answer, and at
+                // one read per tick a warn here would bury the log.
+                debug!(zone = %zone, exception = ?exception, "Megapack analog read refused");
+                Ok(MegapackAnalogRead::Refused)
+            }
+            Ok(Err(e)) => {
+                warn!(zone = %zone, error = %e, "Failed to read Megapack analogs");
+                self.connection_status = ConnectionStatus::Disconnected;
+                self.context.take();
+                Err(ModbusError::ReadFailed(e.to_string()))
+            }
+            Err(_) => {
+                warn!(zone = %zone, "Megapack analog read timeout");
+                self.connection_status = ConnectionStatus::Disconnected;
+                self.context.take();
+                Err(ModbusError::OperationTimeout)
             }
         }
-
-        Ok(analogs)
     }
 
     /// Read status registers from the RTAC

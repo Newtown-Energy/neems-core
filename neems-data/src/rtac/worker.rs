@@ -15,9 +15,100 @@ use std::{
 use chrono::Utc;
 use tokio::{
     sync::{RwLock, mpsc, watch},
-    time::{Interval, MissedTickBehavior, interval},
+    time::{Instant, Interval, MissedTickBehavior, interval},
 };
 use tracing::{debug, error, info, trace, warn};
+
+/// Consecutive refused analog reads before polling backs off.
+///
+/// Two full cycles, so a single pack answering intermittently does not stop
+/// the sweep — only the whole block being rejected does. That is the expected
+/// state until the client confirms the analog register addresses, and without
+/// a limit it would cost a doomed round trip on every tick, forever.
+const ANALOG_REFUSAL_LIMIT: u32 = 2 * MEGAPACK_ZONES.len() as u32;
+
+/// How long to stop polling analogs after hitting [`ANALOG_REFUSAL_LIMIT`].
+///
+/// Long enough that a wrong address costs almost nothing, short enough that
+/// correcting one is picked up without a restart.
+const ANALOG_REFUSAL_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Round-robin bookkeeping for the per-Megapack analog poll.
+///
+/// Split out from the worker because this is the part with the interesting
+/// rules — which pack is next, when to stop trying, what to discard — and
+/// leaving it inline would make it reachable only through a live Modbus
+/// connection.
+#[derive(Debug)]
+struct AnalogPollState {
+    /// Latest block per pack, indexed by position in [`MEGAPACK_ZONES`].
+    packs: [Option<MegapackAnalogs>; MEGAPACK_ZONES.len()],
+    next: usize,
+    /// Consecutive refusals across all packs; any successful read resets it.
+    refusals: u32,
+    suspended_until: Option<Instant>,
+}
+
+impl AnalogPollState {
+    fn new() -> Self {
+        Self {
+            packs: [const { None }; MEGAPACK_ZONES.len()],
+            next: 0,
+            refusals: 0,
+            suspended_until: None,
+        }
+    }
+
+    /// The pack to poll now, advancing the round-robin, or `None` while backed
+    /// off.
+    fn take_next(&mut self, now: Instant) -> Option<usize> {
+        if let Some(until) = self.suspended_until {
+            if now < until {
+                return None;
+            }
+            info!("Resuming Megapack analog polling after backoff");
+            self.suspended_until = None;
+            self.refusals = 0;
+        }
+        let pack_index = self.next;
+        self.next = (pack_index + 1) % MEGAPACK_ZONES.len();
+        Some(pack_index)
+    }
+
+    fn record_read(&mut self, pack_index: usize, analogs: MegapackAnalogs) {
+        self.refusals = 0;
+        self.packs[pack_index] = Some(analogs);
+    }
+
+    /// Note a refusal, suspending the poll once every pack has refused twice
+    /// over. Returns whether this call is what triggered the backoff, so the
+    /// caller logs it once rather than on every subsequent refusal.
+    fn record_refused(&mut self, pack_index: usize, now: Instant) -> bool {
+        self.packs[pack_index] = None;
+        self.refusals += 1;
+        if self.refusals >= ANALOG_REFUSAL_LIMIT && self.suspended_until.is_none() {
+            self.suspended_until = Some(now + ANALOG_REFUSAL_BACKOFF);
+            return true;
+        }
+        false
+    }
+
+    fn record_unusable(&mut self, pack_index: usize) {
+        self.packs[pack_index] = None;
+    }
+
+    /// Drop everything: the link died, so every held value is of unknown age.
+    fn record_link_lost(&mut self) {
+        self.packs = [const { None }; MEGAPACK_ZONES.len()];
+        self.suspended_until = None;
+        self.refusals = 0;
+    }
+
+    /// The blocks currently held, in [`MEGAPACK_ZONES`] order.
+    fn collected(&self) -> Vec<MegapackAnalogs> {
+        self.packs.iter().flatten().cloned().collect()
+    }
+}
 
 /// Reason for worker shutdown
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,8 +124,8 @@ pub enum ShutdownReason {
 use super::{
     alarm_definitions::ALARM_DEFINITIONS,
     alarms::Alarm,
-    modbus_client::{ModbusClient, ModbusClientConfig},
-    protocol::ParsedStatus,
+    modbus_client::{MegapackAnalogRead, ModbusClient, ModbusClientConfig},
+    protocol::{MEGAPACK_ZONES, MegapackAnalogs, ParsedStatus},
     state::{AlarmFlags, ConnectionStatus, PendingCommand, RtacReading, RtacState},
 };
 
@@ -201,6 +292,11 @@ pub struct ModbusWorker {
     /// Held until the write succeeds so a failed or disconnected write is
     /// retried on the next tick rather than lost.
     pending_estop: Option<i64>,
+    /// Per-Megapack analog polling, held here rather than in the shared
+    /// [`RtacState`] because nothing outside storage consumes it, and parking
+    /// it in state would put values refreshed once per cycle under a timestamp
+    /// rewritten every tick.
+    analogs: AnalogPollState,
 }
 
 impl ModbusWorker {
@@ -224,6 +320,7 @@ impl ModbusWorker {
             sequence: 0,
             last_alarm_flags: AlarmFlags::default(),
             pending_estop: None,
+            analogs: AnalogPollState::new(),
         }
     }
 
@@ -278,6 +375,12 @@ impl ModbusWorker {
                     // should not wait out a write slot.
                     self.perform_estop_write().await;
 
+                    // One Megapack analog block per tick, deliberately behind
+                    // the E-stop signal and never as a batch: six serialized
+                    // round trips ahead of it would be seconds of latency on
+                    // exactly the request that must not wait.
+                    let analog_link_ok = self.poll_next_megapack_analogs().await;
+
                     // Perform write operation (every Nth tick = 2Hz)
                     if self.tick_count.is_multiple_of(self.config.write_every_n_ticks as u64) {
                         self.perform_write().await;
@@ -288,8 +391,14 @@ impl ModbusWorker {
                         self.log_stats();
                     }
 
-                    // If read failed due to connection issue, try to reconnect
-                    if !read_success && !self.client.is_connected() {
+                    // If either read dropped the link, reconnect. The analog
+                    // poll is included because it can be what killed the
+                    // connection, and skipping it here would leave shared
+                    // state advertising Connected until the next tick's status
+                    // read failed.
+                    let needs_reconnect =
+                        !(self.client.is_connected() || read_success && analog_link_ok);
+                    if needs_reconnect {
                         self.handle_reconnection().await;
                     }
                 }
@@ -321,7 +430,6 @@ impl ModbusWorker {
 
                 // Send to storage (sampled)
                 if self.tick_count.is_multiple_of(self.config.storage_sample_rate as u64) {
-                    self.refresh_megapack_analogs().await;
                     self.send_to_storage().await;
                 }
 
@@ -506,31 +614,56 @@ impl ModbusWorker {
     /// Send current state to storage
     async fn send_to_storage(&self) {
         let state = self.channels.state.read().await;
-        let reading = RtacReading::from(&*state);
+        let mut reading = RtacReading::from(&*state);
+        reading.megapack_analogs = self.analogs.collected();
 
         if let Err(e) = self.channels.storage_tx.send(reading).await {
             warn!(error = %e, "Failed to send reading to storage");
         }
     }
 
-    /// Refresh the per-Megapack analog block into shared state.
+    /// Poll one Megapack's analog block, advancing the round-robin.
     ///
-    /// Read on the storage cadence rather than every tick: six extra Modbus
-    /// round-trips at 10Hz would buy nothing, since nothing consumes these
-    /// values except stored readings.
+    /// Returns `false` only when the link died, so the caller can reconnect.
+    /// A refused or unusable pack is a per-pack outcome: it clears that pack
+    /// and leaves the rest alone.
     ///
-    /// A failed read clears the previous values rather than keeping them. The
-    /// reading that follows carries a fresh timestamp, so holding last-known
-    /// charge levels under it would present stale numbers as current ones.
-    async fn refresh_megapack_analogs(&mut self) {
-        let analogs = match self.client.read_megapack_analogs().await {
-            Ok(analogs) => analogs,
-            Err(e) => {
-                warn!(error = %e, "Failed to read Megapack analogs");
-                Vec::new()
-            }
+    /// Clearing on failure is what bounds staleness. Because a pack is dropped
+    /// the moment it stops answering, every entry still present was read
+    /// within the last full cycle, and the reading it is attached to can say
+    /// so. Keeping the last good value instead would let a dead pack show a
+    /// charge level indefinitely.
+    async fn poll_next_megapack_analogs(&mut self) -> bool {
+        let now = Instant::now();
+        let Some(pack_index) = self.analogs.take_next(now) else {
+            return true;
         };
-        self.channels.state.write().await.megapack_analogs = analogs;
+
+        match self.client.read_megapack_analog_block(pack_index).await {
+            Ok(MegapackAnalogRead::Read(analogs)) => {
+                self.analogs.record_read(pack_index, analogs);
+                true
+            }
+            Ok(MegapackAnalogRead::Refused) => {
+                if self.analogs.record_refused(pack_index, now) {
+                    warn!(
+                        backoff_secs = ANALOG_REFUSAL_BACKOFF.as_secs(),
+                        "Megapack analog reads refused across every pack; backing off. \
+                         Expected if the analog register addresses are still provisional."
+                    );
+                }
+                true
+            }
+            Ok(MegapackAnalogRead::Unusable) => {
+                self.analogs.record_unusable(pack_index);
+                true
+            }
+            Err(e) => {
+                warn!(error = %e, "Megapack analog poll lost the connection");
+                self.analogs.record_link_lost();
+                false
+            }
+        }
     }
 
     /// Handle reconnection after connection loss
@@ -619,6 +752,122 @@ pub fn create_worker_channels(
 
 #[cfg(test)]
 mod tests {
+    use crate::rtac::{
+        alarm_definitions::AlarmZone,
+        protocol::{MP_ANALOG_POINT_COUNT, MegapackAnalogs},
+    };
+
+    fn analogs_for(zone: AlarmZone, soc: f32) -> MegapackAnalogs {
+        MegapackAnalogs {
+            zone,
+            state_of_energy_percent: soc,
+            ac_voltage_v: 480.0,
+            max_battery_temperature_c: 25.0,
+            raw_registers: [0u16; MP_ANALOG_POINT_COUNT],
+        }
+    }
+
+    #[test]
+    fn analog_poll_visits_every_pack_in_turn() {
+        let mut poll = AnalogPollState::new();
+        let now = Instant::now();
+
+        let visited: Vec<usize> =
+            (0..MEGAPACK_ZONES.len() * 2).filter_map(|_| poll.take_next(now)).collect();
+
+        assert_eq!(visited, vec![0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn analog_poll_keeps_packs_in_block_order_regardless_of_arrival() {
+        // Collected order must follow MEGAPACK_ZONES, not the order packs
+        // happened to answer in, so consumers can rely on it.
+        let mut poll = AnalogPollState::new();
+        poll.record_read(4, analogs_for(AlarmZone::Mp2b, 52.25));
+        poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
+        poll.record_read(2, analogs_for(AlarmZone::Mp1c, 49.25));
+
+        let zones: Vec<AlarmZone> = poll.collected().iter().map(|a| a.zone).collect();
+        assert_eq!(zones, vec![AlarmZone::Mp1a, AlarmZone::Mp1c, AlarmZone::Mp2b]);
+    }
+
+    #[test]
+    fn a_pack_that_stops_answering_is_dropped_not_held() {
+        // The staleness bound depends on this: anything still collected was
+        // read within the last cycle. A retained last-good value would let a
+        // dead pack show a charge level forever.
+        let mut poll = AnalogPollState::new();
+        poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
+        poll.record_read(1, analogs_for(AlarmZone::Mp1b, 47.75));
+        assert_eq!(poll.collected().len(), 2);
+
+        poll.record_refused(0, Instant::now());
+        assert_eq!(poll.collected().len(), 1);
+
+        poll.record_unusable(1);
+        assert!(poll.collected().is_empty());
+    }
+
+    #[test]
+    fn analog_poll_backs_off_once_every_pack_refuses() {
+        let mut poll = AnalogPollState::new();
+        let now = Instant::now();
+
+        // One refusal short of the limit, polling continues.
+        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+            let pack = poll.take_next(now).expect("still polling");
+            assert!(!poll.record_refused(pack, now), "backed off too early");
+        }
+        let pack = poll.take_next(now).expect("still polling");
+        assert!(poll.record_refused(pack, now), "should report the backoff once");
+
+        // Suspended: no pack is offered, and no further backoff is announced.
+        assert_eq!(poll.take_next(now), None);
+        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF / 2), None);
+
+        // ...and resumes once the backoff elapses.
+        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF), Some(0));
+    }
+
+    #[test]
+    fn one_good_read_resets_the_refusal_streak() {
+        // A single pack answering intermittently must not accumulate its way
+        // into a backoff; only the whole block being rejected should.
+        let mut poll = AnalogPollState::new();
+        let now = Instant::now();
+
+        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+            let pack = poll.take_next(now).expect("still polling");
+            poll.record_refused(pack, now);
+        }
+        poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
+
+        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+            let pack = poll.take_next(now).expect("still polling");
+            assert!(!poll.record_refused(pack, now), "streak was not reset");
+        }
+    }
+
+    #[test]
+    fn losing_the_link_discards_everything_and_clears_the_backoff() {
+        let mut poll = AnalogPollState::new();
+        let now = Instant::now();
+        poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
+        for _ in 0..ANALOG_REFUSAL_LIMIT {
+            let pack = poll.take_next(now).expect("still polling");
+            poll.record_refused(pack, now);
+        }
+        assert_eq!(poll.take_next(now), None, "expected to be backed off");
+
+        poll.record_link_lost();
+
+        // Nothing survives a dropped link: every held value is of unknown age.
+        assert!(poll.collected().is_empty());
+        // And the reconnected link gets polled immediately rather than serving
+        // out a backoff earned by a connection that no longer exists.
+        assert!(poll.take_next(now).is_some());
+    }
+
     use super::*;
 
     #[test]
