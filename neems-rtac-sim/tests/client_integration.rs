@@ -7,8 +7,8 @@ use std::{
 };
 
 use neems_data::rtac::{
-    modbus_client::{ModbusClient, ModbusClientConfig},
-    protocol::{OperatingMode, ParsedStatus},
+    modbus_client::{MegapackAnalogRead, ModbusClient, ModbusClientConfig},
+    protocol::{MEGAPACK_ZONES, OperatingMode, ParsedStatus},
     state::PendingCommand,
 };
 use neems_rtac_sim::{config::SimConfig, server, state::SimState};
@@ -129,6 +129,30 @@ async fn client_can_read_and_command_the_simulator() {
         status.soc_percent,
         high_soc
     );
+
+    // Per-Megapack analog blocks, over the same wire. Polled one pack at a
+    // time, the way the worker does it.
+    let mut analogs = Vec::new();
+    for pack_index in 0..MEGAPACK_ZONES.len() {
+        match client.read_megapack_analog_block(pack_index).await.expect("read analog block") {
+            MegapackAnalogRead::Read(parsed) => analogs.push(parsed),
+            other => panic!("pack {pack_index} did not answer with a usable block: {other:?}"),
+        }
+    }
+    assert_eq!(analogs.len(), MEGAPACK_ZONES.len());
+    for (parsed, zone) in analogs.iter().zip(MEGAPACK_ZONES.iter()) {
+        assert_eq!(parsed.zone, *zone, "packs came back out of block order");
+        assert!(
+            (0.0..=100.0).contains(&parsed.state_of_energy_percent),
+            "{:?} charge out of range: {}",
+            zone,
+            parsed.state_of_energy_percent
+        );
+    }
+    // The whole point of reading per pack is that packs can differ.
+    let distinct: std::collections::HashSet<_> =
+        analogs.iter().map(|a| a.state_of_energy_percent.to_bits()).collect();
+    assert_eq!(distinct.len(), analogs.len(), "packs reported identical charge");
 
     tick.abort();
     srv.abort();

@@ -86,6 +86,25 @@ impl From<RtacReading> for StorageReading {
         // writes, so RTAC readings are served by the SoC history endpoint
         // (which reads `level`/`state`). The remaining fields preserve the full
         // RTAC reading for richer consumers.
+        // Per-pack analogs, keyed by the zone's stable code so consumers can
+        // address a single Megapack. A pack that did not answer is absent from
+        // the map rather than present with zeros — on a charge gauge those
+        // read as opposite claims.
+        let megapacks: serde_json::Map<String, serde_json::Value> = reading
+            .megapack_analogs
+            .iter()
+            .map(|mp| {
+                (
+                    mp.zone.code().to_string(),
+                    json!({
+                        "state_of_energy": mp.state_of_energy_percent,
+                        "ac_voltage": mp.ac_voltage_v,
+                        "max_battery_temperature": mp.max_battery_temperature_c,
+                    }),
+                )
+            })
+            .collect();
+
         let data = json!({
             "level": reading.soc_percent,
             "state": soc_state_from_mode(&reading.mode),
@@ -97,6 +116,7 @@ impl From<RtacReading> for StorageReading {
             "temperature_c": reading.temperature_c,
             "grid_frequency_hz": reading.grid_frequency_hz,
             "alarm_registers": reading.alarm_registers,
+            "megapacks": megapacks,
             "sequence": reading.sequence,
         });
 
@@ -265,6 +285,13 @@ impl DataSampler {
                 acc
             });
 
+        // Take the last reading's analogs rather than averaging them. They
+        // share the timestamp and sequence we keep, and averaging would mean
+        // pairing packs up across readings whose membership can differ — a
+        // pack that dropped out mid-window would otherwise be averaged with
+        // nothing and read low.
+        let megapack_analogs = self.readings.last()?.megapack_analogs.clone();
+
         // Use the sequence of the last reading
         let sequence = self.readings.last()?.sequence;
 
@@ -280,6 +307,7 @@ impl DataSampler {
             temperature_c,
             grid_frequency_hz,
             alarm_registers,
+            megapack_analogs,
             sequence,
         })
     }
@@ -423,6 +451,7 @@ mod tests {
             temperature_c: 25.0,
             grid_frequency_hz: 60.0,
             alarm_registers: [0u16; ALARM_REGISTER_COUNT],
+            megapack_analogs: Vec::new(),
             sequence,
         }
     }
@@ -484,6 +513,54 @@ mod tests {
         // make_test_reading uses mode "charging".
         assert_eq!(storage_reading.data["level"], 75.5);
         assert_eq!(storage_reading.data["state"], "charging");
+    }
+
+    #[test]
+    fn storage_reading_keys_megapack_analogs_by_zone() {
+        use crate::rtac::{
+            alarm_definitions::AlarmZone,
+            protocol::{MP_ANALOG_POINT_COUNT, MegapackAnalogs},
+        };
+
+        let mut reading = make_test_reading(75.5, -50.0, 42);
+        reading.megapack_analogs = vec![
+            MegapackAnalogs {
+                zone: AlarmZone::Mp1a,
+                state_of_energy_percent: 82.5,
+                ac_voltage_v: 479.6,
+                max_battery_temperature_c: 27.4,
+                raw_registers: [0u16; MP_ANALOG_POINT_COUNT],
+            },
+            MegapackAnalogs {
+                zone: AlarmZone::Mp2c,
+                state_of_energy_percent: 61.0,
+                ac_voltage_v: 480.1,
+                max_battery_temperature_c: 25.0,
+                raw_registers: [0u16; MP_ANALOG_POINT_COUNT],
+            },
+        ];
+
+        let data = StorageReading::from(reading).data;
+        // f32 values widen to f64 in JSON, so compare with a tolerance rather
+        // than against the literal.
+        let close = |value: &serde_json::Value, expected: f64| {
+            let got = value.as_f64().expect("numeric");
+            assert!((got - expected).abs() < 1e-4, "{got} != {expected}");
+        };
+        close(&data["megapacks"]["Mp1a"]["state_of_energy"], 82.5);
+        close(&data["megapacks"]["Mp1a"]["ac_voltage"], 479.6);
+        close(&data["megapacks"]["Mp1a"]["max_battery_temperature"], 27.4);
+        close(&data["megapacks"]["Mp2c"]["state_of_energy"], 61.0);
+
+        // A pack that did not answer must be absent, not zero: a gauge reading
+        // 0% and a gauge with no reading are opposite claims.
+        assert!(data["megapacks"].get("Mp1b").is_none());
+    }
+
+    #[test]
+    fn storage_reading_omits_megapacks_when_none_were_read() {
+        let data = StorageReading::from(make_test_reading(75.5, -50.0, 42)).data;
+        assert_eq!(data["megapacks"], serde_json::json!({}));
     }
 
     #[test]

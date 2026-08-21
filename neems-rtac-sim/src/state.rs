@@ -14,9 +14,9 @@
 use neems_data::rtac::{
     alarm_definitions::{ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM},
     protocol::{
-        CommandType, OperatingMode, RegisterMap, current_to_register, grid_frequency_to_register,
-        parse_soc, power_kw_to_registers, soc_to_register, temperature_to_register,
-        voltage_to_register,
+        CommandType, MEGAPACK_ZONES, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
+        current_to_register, grid_frequency_to_register, mp_analog_offset, parse_soc,
+        power_kw_to_registers, soc_to_register, temperature_to_register, voltage_to_register,
     },
     state::AlarmFlags,
 };
@@ -216,6 +216,45 @@ impl SimState {
             {
                 self.cmd_regs[(a - RegisterMap::CMD_START_ADDRESS) as usize]
             }
+            a if a >= RegisterMap::MP_ANALOG_BLOCK_START => {
+                let relative = a - RegisterMap::MP_ANALOG_BLOCK_START;
+                let pack_index = (relative / RegisterMap::MP_ANALOG_STRIDE) as usize;
+                let offset = relative % RegisterMap::MP_ANALOG_STRIDE;
+                // The stride leaves two reserved registers per pack, and the
+                // block ends after the sixth; both read as unmapped.
+                if pack_index < MEGAPACK_ZONES.len() && (offset as usize) < MP_ANALOG_POINT_COUNT {
+                    self.megapack_register_at(pack_index, offset)
+                } else {
+                    0
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    /// How far pack `pack_index` sits from the site-level figure.
+    ///
+    /// Deterministic rather than random: six identical gauges would hide the
+    /// very thing per-pack readings exist to show, but a value that moves
+    /// between reads would make screenshots and tests unreproducible.
+    fn megapack_spread(pack_index: usize) -> f32 {
+        pack_index as f32 - 2.5
+    }
+
+    /// Value of `offset` within pack `pack_index`'s analog block.
+    ///
+    /// Only the points the SLD renders are simulated; the rest of the block
+    /// reads 0, matching the spreadsheet's silence about their encoding.
+    fn megapack_register_at(&self, pack_index: usize, offset: u16) -> u16 {
+        let spread = Self::megapack_spread(pack_index);
+        match offset {
+            mp_analog_offset::STATE_OF_ENERGY => {
+                soc_to_register((self.soc_percent + spread * 1.5).clamp(0.0, 100.0))
+            }
+            mp_analog_offset::AC_VOLTAGE => voltage_to_register(self.voltage_v),
+            mp_analog_offset::MAX_BATTERY_TEMPERATURE => {
+                temperature_to_register(self.temperature_c + spread * 0.4)
+            }
             _ => 0,
         }
     }
@@ -283,6 +322,52 @@ mod tests {
             discharge_rate_pct: 10.0,
             ..SimConfig::default()
         }
+    }
+
+    #[test]
+    fn megapack_analog_block_reports_distinct_charge_per_pack() {
+        let mut state = SimState::new(fast_config());
+        state.soc_percent = 50.0;
+
+        let socs: Vec<f32> = (0..MEGAPACK_ZONES.len())
+            .map(|i| {
+                let addr = RegisterMap::mp_analog_address(i, mp_analog_offset::STATE_OF_ENERGY);
+                parse_soc(state.register_at(addr))
+            })
+            .collect();
+
+        // Six identical gauges would hide the thing per-pack readings exist
+        // to show.
+        assert_eq!(socs.len(), 6);
+        for window in socs.windows(2) {
+            assert_ne!(window[0], window[1]);
+        }
+        for soc in socs {
+            assert!((0.0..=100.0).contains(&soc), "SoC {} out of range", soc);
+        }
+    }
+
+    #[test]
+    fn megapack_analog_block_is_stable_across_reads() {
+        let state = SimState::new(fast_config());
+        let addr = RegisterMap::mp_analog_address(2, mp_analog_offset::STATE_OF_ENERGY);
+        assert_eq!(state.register_at(addr), state.register_at(addr));
+    }
+
+    #[test]
+    fn reserved_and_out_of_range_analog_addresses_read_zero() {
+        let mut state = SimState::new(fast_config());
+        state.soc_percent = 50.0;
+
+        // The two reserved registers at the tail of a pack's stride.
+        let reserved = RegisterMap::MP_ANALOG_BLOCK_START + MP_ANALOG_POINT_COUNT as u16;
+        assert_eq!(state.register_at(reserved), 0);
+        assert_eq!(state.register_at(reserved + 1), 0);
+
+        // Past the sixth pack.
+        let past_end = RegisterMap::MP_ANALOG_BLOCK_START
+            + MEGAPACK_ZONES.len() as u16 * RegisterMap::MP_ANALOG_STRIDE;
+        assert_eq!(state.register_at(past_end), 0);
     }
 
     #[test]

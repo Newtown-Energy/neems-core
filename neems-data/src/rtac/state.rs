@@ -10,7 +10,7 @@ use super::{
     alarm_definitions::{
         ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone, ESTOP_ALARM_NUM,
     },
-    protocol::{CommandType, OperatingMode},
+    protocol::{CommandType, MegapackAnalogs, OperatingMode},
 };
 
 /// Connection status for the Modbus TCP connection
@@ -211,6 +211,12 @@ pub struct RtacReading {
     pub grid_frequency_hz: f32,
     /// Active alarm flags as register array
     pub alarm_registers: [u16; ALARM_REGISTER_COUNT],
+    /// Per-Megapack analog measurements, one entry per pack answering as of
+    /// this reading. Attached by the worker, which polls the packs on a
+    /// round-robin and drops any that stops answering — so every entry was
+    /// read within one cycle of `timestamp`, and a missing pack means "no
+    /// reading", never zero.
+    pub megapack_analogs: Vec<MegapackAnalogs>,
     /// Sequence number
     pub sequence: u64,
 }
@@ -227,6 +233,8 @@ impl From<&RtacState> for RtacReading {
             temperature_c: state.temperature_c,
             grid_frequency_hz: state.grid_frequency_hz,
             alarm_registers: state.alarms.to_registers(),
+            // Filled in by the worker; RtacState does not carry analogs.
+            megapack_analogs: Vec::new(),
             sequence: state.sequence,
         }
     }
