@@ -204,9 +204,9 @@ impl ModbusClient {
     /// single holding-register read, and per-pack reads mean one unresponsive
     /// pack costs us that pack rather than all six.
     ///
-    /// A pack whose read fails or comes back short is omitted from the result
-    /// rather than defaulted. Callers must treat absence as "no reading",
-    /// never as zero.
+    /// A pack whose read fails, comes back short, or reports an impossible
+    /// charge level is omitted from the result rather than defaulted. Callers
+    /// must treat absence as "no reading", never as zero.
     pub async fn read_megapack_analogs(&mut self) -> Result<Vec<MegapackAnalogs>, ModbusError> {
         let operation_timeout = self.config.operation_timeout;
         let ctx = self.context.as_mut().ok_or(ModbusError::NotConnected)?;
@@ -234,7 +234,8 @@ impl ModbusClient {
                         zone = %zone,
                         expected = MP_ANALOG_POINT_COUNT,
                         got = registers.len(),
-                        "Short Megapack analog block; skipping pack"
+                        "Unusable Megapack analog block (short, or charge level \
+                         outside 0-100% under our assumed scaling); skipping pack"
                     ),
                 },
                 Ok(Ok(Err(exception))) => {

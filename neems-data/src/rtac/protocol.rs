@@ -386,9 +386,18 @@ pub const MP_ANALOG_POINT_COUNT: usize = 30;
 /// `docs/alarms/newtown-alarms.json`).
 ///
 /// Only the points the SLD renders are named. The other 27 offsets are
-/// addressed but left raw: the spreadsheet gives them no units or scaling, and
-/// inventing an encoding we would have to unpick later is worse than carrying
-/// the register value through untouched.
+/// addressed but left raw, because the spreadsheet gives no point its units or
+/// scaling and inventing an encoding we would have to unpick later is worse
+/// than carrying the register value through untouched.
+///
+/// **The named three are no better documented.** Their scaling below is
+/// assumed, not specified: it copies the encoding the site-level status
+/// registers already use, because that is the only precedent we have. The
+/// simulator encodes with the inverse of those same helpers, so a round trip
+/// through it proves the two halves of *our* assumption agree — not that
+/// either matches the hardware. Confirm the scaling with the client alongside
+/// the register addresses; a right address with a wrong scale reports 8.25%
+/// where the pack means 82.5%, silently and plausibly.
 pub mod mp_analog_offset {
     /// Charge level as a percentage — the vendor's term for state of charge.
     /// The spreadsheet marks this point as driving the SLD's "MP gas gauge".
@@ -421,17 +430,34 @@ impl MegapackAnalogs {
     /// Returns `None` on a short slice rather than padding with zeros — a
     /// zero here would read as "0% charge", which is a claim we have no
     /// grounds to make.
+    ///
+    /// Also returns `None` when the charge level lands outside 0-100%.
+    /// [`parse_soc`] does not clamp, so on the assumed percent-times-100
+    /// encoding any register above 10000 yields an impossible percentage, up
+    /// to 655.35. That cannot happen against the simulator, whose
+    /// [`soc_to_register`] clamps on the way in — which is exactly why it must
+    /// be caught here instead: the first hardware to disagree with our scaling
+    /// would otherwise put a plausible-looking wrong number on an operator's
+    /// gauge. Dropping the whole pack rather than just the charge figure is
+    /// deliberate; if the scale is wrong for one point in the block, the other
+    /// two are not worth more trust.
     pub fn from_registers(zone: AlarmZone, registers: &[u16]) -> Option<Self> {
         if registers.len() < MP_ANALOG_POINT_COUNT {
             return None;
         }
         let at = |offset: u16| registers[offset as usize];
+
+        let state_of_energy_percent = parse_soc(at(mp_analog_offset::STATE_OF_ENERGY));
+        if !(0.0..=100.0).contains(&state_of_energy_percent) {
+            return None;
+        }
+
         let mut raw_registers = [0u16; MP_ANALOG_POINT_COUNT];
         raw_registers.copy_from_slice(&registers[..MP_ANALOG_POINT_COUNT]);
 
         Some(Self {
             zone,
-            state_of_energy_percent: parse_soc(at(mp_analog_offset::STATE_OF_ENERGY)),
+            state_of_energy_percent,
             ac_voltage_v: parse_voltage(at(mp_analog_offset::AC_VOLTAGE)),
             max_battery_temperature_c: parse_temperature(at(
                 mp_analog_offset::MAX_BATTERY_TEMPERATURE,
@@ -528,6 +554,24 @@ mod tests {
         assert_eq!(parsed.ac_voltage_v, 479.6);
         assert_eq!(parsed.max_battery_temperature_c, 27.4);
         assert_eq!(parsed.raw_registers, regs);
+    }
+
+    #[test]
+    fn megapack_analogs_reject_an_impossible_charge_level() {
+        // The simulator can never produce this — soc_to_register clamps — so
+        // only real hardware disagreeing with our assumed scaling would. That
+        // is precisely the case that must not reach a gauge.
+        let mut regs = [0u16; MP_ANALOG_POINT_COUNT];
+        regs[mp_analog_offset::STATE_OF_ENERGY as usize] = 10_001;
+        assert!(MegapackAnalogs::from_registers(AlarmZone::Mp1a, &regs).is_none());
+
+        regs[mp_analog_offset::STATE_OF_ENERGY as usize] = u16::MAX;
+        assert!(MegapackAnalogs::from_registers(AlarmZone::Mp1a, &regs).is_none());
+
+        // The boundary itself is a legitimate reading: a full pack.
+        regs[mp_analog_offset::STATE_OF_ENERGY as usize] = 10_000;
+        let parsed = MegapackAnalogs::from_registers(AlarmZone::Mp1a, &regs).unwrap();
+        assert_eq!(parsed.state_of_energy_percent, 100.0);
     }
 
     #[test]
