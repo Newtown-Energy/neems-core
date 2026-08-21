@@ -105,6 +105,26 @@ pub enum AlarmZone {
 }
 
 impl AlarmZone {
+    /// Every zone, so a caller that must cover all of them — a test pinning
+    /// the wire format, a UI enumerating the site — has one list to read
+    /// rather than its own copy to keep in step.
+    pub const ALL: [Self; 14] = [
+        Self::Site,
+        Self::BreakerRelay,
+        Self::Meter,
+        Self::Transformer1,
+        Self::Transformer2,
+        Self::Rtac,
+        Self::Facp,
+        Self::TeslaSiteController,
+        Self::Mp1a,
+        Self::Mp1b,
+        Self::Mp1c,
+        Self::Mp2a,
+        Self::Mp2b,
+        Self::Mp2c,
+    ];
+
     /// The zone's stable identifier, as used in persisted reading JSON and in
     /// API responses.
     ///
@@ -624,27 +644,17 @@ pub fn alarms_at_level_or_above(max_level: u8) -> impl Iterator<Item = &'static 
 mod tests {
     /// Every zone's `code()` must equal how serde serializes it, because the
     /// two are the same format seen from different sides: `code()` writes the
-    /// keys into stored readings, and serde produces `AlarmZoneDto` for the
-    /// frontend. If they ever disagree, a client matching on the DTO would
-    /// silently stop recognising stored data.
+    /// keys into stored readings, and serde carries the zone to anything
+    /// reading them back.
+    ///
+    /// The other half of that promise — that neems-api's `AlarmZoneDto`
+    /// serializes the same way, so the frontend sees one zone spelling for
+    /// alarms and analogs alike — cannot be checked from here, because
+    /// neems-data does not know about the DTO. It is pinned by
+    /// `alarm_zone_dto_matches_zone_code` in neems-api.
     #[test]
     fn zone_code_matches_serde_representation() {
-        for zone in [
-            AlarmZone::Site,
-            AlarmZone::BreakerRelay,
-            AlarmZone::Meter,
-            AlarmZone::Transformer1,
-            AlarmZone::Transformer2,
-            AlarmZone::Rtac,
-            AlarmZone::Facp,
-            AlarmZone::TeslaSiteController,
-            AlarmZone::Mp1a,
-            AlarmZone::Mp1b,
-            AlarmZone::Mp1c,
-            AlarmZone::Mp2a,
-            AlarmZone::Mp2b,
-            AlarmZone::Mp2c,
-        ] {
+        for zone in AlarmZone::ALL {
             let serialized = serde_json::to_string(&zone).expect("zone serializes");
             assert_eq!(serialized, format!("\"{}\"", zone.code()), "{zone:?}");
         }

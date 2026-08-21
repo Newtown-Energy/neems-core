@@ -932,8 +932,28 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, NaiveDate, NaiveDateTime};
+    use neems_data::rtac::alarm_definitions::AlarmZone;
 
-    use super::{AlarmStatusDto, effective_status};
+    use super::{AlarmStatusDto, AlarmZoneDto, effective_status};
+
+    /// A zone must spell itself the same way everywhere the frontend meets it.
+    ///
+    /// `AlarmZone::code()` is what the RTAC collector writes as the key of
+    /// each per-Megapack analog block, and `AlarmZoneDto` is what every alarm
+    /// response carries. The frontend joins the two — the gauge and the alarm
+    /// badge on one diagram component — by that string. Nothing but this
+    /// assertion stops a rename or a `#[serde(rename_all)]` on the DTO from
+    /// splitting them silently: the join would just stop matching, and a
+    /// component would show alarms with no readings, or readings with no
+    /// alarms.
+    #[test]
+    fn alarm_zone_dto_matches_zone_code() {
+        for zone in AlarmZone::ALL {
+            let dto = AlarmZoneDto::from(zone);
+            let serialized = serde_json::to_string(&dto).expect("zone DTO serializes");
+            assert_eq!(serialized, format!("\"{}\"", zone.code()), "{zone:?}");
+        }
+    }
 
     /// Test timestamp `base + secs` seconds.
     fn t(secs: i64) -> NaiveDateTime {
