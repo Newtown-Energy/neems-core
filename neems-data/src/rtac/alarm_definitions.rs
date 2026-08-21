@@ -104,6 +104,36 @@ pub enum AlarmZone {
     Mp2c,
 }
 
+impl AlarmZone {
+    /// The zone's stable identifier, as used in persisted reading JSON and in
+    /// API responses.
+    ///
+    /// This is deliberately an explicit match rather than `format!("{:?}")`.
+    /// `Debug` carries no stability contract — it exists for programmers, and
+    /// a rename or a `#[derive]` change could silently rewrite every key we
+    /// have written to disk and every key a client matches on. These strings
+    /// are a format, so they are spelled out. `matches_serde_representation`
+    /// pins them to the DTO the frontend consumes.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Site => "Site",
+            Self::BreakerRelay => "BreakerRelay",
+            Self::Meter => "Meter",
+            Self::Transformer1 => "Transformer1",
+            Self::Transformer2 => "Transformer2",
+            Self::Rtac => "Rtac",
+            Self::Facp => "Facp",
+            Self::TeslaSiteController => "TeslaSiteController",
+            Self::Mp1a => "Mp1a",
+            Self::Mp1b => "Mp1b",
+            Self::Mp1c => "Mp1c",
+            Self::Mp2a => "Mp2a",
+            Self::Mp2b => "Mp2b",
+            Self::Mp2c => "Mp2c",
+        }
+    }
+}
+
 impl fmt::Display for AlarmZone {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -592,6 +622,34 @@ pub fn alarms_at_level_or_above(max_level: u8) -> impl Iterator<Item = &'static 
 
 #[cfg(test)]
 mod tests {
+    /// Every zone's `code()` must equal how serde serializes it, because the
+    /// two are the same format seen from different sides: `code()` writes the
+    /// keys into stored readings, and serde produces `AlarmZoneDto` for the
+    /// frontend. If they ever disagree, a client matching on the DTO would
+    /// silently stop recognising stored data.
+    #[test]
+    fn zone_code_matches_serde_representation() {
+        for zone in [
+            AlarmZone::Site,
+            AlarmZone::BreakerRelay,
+            AlarmZone::Meter,
+            AlarmZone::Transformer1,
+            AlarmZone::Transformer2,
+            AlarmZone::Rtac,
+            AlarmZone::Facp,
+            AlarmZone::TeslaSiteController,
+            AlarmZone::Mp1a,
+            AlarmZone::Mp1b,
+            AlarmZone::Mp1c,
+            AlarmZone::Mp2a,
+            AlarmZone::Mp2b,
+            AlarmZone::Mp2c,
+        ] {
+            let serialized = serde_json::to_string(&zone).expect("zone serializes");
+            assert_eq!(serialized, format!("\"{}\"", zone.code()), "{zone:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

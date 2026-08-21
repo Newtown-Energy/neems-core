@@ -86,16 +86,16 @@ impl From<RtacReading> for StorageReading {
         // writes, so RTAC readings are served by the SoC history endpoint
         // (which reads `level`/`state`). The remaining fields preserve the full
         // RTAC reading for richer consumers.
-        // Per-pack analogs, keyed by zone so consumers can address a single
-        // Megapack. A pack that did not answer is absent from the map rather
-        // than present with zeros — on a charge gauge those read as opposite
-        // claims.
+        // Per-pack analogs, keyed by the zone's stable code so consumers can
+        // address a single Megapack. A pack that did not answer is absent from
+        // the map rather than present with zeros — on a charge gauge those
+        // read as opposite claims.
         let megapacks: serde_json::Map<String, serde_json::Value> = reading
             .megapack_analogs
             .iter()
             .map(|mp| {
                 (
-                    format!("{:?}", mp.zone),
+                    mp.zone.code().to_string(),
                     json!({
                         "state_of_energy": mp.state_of_energy_percent,
                         "ac_voltage": mp.ac_voltage_v,
