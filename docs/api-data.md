@@ -221,13 +221,18 @@ const response = await fetch('/api/1/data/readings?source_ids=1,2,3&latest=10', 
 - **URL:** `/api/1/Sites/<site_id>/LatestAnalogs`
 - **Method:** `GET`
 - **Purpose:** Returns the most recent per-Megapack analog measurements for a site
-- **Authentication:** Required
+- **Authentication:** Required. Newtown staff may read any site; everyone else
+  only their own company's, matching the E-stop and schedule endpoints.
 
-Reads the single newest `charging_state` reading for the site and returns the
-analog values it carries. This is deliberately not a time series: callers poll
-it for "what is true now", and making them fetch a window in order to read its
-last point would push that cost onto every caller. Use
-`/api/1/Sites/<id>/SocHistory` when you want the series.
+Returns the analog values from the most recent `charging_state` reading that
+carries any. This is deliberately not a time series: callers poll it for "what
+is true now", and making them fetch a window in order to read its last point
+would push that cost onto every caller. Use `/api/1/Sites/<id>/SocHistory` when
+you want the series.
+
+A site can have more than one `charging_state` source — a hand-added collector,
+or demo-seeded history — and only the RTAC's readings carry analogs, so the
+newest row overall is not necessarily the one to answer from.
 
 #### Response
 
@@ -266,7 +271,8 @@ last point would push that cost onto every caller. Use
   looking alike.
 - **`timestamp` is `null`** when the site has no readings at all. Otherwise it
   is the timestamp of the reading the values came from, so a caller can judge
-  staleness rather than assume what it received is current.
+  staleness rather than assume what it received is current. A timestamp with an
+  empty `zones` means the site is reporting, but nothing is reporting analogs.
 
 #### Caveat: scaling is assumed, not specified
 

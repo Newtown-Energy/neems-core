@@ -14,7 +14,11 @@ use rocket::{Route, form::FromForm, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{orm::neems_data::db::SiteDbConn, session_guards::AuthenticatedUser};
+use crate::{
+    api::estop::can_access_site,
+    orm::{DbConn, neems_data::db::SiteDbConn},
+    session_guards::AuthenticatedUser,
+};
 
 /// Response structure for data sources list
 #[derive(Serialize, Deserialize, TS)]
@@ -797,18 +801,29 @@ pub fn parse_zone_analogs(data_json: &str) -> HashMap<String, ZoneAnalogs> {
 ///
 /// - **URL:** `/api/1/Sites/<site_id>/LatestAnalogs`
 /// - **Method:** `GET`
-/// - **Authentication:** Required
+/// - **Authentication:** Required, and the user must have access to the site
 ///
-/// Reads the single newest `charging_state` reading for the site and returns
-/// the analog values it carries. Deliberately not a time series: callers poll
-/// this for "what is true now", and making them fetch a window to read its
-/// last point would move the cost to every caller.
+/// Returns the analog values from the most recent `charging_state` reading
+/// that carries any. Deliberately not a time series: callers poll this for
+/// "what is true now", and making them fetch a window to read its last point
+/// would move the cost to every caller.
 #[get("/1/Sites/<site_id>/LatestAnalogs")]
 pub async fn get_site_latest_analogs(
     site_id: i32,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
+    db: DbConn,
     site_db: SiteDbConn,
 ) -> Result<Json<LatestAnalogsResponse>, Status> {
+    // Authentication alone would let any signed-in user read any site's packs
+    // by guessing an id. The sibling endpoints in this file check only that
+    // someone is logged in, which is tracked separately; a new endpoint should
+    // not add to that. `sites` lives in the main database, so this needs its
+    // own connection alongside the site data one, the way estop.rs does it.
+    let allowed = db.run(move |conn| can_access_site(&user, site_id, conn)).await;
+    if !allowed {
+        return Err(Status::Forbidden);
+    }
+
     site_db
         .run(move |conn| {
             use diesel::prelude::*;
@@ -824,35 +839,49 @@ pub async fn get_site_latest_analogs(
                     Status::InternalServerError
                 })?;
 
-            if source_ids.is_empty() {
+            // Newest reading from each source, not the newest across all of
+            // them. A site can carry more than one `charging_state` source —
+            // a hand-added collector, or demo-seeded history — and only the
+            // RTAC's readings carry analogs. Taking the globally newest row
+            // would let any of the others blank every gauge simply by writing
+            // more recently.
+            let mut latest_per_source = Vec::with_capacity(source_ids.len());
+            for source_id in source_ids {
+                let reading: Option<neems_data::models::Reading> = readings::table
+                    .filter(readings::source_id.eq(source_id))
+                    .order(readings::timestamp.desc())
+                    .first(conn)
+                    .optional()
+                    .map_err(|e| {
+                        eprintln!("Error loading latest reading: {:?}", e);
+                        Status::InternalServerError
+                    })?;
+                if let Some(reading) = reading {
+                    latest_per_source.push(reading);
+                }
+            }
+
+            let newest_with_analogs = latest_per_source
+                .iter()
+                .map(|r| (r, parse_zone_analogs(&r.data)))
+                .filter(|(_, zones)| !zones.is_empty())
+                .max_by_key(|(r, _)| r.timestamp);
+
+            if let Some((reading, zones)) = newest_with_analogs {
                 return Ok(Json(LatestAnalogsResponse {
                     site_id,
-                    timestamp: None,
-                    zones: HashMap::new(),
+                    timestamp: Some(reading.timestamp),
+                    zones,
                 }));
             }
 
-            let latest: Option<neems_data::models::Reading> = readings::table
-                .filter(readings::source_id.eq_any(&source_ids))
-                .order(readings::timestamp.desc())
-                .first(conn)
-                .optional()
-                .map_err(|e| {
-                    eprintln!("Error loading latest reading: {:?}", e);
-                    Status::InternalServerError
-                })?;
-
-            Ok(Json(match latest {
-                Some(reading) => LatestAnalogsResponse {
-                    site_id,
-                    timestamp: Some(reading.timestamp),
-                    zones: parse_zone_analogs(&reading.data),
-                },
-                None => LatestAnalogsResponse {
-                    site_id,
-                    timestamp: None,
-                    zones: HashMap::new(),
-                },
+            // Nothing carries analogs. Still date the answer from the newest
+            // reading we have, so "the RTAC is not reporting analogs" is
+            // distinguishable from "this site has no data at all".
+            Ok(Json(LatestAnalogsResponse {
+                site_id,
+                timestamp: latest_per_source.iter().map(|r| r.timestamp).max(),
+                zones: HashMap::new(),
             }))
         })
         .await
