@@ -10,7 +10,7 @@ use super::{
     alarm_definitions::{
         ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone, ESTOP_ALARM_NUM,
     },
-    protocol::{CommandType, OperatingMode},
+    protocol::{CommandType, MegapackAnalogs, OperatingMode},
 };
 
 /// Connection status for the Modbus TCP connection
@@ -150,6 +150,9 @@ pub struct RtacState {
     pub temperature_c: f32,
     /// Grid frequency in Hz
     pub grid_frequency_hz: f32,
+    /// Latest per-Megapack analog measurements, one entry per pack that
+    /// answered. Empty means "no analog reading", never "zero".
+    pub megapack_analogs: Vec<MegapackAnalogs>,
 }
 
 impl Default for RtacState {
@@ -166,6 +169,7 @@ impl Default for RtacState {
             current_a: 0.0,
             temperature_c: 0.0,
             grid_frequency_hz: 0.0,
+            megapack_analogs: Vec::new(),
         }
     }
 }
@@ -211,6 +215,8 @@ pub struct RtacReading {
     pub grid_frequency_hz: f32,
     /// Active alarm flags as register array
     pub alarm_registers: [u16; ALARM_REGISTER_COUNT],
+    /// Per-Megapack analog measurements; empty when the block could not be read
+    pub megapack_analogs: Vec<MegapackAnalogs>,
     /// Sequence number
     pub sequence: u64,
 }
@@ -227,6 +233,7 @@ impl From<&RtacState> for RtacReading {
             temperature_c: state.temperature_c,
             grid_frequency_hz: state.grid_frequency_hz,
             alarm_registers: state.alarms.to_registers(),
+            megapack_analogs: state.megapack_analogs.clone(),
             sequence: state.sequence,
         }
     }

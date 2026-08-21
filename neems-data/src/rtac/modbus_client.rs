@@ -16,7 +16,10 @@ use tokio_modbus::{client::tcp, prelude::*};
 use tracing::{debug, error, info, trace, warn};
 
 use super::{
-    protocol::{ParsedStatus, RegisterMap, build_command_registers},
+    protocol::{
+        MEGAPACK_ZONES, MP_ANALOG_POINT_COUNT, MegapackAnalogs, ParsedStatus, RegisterMap,
+        build_command_registers,
+    },
     state::{ConnectionStatus, PendingCommand},
 };
 
@@ -192,6 +195,70 @@ impl ModbusClient {
         self.connection_status = ConnectionStatus::Failed;
         error!("Reconnection failed after {} attempts", self.config.max_reconnect_attempts);
         Err(ModbusError::ReconnectFailed)
+    }
+
+    /// Read every Megapack's analog block.
+    ///
+    /// One Modbus read per pack rather than a single sweep of the whole
+    /// 200-391 range: 192 registers is past the 125-register ceiling on a
+    /// single holding-register read, and per-pack reads mean one unresponsive
+    /// pack costs us that pack rather than all six.
+    ///
+    /// A pack whose read fails or comes back short is omitted from the result
+    /// rather than defaulted. Callers must treat absence as "no reading",
+    /// never as zero.
+    pub async fn read_megapack_analogs(&mut self) -> Result<Vec<MegapackAnalogs>, ModbusError> {
+        let operation_timeout = self.config.operation_timeout;
+        let ctx = self.context.as_mut().ok_or(ModbusError::NotConnected)?;
+        let mut analogs = Vec::with_capacity(MEGAPACK_ZONES.len());
+
+        for (pack_index, zone) in MEGAPACK_ZONES.iter().enumerate() {
+            let start = RegisterMap::mp_analog_address(pack_index, 0);
+            trace!(
+                zone = %zone,
+                start_address = start,
+                count = MP_ANALOG_POINT_COUNT,
+                "Reading Megapack analog block"
+            );
+
+            let read_result = timeout(
+                operation_timeout,
+                ctx.read_holding_registers(start, MP_ANALOG_POINT_COUNT as u16),
+            )
+            .await;
+
+            match read_result {
+                Ok(Ok(Ok(registers))) => match MegapackAnalogs::from_registers(*zone, &registers) {
+                    Some(parsed) => analogs.push(parsed),
+                    None => warn!(
+                        zone = %zone,
+                        expected = MP_ANALOG_POINT_COUNT,
+                        got = registers.len(),
+                        "Short Megapack analog block; skipping pack"
+                    ),
+                },
+                Ok(Ok(Err(exception))) => {
+                    warn!(zone = %zone, exception = ?exception, "Modbus exception reading analogs")
+                }
+                Ok(Err(e)) => {
+                    // A transport error kills the connection for every pack, so
+                    // stop here and let the caller reconnect rather than
+                    // grinding through five more certain failures.
+                    warn!(zone = %zone, error = %e, "Failed to read Megapack analogs");
+                    self.connection_status = ConnectionStatus::Disconnected;
+                    self.context.take();
+                    return Err(ModbusError::ReadFailed(e.to_string()));
+                }
+                Err(_) => {
+                    warn!(zone = %zone, "Megapack analog read timeout");
+                    self.connection_status = ConnectionStatus::Disconnected;
+                    self.context.take();
+                    return Err(ModbusError::OperationTimeout);
+                }
+            }
+        }
+
+        Ok(analogs)
     }
 
     /// Read status registers from the RTAC

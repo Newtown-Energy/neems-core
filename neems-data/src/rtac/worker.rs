@@ -321,6 +321,7 @@ impl ModbusWorker {
 
                 // Send to storage (sampled)
                 if self.tick_count.is_multiple_of(self.config.storage_sample_rate as u64) {
+                    self.refresh_megapack_analogs().await;
                     self.send_to_storage().await;
                 }
 
@@ -510,6 +511,26 @@ impl ModbusWorker {
         if let Err(e) = self.channels.storage_tx.send(reading).await {
             warn!(error = %e, "Failed to send reading to storage");
         }
+    }
+
+    /// Refresh the per-Megapack analog block into shared state.
+    ///
+    /// Read on the storage cadence rather than every tick: six extra Modbus
+    /// round-trips at 10Hz would buy nothing, since nothing consumes these
+    /// values except stored readings.
+    ///
+    /// A failed read clears the previous values rather than keeping them. The
+    /// reading that follows carries a fresh timestamp, so holding last-known
+    /// charge levels under it would present stale numbers as current ones.
+    async fn refresh_megapack_analogs(&mut self) {
+        let analogs = match self.client.read_megapack_analogs().await {
+            Ok(analogs) => analogs,
+            Err(e) => {
+                warn!(error = %e, "Failed to read Megapack analogs");
+                Vec::new()
+            }
+        };
+        self.channels.state.write().await.megapack_analogs = analogs;
     }
 
     /// Handle reconnection after connection loss

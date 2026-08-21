@@ -7,7 +7,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::alarm_definitions::ALARM_REGISTER_COUNT;
+use super::alarm_definitions::{ALARM_REGISTER_COUNT, AlarmZone};
 
 /// Operating modes for the battery energy storage system
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +185,25 @@ impl RegisterMap {
     /// Number of registers to read for status (8 base + 22 alarm registers)
     pub const STATUS_READ_COUNT: u16 = 8 + ALARM_REGISTER_COUNT as u16;
 
+    /// First register of the per-Megapack analog block.
+    ///
+    /// Sits clear of the 0-29 status/alarm block and the 100-104 command
+    /// block, leaving room for both to grow.
+    pub const MP_ANALOG_BLOCK_START: u16 = 200;
+
+    /// Registers allocated per Megapack: [`MP_ANALOG_POINT_COUNT`] points plus
+    /// two reserved. The padding keeps each pack's block aligned to a round
+    /// stride and absorbs a point or two if the client's list grows.
+    pub const MP_ANALOG_STRIDE: u16 = 32;
+
+    /// Address of `offset` within `pack_index`'s analog block.
+    ///
+    /// `pack_index` is the position in [`MEGAPACK_ZONES`]; `offset` is the
+    /// point's position in the spreadsheet's canonical 30-point order.
+    pub const fn mp_analog_address(pack_index: usize, offset: u16) -> u16 {
+        Self::MP_ANALOG_BLOCK_START + (pack_index as u16) * Self::MP_ANALOG_STRIDE + offset
+    }
+
     // === Write Registers (Holding Registers, Function Code 6/16) ===
 
     /// Command register - write command type here
@@ -346,6 +365,82 @@ impl ParsedStatus {
     }
 }
 
+/// Megapack zones in the order their analog blocks are laid out, matching the
+/// spreadsheet's MP-1A..MP-2C row order. A pack's index here is the
+/// `pack_index` argument to [`RegisterMap::mp_analog_address`].
+pub const MEGAPACK_ZONES: [AlarmZone; 6] = [
+    AlarmZone::Mp1a,
+    AlarmZone::Mp1b,
+    AlarmZone::Mp1c,
+    AlarmZone::Mp2a,
+    AlarmZone::Mp2b,
+    AlarmZone::Mp2c,
+];
+
+/// Analog measurements the spreadsheet defines per Megapack — 30 rows per pack
+/// on the `Analogs` sheet (601-630 for MP-1A through 751-780 for MP-2C).
+pub const MP_ANALOG_POINT_COUNT: usize = 30;
+
+/// Offsets within a pack's analog block, from the spreadsheet's canonical
+/// point order (`megapack_analog_template` in
+/// `docs/alarms/newtown-alarms.json`).
+///
+/// Only the points the SLD renders are named. The other 27 offsets are
+/// addressed but left raw: the spreadsheet gives them no units or scaling, and
+/// inventing an encoding we would have to unpick later is worse than carrying
+/// the register value through untouched.
+pub mod mp_analog_offset {
+    /// Charge level as a percentage — the vendor's term for state of charge.
+    /// The spreadsheet marks this point as driving the SLD's "MP gas gauge".
+    pub const STATE_OF_ENERGY: u16 = 4;
+    /// AC terminal voltage.
+    pub const AC_VOLTAGE: u16 = 10;
+    /// Hottest measured battery temperature in the pack.
+    pub const MAX_BATTERY_TEMPERATURE: u16 = 18;
+}
+
+/// Parsed analog measurements for a single Megapack.
+///
+/// The three named fields are the ones the SLD renders. `raw_registers` keeps
+/// the pack's whole block so the remaining points can be given meanings later
+/// without another round of Modbus work.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MegapackAnalogs {
+    pub zone: AlarmZone,
+    /// Charge level, 0.0-100.0%.
+    pub state_of_energy_percent: f32,
+    pub ac_voltage_v: f32,
+    pub max_battery_temperature_c: f32,
+    pub raw_registers: [u16; MP_ANALOG_POINT_COUNT],
+}
+
+impl MegapackAnalogs {
+    /// Parse one pack's block. `registers` must be the pack's
+    /// [`MP_ANALOG_POINT_COUNT`] registers, starting at its block base.
+    ///
+    /// Returns `None` on a short slice rather than padding with zeros — a
+    /// zero here would read as "0% charge", which is a claim we have no
+    /// grounds to make.
+    pub fn from_registers(zone: AlarmZone, registers: &[u16]) -> Option<Self> {
+        if registers.len() < MP_ANALOG_POINT_COUNT {
+            return None;
+        }
+        let at = |offset: u16| registers[offset as usize];
+        let mut raw_registers = [0u16; MP_ANALOG_POINT_COUNT];
+        raw_registers.copy_from_slice(&registers[..MP_ANALOG_POINT_COUNT]);
+
+        Some(Self {
+            zone,
+            state_of_energy_percent: parse_soc(at(mp_analog_offset::STATE_OF_ENERGY)),
+            ac_voltage_v: parse_voltage(at(mp_analog_offset::AC_VOLTAGE)),
+            max_battery_temperature_c: parse_temperature(at(
+                mp_analog_offset::MAX_BATTERY_TEMPERATURE,
+            )),
+            raw_registers,
+        })
+    }
+}
+
 /// Build command register values for a write operation
 ///
 /// Values are validated and clamped to safe ranges:
@@ -385,6 +480,62 @@ pub fn build_command_registers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn megapack_analog_blocks_are_disjoint_and_clear_of_other_blocks() {
+        let mut seen = std::collections::HashSet::new();
+        for pack_index in 0..MEGAPACK_ZONES.len() {
+            for offset in 0..MP_ANALOG_POINT_COUNT as u16 {
+                let addr = RegisterMap::mp_analog_address(pack_index, offset);
+                assert!(
+                    addr >= RegisterMap::MP_ANALOG_BLOCK_START,
+                    "address {} fell below the block start",
+                    addr
+                );
+                // Must not collide with the status/alarm block or the command
+                // block, or a charge reading would alias a live register.
+                assert!(addr >= RegisterMap::STATUS_READ_COUNT);
+                assert!(
+                    !(RegisterMap::CMD_START_ADDRESS
+                        ..RegisterMap::CMD_START_ADDRESS + RegisterMap::CMD_WRITE_COUNT)
+                        .contains(&addr),
+                    "address {} collides with the command block",
+                    addr
+                );
+                assert!(seen.insert(addr), "address {} allocated twice", addr);
+            }
+        }
+    }
+
+    #[test]
+    fn megapack_analog_address_is_stride_spaced() {
+        assert_eq!(RegisterMap::mp_analog_address(0, 0), 200);
+        assert_eq!(RegisterMap::mp_analog_address(0, 29), 229);
+        assert_eq!(RegisterMap::mp_analog_address(1, 0), 232);
+        assert_eq!(RegisterMap::mp_analog_address(5, 29), 389);
+    }
+
+    #[test]
+    fn megapack_analogs_parse_the_rendered_points() {
+        let mut regs = [0u16; MP_ANALOG_POINT_COUNT];
+        regs[mp_analog_offset::STATE_OF_ENERGY as usize] = soc_to_register(82.5);
+        regs[mp_analog_offset::AC_VOLTAGE as usize] = voltage_to_register(479.6);
+        regs[mp_analog_offset::MAX_BATTERY_TEMPERATURE as usize] = temperature_to_register(27.4);
+
+        let parsed = MegapackAnalogs::from_registers(AlarmZone::Mp1a, &regs).unwrap();
+        assert_eq!(parsed.zone, AlarmZone::Mp1a);
+        assert_eq!(parsed.state_of_energy_percent, 82.5);
+        assert_eq!(parsed.ac_voltage_v, 479.6);
+        assert_eq!(parsed.max_battery_temperature_c, 27.4);
+        assert_eq!(parsed.raw_registers, regs);
+    }
+
+    #[test]
+    fn megapack_analogs_reject_a_short_block() {
+        // Padding a short read with zeros would surface as "0% charge".
+        let regs = [0u16; MP_ANALOG_POINT_COUNT - 1];
+        assert!(MegapackAnalogs::from_registers(AlarmZone::Mp1a, &regs).is_none());
+    }
 
     #[test]
     fn test_operating_mode_roundtrip() {
