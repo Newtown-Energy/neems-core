@@ -5,7 +5,24 @@
 //! zone, name, severity level, and a specific bit position within the Modbus
 //! alarm registers.
 //!
-//! ## Register Layout
+//! ## Addressing: two different things, both called an address
+//!
+//! **The client's address** is the alarm number itself. Each digital point
+//! lives at that address in the Modbus *discrete-input* space, reached with
+//! [`AlarmDefinition::discrete_address`]. Analog points use the same numbers
+//! in the *register* space (601 is a digital MP-1A status bit and an analog
+//! MP-1A measurement); the two never collide, because Modbus addresses bits
+//! and registers separately.
+//!
+//! **The packed-register layout below** is ours, not the client's. It predates
+//! knowing how the RTAC addresses these points, and is what the simulator
+//! serves and what [`AlarmDefinition::register_index`] and
+//! [`AlarmDefinition::bit`] describe. Analog points have already moved onto
+//! the client's numbering; the digital read path still uses this block, and
+//! moving it over is a separate change that touches the E-stop and alarm
+//! paths.
+//!
+//! ## Register Layout (simulator-side packed block)
 //!
 //! Alarm registers are read as a contiguous block of 22 holding registers
 //! starting at address 8 (immediately after the 8 status registers). Each
@@ -14,7 +31,7 @@
 //! | Register | Address | Zone                | Alarm Numbers |
 //! |----------|---------|---------------------|---------------|
 //! | 0        | 8       | Site (Newtown)      | 1–7           |
-//! | 1–2      | 9–10    | Breaker Relay       | 101–126       |
+//! | 1–2      | 9–10    | Breaker Relay       | 101–127       |
 //! | 3        | 11      | Meter               | 201–203       |
 //! | 4        | 12      | Transformer 1       | 301–310       |
 //! | 5        | 13      | Transformer 2       | 311–320       |
@@ -197,6 +214,30 @@ impl AlarmDefinition {
     pub fn qualified_name(&self) -> String {
         format!("{}/{}", self.zone, self.name)
     }
+
+    /// The alarm's Modbus discrete-input address on the RTAC.
+    ///
+    /// The client's alarm number *is* the address. It shares its number with
+    /// an analog point of the same zone — digital 601 is MP-1A
+    /// `megapack_loss_of_comms`, analog 601 is MP-1A `real_power_target` —
+    /// and the two do not collide because Modbus addresses bits and registers
+    /// in separate spaces.
+    ///
+    /// Deliberately a method over `alarm_num` rather than a field: storing the
+    /// address alongside the number it is equal to would give the pair room to
+    /// disagree, and a definition whose address had drifted from its number
+    /// would read a neighbouring point while looking correct in every listing.
+    ///
+    /// Note this is *not* the address [`register_index`]/[`bit`] describe.
+    /// Those two locate the alarm within the packed holding-register block the
+    /// simulator serves, which is our own framing and predates knowing the
+    /// client's addressing; see the module docs.
+    ///
+    /// [`register_index`]: AlarmDefinition::register_index
+    /// [`bit`]: AlarmDefinition::bit
+    pub const fn discrete_address(&self) -> u16 {
+        super::protocol::RegisterMap::point_address(self.alarm_num)
+    }
 }
 
 /// Compact alarm definition constructor
@@ -304,9 +345,9 @@ pub const ALARM_DEFINITIONS: &[AlarmDefinition] = &[
     alarm!(6, Site, "scada_cabinet_door_open", 5, 0, 5),
     alarm!(7, Site, "intruder_detected", 5, 0, 6),
     // =========================================================================
-    // Breaker Relay SEL-451 (registers 1–2, alarms 101–126)
+    // Breaker Relay SEL-451 (registers 1–2, alarms 101–127)
     // Register 1: alarms 101–116 (bits 0–15)
-    // Register 2: alarms 117–126 (bits 0–9)
+    // Register 2: alarms 117–127 (bits 0–10)
     // =========================================================================
     alarm!(101, BreakerRelay, "bps_89l1_open", 4, 1, 0),
     alarm!(102, BreakerRelay, "bps_89l2_open", 5, 1, 1),
@@ -334,6 +375,11 @@ pub const ALARM_DEFINITIONS: &[AlarmDefinition] = &[
     alarm!(124, BreakerRelay, "ansi_psv02t", 5, 2, 7),
     alarm!(125, BreakerRelay, "ansi_psv03t", 5, 2, 8),
     alarm!(126, BreakerRelay, "ansi_psv04t", 5, 2, 9),
+    // Added to the client's workbook 2026-08-14, below the reserved block and
+    // mis-numbered 126; the spec generator renumbers it to 127, the next free
+    // number in the breaker block. Severity signals are identical to
+    // PSV01-04T, so it takes their level.
+    alarm!(127, BreakerRelay, "ansi_psv05t", 5, 2, 10),
     // =========================================================================
     // Meter 1 SEL-735 (register 3, alarms 201–203)
     // =========================================================================
@@ -709,6 +755,57 @@ mod tests {
                 def.bit,
             );
         }
+    }
+
+    #[test]
+    fn discrete_address_is_the_alarm_number() {
+        // The client's addressing, pinned end to end: a few spelled-out
+        // numbers plus the invariant over the whole table.
+        let by_num = |n: u16| find_by_alarm_num(n).expect("alarm exists").discrete_address();
+        assert_eq!(by_num(1), 1); // site loss_fiber
+        assert_eq!(by_num(ESTOP_ALARM_NUM), 104);
+        assert_eq!(by_num(FIRE_ALARM_NUM), 401);
+        assert_eq!(by_num(601), 601); // MP-1A megapack_loss_of_comms
+        assert_eq!(by_num(780), 780); // MP-2C, last digital
+
+        for def in ALARM_DEFINITIONS {
+            assert_eq!(
+                def.discrete_address(),
+                def.alarm_num,
+                "{} address drifted from its alarm number",
+                def.qualified_name()
+            );
+        }
+    }
+
+    #[test]
+    fn discrete_addresses_are_unique_across_every_zone() {
+        // Uniqueness of alarm_num is already covered; this asserts the
+        // property that actually matters on the wire, so that if
+        // POINT_NUMBER_BASE ever becomes a non-injective mapping the failure
+        // lands here rather than on two zones silently sharing a bit.
+        let mut seen = std::collections::HashSet::new();
+        for def in ALARM_DEFINITIONS {
+            assert!(
+                seen.insert(def.discrete_address()),
+                "discrete address {} assigned twice ({})",
+                def.discrete_address(),
+                def.qualified_name()
+            );
+        }
+    }
+
+    #[test]
+    fn digital_and_analog_share_numbers_without_colliding() {
+        use crate::rtac::protocol::RegisterMap;
+
+        // The concrete case that makes the two address spaces necessary:
+        // MP-1A's loss-of-comms bit and its real_power_target measurement are
+        // both point 601. Equal numbers, different spaces, no collision.
+        let digital = find_by_alarm_num(601).expect("MP-1A digital 601");
+        assert_eq!(digital.zone, AlarmZone::Mp1a);
+        assert_eq!(digital.name, "megapack_loss_of_comms");
+        assert_eq!(digital.discrete_address(), RegisterMap::mp_analog_address(0, 0));
     }
 
     #[test]

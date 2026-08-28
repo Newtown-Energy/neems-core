@@ -10,13 +10,24 @@ alarms and data points across all three components:
 > notes beyond what this generator extracts — may carry site-specific detail we
 > don't want to publish, and this repo is public.
 >
-> **The derived JSON is _not_ anonymized.** Alarm and equipment names (Tesla
-> Megapack, SEL relays, etc.) are copied verbatim from the spreadsheet — the
-> same names already used in `neems-data/src/rtac/alarm_definitions.rs`. The
-> generator does no redaction of its own. If a particular name must stay
-> private, remove it in the source spreadsheet before regenerating; that keeps
-> the private string out of this (public) repo entirely, including out of the
-> generator code.
+> **The derived JSON is only redacted to the extent you tell it to be.** Alarm
+> and equipment names (Tesla Megapack, SEL relays, etc.) are copied verbatim
+> from the spreadsheet — the same names already used in
+> `neems-data/src/rtac/alarm_definitions.rs`. Anything that must stay private
+> goes in **`alarm-redactions.tsv`**, a tab-separated `find<TAB>replace` file
+> kept beside the workbook, **outside the repo** (override the path with
+> `ALARM_REDACTIONS`). The generator applies it as cells are read, so slugs,
+> templates and token tables are all clean by construction. A blank replacement
+> deletes the text.
+>
+> The strings live outside the repo because they are exactly what must not be
+> published — listing them in the generator would defeat the point. **If the
+> file is missing, the generator says so and emits the workbook verbatim**;
+> that line is the one to watch for on every regeneration. The workbook is a
+> living document and the client can add a vendor or site name to any cell at
+> any time — this happened on 2026-08-14 and was caught only by reading the
+> diff, which is not a control. Sweep with
+> `grep -rinE '<vendor>|<site>' .` before committing regardless.
 
 - **neems-core** (Rust backend) — `neems-data/src/rtac/alarm_definitions.rs`,
   `neems-data/src/rtac/protocol.rs`
@@ -30,7 +41,9 @@ alarms and data points across all three components:
 | `newtown-alarms.json` | The generated spec (do not hand-edit; regenerate instead). |
 | `build_alarm_spec.py` | Spreadsheet → JSON generator (needs `openpyxl`). See "How to regenerate" below. |
 | `build_alarm_meta_rs.py` | JSON → Rust generator for `neems-data/src/rtac/alarm_sld_meta.rs`. |
+| `build_analog_points_rs.py` | JSON → Rust generator for `neems-data/src/rtac/analog_points.rs` (the analog register map). |
 | _(source `.xlsx`)_ | The client spreadsheet — kept **outside** the repo, never committed. |
+| _(`alarm-redactions.tsv`)_ | Private strings to scrub, `find<TAB>replace` per line — kept **outside** the repo beside the workbook. |
 
 Regenerating is deterministic — same spreadsheet in, same JSON out (no
 timestamps/randomness), so the file diffs cleanly when the client sends a new
@@ -48,11 +61,33 @@ analog_points[]           – one entry per Analogs row (measurements)
 data_quality_issues[]     – detected spreadsheet anomalies, see below
 ```
 
-### Key convention: `alarm_num` is namespaced by category
+### Key convention: `alarm_num` is the point's Modbus address
 
-`alarm_num` is unique **within** a category but **not** across them. `601` is
-both a digital MP-1A status bit (`megapack_loss_of_comms`) **and** an analog
-MP-1A measurement (`real_power_target`). Always key by **(category, alarm_num)**.
+The client's alarm number **is** the point's Modbus address on the RTAC:
+
+| Category | Modbus space | Read with | Address |
+|----------|--------------|-----------|---------|
+| analog   | registers    | FC 3 / 4  | `alarm_num` |
+| digital  | discrete inputs | FC 2   | `alarm_num` |
+
+`alarm_num` is therefore unique **within** a category but **not** across them —
+`601` is both a digital MP-1A status bit (`megapack_loss_of_comms`) and an
+analog MP-1A measurement (`real_power_target`). Always key by **(category,
+alarm_num)**. The two never collide on the wire, because Modbus addresses bits
+and registers in separate spaces.
+
+Two assumptions sit behind this, both isolated to one place in the backend so
+they are cheap to correct:
+
+- **Numbering base.** We read the spreadsheet numbers literally — 601 is wire
+  address 601 — rather than treating them as 1-based point numbers. Held in
+  `RegisterMap::POINT_NUMBER_BASE`. If readings come back one point out, that
+  is the line to change.
+- **Which register table.** Analogs are read as holding registers (FC 3) for
+  now; input registers (FC 4) would be the more literal fit for read-only
+  measurements. Nothing else depends on the choice — the backend's own command
+  registers were moved to 1000-1004 so they clear the client's whole 101-102 /
+  601-780 range either way.
 
 ### Key convention: source vs. derived fields
 
@@ -95,7 +130,8 @@ MP-1A measurement (`real_power_target`). Always key by **(category, alarm_num)**
     "is_fire": false,
     "availability_impact": "site_offline"
   },
-  "modbus": {                                // _derived from the register layout
+  "modbus": {
+    "discrete_address": 3,                   // the client's address: == alarm_num
     "register_index": 0,                     // 0-based within the 22-register alarm block
     "register_address": 8,                   // holding-register address = 8 + register_index
     "bit": 2                                 // bit position 0-15
@@ -103,8 +139,16 @@ MP-1A measurement (`real_power_target`). Always key by **(category, alarm_num)**
 }
 ```
 
-`modbus` is `null` when the alarm number falls outside its zone's register
-allocation (only a few stray trailing reserved numbers do — see issues).
+`discrete_address` is the **client's** addressing — the alarm number itself, in
+the discrete-input space. The other three describe something different: the
+packed 22-register holding block the backend and simulator currently use, which
+is **our own framing** and predates knowing how the RTAC addresses these points.
+The analog side has moved onto the client's numbering; the digital read path has
+not yet, because that touches the E-stop and alarm paths.
+
+`register_index`/`register_address`/`bit` are `null` when the alarm number falls
+outside its zone's register allocation (only a few stray trailing reserved
+numbers do — see issues). `discrete_address` is always present.
 
 ## `analog_points[]` entry
 
@@ -125,15 +169,26 @@ allocation (only a few stray trailing reserved numbers do — see issues).
   "threshold": { "value": 60, "unit": "C" },   // _derived parse
   "mouseover": null,
   "is_fire": true,
-  "alarm_levels": null                   // spreadsheet "Alarm Levels" col (unused so far)
+  "alarm_levels": null,                  // spreadsheet "Alarm Levels" col (unused so far)
+  "modbus": { "register_address": 619 }  // == alarm_num
 }
 ```
 
-> **Note:** Analog points have **no Modbus register assignment** in the
-> spreadsheet. The 30-per-MP measurement block maps to the Tesla analog input
-> registers, but the numbering is TBD and must be sourced separately before the
-> simulation can emit analogs. `megapack_analog_template[].offset` (0–29)
-> preserves the spreadsheet order as the only ordering hint we have.
+The address needs no computing: point 619 is register 619. Each Megapack owns a
+contiguous 30-register block (MP-1A 601–630 … MP-2C 751–780), and
+`megapack_analog_template[].offset` (0–29) is the position within one — so
+`max_battery_temperature` at offset 18 is point 601 + 18 = 619 on MP-1A. The
+only analogs outside a pack block are the two transformer winding temperatures
+at 101 and 102.
+
+> **Units and scaling are still unknown.** The spreadsheet gives neither for
+> any analog row. The backend decodes only the three points the SLD renders
+> (`state_of_energy`, `ac_voltage`, `max_battery_temperature`), using the
+> encoding the site-level status registers already use — an assumption, not a
+> specification, documented at `MegapackAnalogs` in `protocol.rs`. Every other
+> point is carried through as a raw register value rather than given an
+> invented encoding. A right address with a wrong scale reports 8.25% where the
+> pack means 82.5%, silently and plausibly.
 
 ## `reference` section
 
@@ -187,10 +242,37 @@ eye during implementation):
 
 ## How to regenerate
 
-The data flows in two steps — **run both** after the client sends a new
-workbook: spreadsheet → `newtown-alarms.json` → the generated Rust table
-(`neems-data/src/rtac/alarm_sld_meta.rs`). Updating only the JSON leaves the API
-serving stale messages/targets.
+The data flows in two steps — **run all three** after the client sends a new
+workbook: spreadsheet → `newtown-alarms.json` → the generated Rust tables
+(`neems-data/src/rtac/alarm_sld_meta.rs` and `analog_points.rs`). Updating only
+the JSON leaves the API serving stale messages/targets and the analog register
+map pointing at the old addresses.
+
+**Read `data_quality_issues[]` before committing a regeneration.** It flags
+duplicate point numbers, which — since the point number became the Modbus
+address — mean an ambiguous address rather than a bookkeeping slip. Check the
+diff for new vendor or site names too, and confirm the run reported applying
+redactions rather than "no redactions file found" (see the note at the top).
+
+### Corrections applied to the workbook as read
+
+The client's workbook carries mistakes we fix in `build_alarm_spec.py` rather
+than by editing their file, so a regeneration cannot silently undo them:
+
+- **`DIGITAL_RENUMBER`** — rows numbered wrongly at source. Currently one:
+  `ANSI function PSV05T`, appended below the reserved block on 2026-08-14 and
+  numbered 126, which `PSV04T` already holds. Renumbered to 127, the next free
+  number in the breaker block. Keyed by *(number as written, name as written)*
+  so the correction stops applying the moment the client fixes it upstream — a
+  stale entry quietly rewriting a good row is the failure worth guarding
+  against.
+- **Reserved-placeholder consumption** — a named alarm landing on a reserved
+  number takes over the blank placeholder there, rather than both surviving and
+  re-raising the duplicate. This is why the breaker block is now `101–127`
+  named and `128–135` reserved.
+
+Raise these with the client so they can be fixed at source and the entries
+retired.
 
 ```bash
 # 1. Spreadsheet -> JSON. openpyxl required (pip install openpyxl). The source
@@ -202,8 +284,15 @@ ALARM_XLSX=/path/to/source.xlsx python3 neems-core/docs/alarms/build_alarm_spec.
 # 2. JSON -> Rust. Regenerates alarm_sld_meta.rs in place, already formatted to
 #    the workspace rustfmt.toml (no `cargo fmt` step needed; same in, same out).
 python3 neems-core/docs/alarms/build_alarm_meta_rs.py
+
+# 3. JSON -> Rust. Regenerates analog_points.rs — the analog register map.
+python3 neems-core/docs/alarms/build_analog_points_rs.py
 ```
 
 The `test_every_definition_has_sld_meta` unit test fails if any
 `ALARM_DEFINITIONS` entry loses its metadata after a regeneration, so CI catches
-drift between the hand-curated Rust definitions and the spec.
+drift between the hand-curated Rust definitions and the spec. On the analog
+side, `the_generated_registry_agrees_with_the_address_map` and
+`the_named_offsets_point_at_the_measurements_they_claim` (in `protocol.rs`)
+catch a regeneration that moves a point out from under the hand-written
+`mp_analog_offset` constants.

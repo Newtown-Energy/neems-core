@@ -120,6 +120,70 @@ DIGITAL_BLOCKS = [
 ]
 
 
+# Corrections applied to the spreadsheet as read. Each entry is a mistake the
+# client's workbook carries that we fix on the way through, rather than editing
+# their file. Keyed by (number as written, name as written) so a correction
+# stops applying the moment the client fixes it upstream — a stale entry here
+# silently rewriting a good row is the failure mode worth guarding against.
+#
+# Not the place for anything private: this file is committed to a public repo.
+# Name redaction goes through the untracked redactions file instead (see
+# load_redactions).
+DIGITAL_RENUMBER = {
+    # Appended below the reserved block on 8/14/2026 and numbered 126, which
+    # ANSI function PSV04T already holds. 127 is the next number in the breaker
+    # block, and consumes the blank reserved placeholder sitting there.
+    (126, "ANSI function PSV05T"): 127,
+}
+
+
+def load_redactions():
+    """Load literal find/replace pairs applied to every string in the output.
+
+    Read from a tab-separated file kept OUTSIDE the repo, because the strings
+    themselves are what must not be published — putting them in this file would
+    defeat the point. Defaults to `alarm-redactions.tsv` beside the workbook;
+    override with ALARM_REDACTIONS. Missing file means no redactions.
+
+    This exists because the workbook is a living document: the client can add a
+    vendor or site name to any cell at any time, and without this a routine
+    regeneration commits it to a public repo. That happened on 8/28/2026 and
+    was caught by eye, which is not a control.
+    """
+    path = os.environ.get("ALARM_REDACTIONS")
+    if path:
+        path = Path(path)
+    elif XLSX is not None:
+        path = XLSX.parent / "alarm-redactions.tsv"
+    else:
+        return []
+    if not path.exists():
+        return []
+    pairs = []
+    for line in path.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        find, _, replace = line.partition("\t")
+        if find:
+            pairs.append((find, replace))
+    return pairs
+
+
+def redact(obj, pairs):
+    """Apply `pairs` to every string anywhere in a nested structure."""
+    if not pairs:
+        return obj
+    if isinstance(obj, str):
+        for find, replace in pairs:
+            obj = obj.replace(find, replace)
+        return obj
+    if isinstance(obj, dict):
+        return {k: redact(v, pairs) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [redact(v, pairs) for v in obj]
+    return obj
+
+
 def infer_digital_zone(alarm_num):
     """Infer the canonical zone for a digital alarm number from its numbering
     block. Used to backfill the zone for blank-zone "reserved" rows whose
@@ -150,12 +214,24 @@ def digital_modbus(zone_code, alarm_num):
                 f"for zone {zone_code}; no Modbus bit assigned"
             )
         return {
+            "discrete_address": alarm_num,
             "register_index": reg,
             "register_address": ALARM_REGISTER_BASE_ADDRESS + reg,
             "bit": bit,
             "_derived": True,
         }, None
     return None, None
+
+
+def analog_modbus(alarm_num):
+    """Return the Modbus mapping for an analog point.
+
+    The client's point number is the register address, so unlike the digital
+    packed-block mapping there is nothing to compute and nothing that can fall
+    outside an allocation. Emitted anyway so both categories carry a `modbus`
+    key and a consumer can read the address without knowing the convention.
+    """
+    return {"register_address": alarm_num, "_derived": True}
 
 
 # --------------------------------------------------------------------------- #
@@ -276,17 +352,32 @@ def norm_avail(v):
 # Row -> entry
 # --------------------------------------------------------------------------- #
 
-def rows(ws):
+def rows(ws, redactions=()):
+    """Yield each row's cell values, with `redactions` applied to strings.
+
+    Redacting here rather than over the finished JSON is deliberate: names get
+    slugified, copied into templates and collected into token tables on the way
+    through, and a literal find/replace over the output cannot see through
+    `snake()`. Cleaning the input means every derived form is clean by
+    construction — `suggested_code_name` included, which a post-hoc pass
+    silently missed.
+    """
     for r in range(1, ws.max_row + 1):
-        yield [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+        yield [redact(ws.cell(r, c).value, redactions) for c in range(1, ws.max_column + 1)]
 
 
 def build_digital(row):
     num = row[0]
     if not isinstance(num, int):
-        return None
+        # Some rows carry the number as text; take those too, so a
+        # text-formatted cell does not silently drop an alarm.
+        try:
+            num = int(str(num).strip())
+        except (TypeError, ValueError):
+            return None
     zone_raw = clean(row[1])
     name = clean(row[2])
+    num = DIGITAL_RENUMBER.get((num, name), num)
     pt = row[3] if isinstance(row[3], int) else None
     sld_obj_raw = clean(row[4])
     sld_change_raw = clean(row[5])
@@ -380,6 +471,7 @@ def build_analog(row):
         "mouseover": mouseover,
         "is_fire": is_fire,
         "alarm_levels": alarm_levels,
+        "modbus": analog_modbus(num),
     }
     return entry
 
@@ -396,9 +488,15 @@ def main():
         )
     wb = openpyxl.load_workbook(XLSX, data_only=True)
 
+    redactions = load_redactions()
+    if redactions:
+        print(f"  applying {len(redactions)} redaction(s) as cells are read")
+    else:
+        print("  no redactions file found — output is verbatim from the workbook")
+
     digital_alarms = []
     dq_issues = []
-    for row in rows(wb["Digitals"]):
+    for row in rows(wb["Digitals"], redactions):
         built = build_digital(row)
         if not built:
             continue
@@ -413,7 +511,7 @@ def main():
             })
 
     analog_points = []
-    for row in rows(wb["Analogs"]):
+    for row in rows(wb["Analogs"], redactions):
         entry = build_analog(row)
         if not entry:
             continue
@@ -478,6 +576,38 @@ def main():
                     ),
                 })
 
+    # A named alarm that moved onto a reserved number consumes the blank
+    # placeholder sitting there. Done generally rather than as another
+    # hand-listed correction: "a real alarm outranks an unnamed placeholder at
+    # the same address" is the rule, and leaving both would just re-raise the
+    # duplicate the renumber was meant to resolve.
+    named_nums = {e["alarm_num"] for e in digital_alarms if not e["reserved"]}
+    consumed = [e for e in digital_alarms if e["reserved"] and e["alarm_num"] in named_nums]
+    for e in consumed:
+        digital_alarms.remove(e)
+        print(f"  consumed reserved placeholder {e['alarm_num']} (now a named alarm)")
+
+    # Duplicate point numbers, per category. Now that a point number IS the
+    # point's Modbus address, two rows sharing one is not a cosmetic
+    # bookkeeping slip: it makes the address ambiguous, and whichever row the
+    # generator happens to emit second silently wins. Worth flagging loudly
+    # rather than letting a downstream table pick for us.
+    for category, entries in (("digital", digital_alarms), ("analog", analog_points)):
+        seen = {}
+        for e in entries:
+            seen.setdefault(e["alarm_num"], []).append(e["name"])
+        for num, names in sorted(seen.items()):
+            if len(names) > 1:
+                dq_issues.append({
+                    "alarm_num": num, "category": category,
+                    "issue": (
+                        f"{len(names)} {category} rows share point number {num} "
+                        f"({', '.join(repr(n) for n in names)}); the point number is the "
+                        "Modbus address, so this makes it ambiguous — resolve with the "
+                        "client before generating definitions"
+                    ),
+                })
+
     # Megapack templates (canonical 30-point patterns; MP-1A is the clean copy).
     mp_digital_template = [
         {"offset": e["pt_number"] - 1 if e["pt_number"] else None,
@@ -512,7 +642,9 @@ def main():
                 "alarm_num_namespacing": (
                     "alarm_num is unique WITHIN a category but NOT across categories: "
                     "e.g. 601 is a digital MP-1A status bit AND an analog MP-1A "
-                    "measurement. Always key by (category, alarm_num)."
+                    "measurement. Always key by (category, alarm_num). The two never "
+                    "collide on the wire because alarm_num is the point's Modbus "
+                    "address and Modbus addresses bits and registers separately."
                 ),
                 "derived_fields": (
                     "Any object containing \"_derived\": true was computed here, not "
@@ -520,10 +652,14 @@ def main():
                     "severity_signals, threshold). Raw spreadsheet values use *_raw keys."
                 ),
                 "modbus": (
-                    "Digital alarms are packed into 22 contiguous 16-bit holding "
-                    "registers starting at address 8. register_index is 0-based within "
-                    "that block; register_address = 8 + register_index. Analog points "
-                    "have no register assignment in the spreadsheet (TBD)."
+                    "alarm_num IS the point's Modbus address on the RTAC. Analog "
+                    "points are registers at that address (modbus.register_address); "
+                    "digital alarms are discrete inputs at that address "
+                    "(modbus.discrete_address). register_index/register_address/bit on "
+                    "a digital alarm describe something else entirely: the packed "
+                    "22-register holding block the simulator serves, which is the "
+                    "backend's own framing and predates knowing the client's "
+                    "addressing."
                 ),
                 "severity": (
                     "The spreadsheet encodes severity indirectly via SLD color "

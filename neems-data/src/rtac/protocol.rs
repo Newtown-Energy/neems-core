@@ -185,45 +185,65 @@ impl RegisterMap {
     /// Number of registers to read for status (8 base + 22 alarm registers)
     pub const STATUS_READ_COUNT: u16 = 8 + ALARM_REGISTER_COUNT as u16;
 
-    /// First register of the per-Megapack analog block.
+    /// How the client's point numbers relate to Modbus wire addresses.
     ///
-    /// Sits clear of the 0-29 status/alarm block and the 100-104 command
-    /// block, leaving room for both to grow.
-    pub const MP_ANALOG_BLOCK_START: u16 = 200;
+    /// The spreadsheet's "alarm number" *is* the point's Modbus address. The
+    /// two categories do not collide despite sharing numbers — analog 601 is
+    /// MP-1A `real_power_target`, digital 601 is MP-1A
+    /// `megapack_loss_of_comms` — because Modbus gives bits and registers
+    /// separate address spaces (see
+    /// [`super::analog_points::ANALOG_POINTS`] and
+    /// [`super::alarm_definitions::AlarmDefinition::discrete_address`]).
+    ///
+    /// This constant exists because vendor point lists are as often 1-based as
+    /// 0-based and the spreadsheet does not say which it is. We take the
+    /// numbers literally — base 0 — because that is what the client told us.
+    /// If readings come back one point out (a `frequency` where
+    /// `state_of_energy` was asked for), this is the single line to change;
+    /// nothing else encodes the assumption.
+    pub const POINT_NUMBER_BASE: u16 = 0;
 
-    /// Registers allocated per Megapack: [`MP_ANALOG_POINT_COUNT`] points plus
-    /// two reserved. The padding keeps each pack's block aligned to a round
-    /// stride and absorbs a point or two if the client's list grows.
-    pub const MP_ANALOG_STRIDE: u16 = 32;
+    /// Wire address of the point the spreadsheet numbers `point_number`.
+    pub const fn point_address(point_number: u16) -> u16 {
+        point_number - Self::POINT_NUMBER_BASE
+    }
 
     /// Address of `offset` within `pack_index`'s analog block.
     ///
     /// `pack_index` is the position in [`MEGAPACK_ZONES`]; `offset` is the
     /// point's position in the spreadsheet's canonical 30-point order.
     pub const fn mp_analog_address(pack_index: usize, offset: u16) -> u16 {
-        Self::MP_ANALOG_BLOCK_START + (pack_index as u16) * Self::MP_ANALOG_STRIDE + offset
+        Self::point_address(MEGAPACK_ANALOG_BASE_POINT[pack_index] + offset)
     }
 
     // === Write Registers (Holding Registers, Function Code 6/16) ===
 
+    // These five are ours, not the client's: nothing in the spreadsheet
+    // allocates command registers. They used to sit at 100-104, which
+    // collided head-on with the transformer winding temperatures at analog
+    // points 101 and 102 once point numbers became addresses. Moved to 1000
+    // to clear the whole client-defined range (101-102 and 601-780) with room
+    // to spare, so the map stays correct whether the analogs turn out to be
+    // holding registers or input registers.
+
     /// Command register - write command type here
-    pub const CMD_COMMAND: u16 = 100;
+    pub const CMD_COMMAND: u16 = 1000;
 
     /// Target SOC percentage for charge commands (0-10000 = 0.00-100.00%)
-    pub const CMD_TARGET_SOC: u16 = 101;
+    pub const CMD_TARGET_SOC: u16 = 1001;
 
     /// Command duration in seconds (0 = indefinite)
-    pub const CMD_DURATION_HIGH: u16 = 102;
-    pub const CMD_DURATION_LOW: u16 = 103;
+    pub const CMD_DURATION_HIGH: u16 = 1002;
+    pub const CMD_DURATION_LOW: u16 = 1003;
 
     /// Ramp duration in seconds
-    pub const CMD_RAMP_DURATION: u16 = 104;
+    pub const CMD_RAMP_DURATION: u16 = 1004;
 
     /// Number of registers to write for a command
     pub const CMD_WRITE_COUNT: u16 = 5;
 
     /// Starting address for command writes
-    pub const CMD_START_ADDRESS: u16 = 100;
+    pub const CMD_START_ADDRESS: u16 = 1000;
 }
 
 /// Parse a signed 32-bit integer from two consecutive 16-bit registers
@@ -381,6 +401,28 @@ pub const MEGAPACK_ZONES: [AlarmZone; 6] = [
 /// on the `Analogs` sheet (601-630 for MP-1A through 751-780 for MP-2C).
 pub const MP_ANALOG_POINT_COUNT: usize = 30;
 
+/// The `Analogs` sheet's point number for each Megapack's first measurement,
+/// in [`MEGAPACK_ZONES`] order.
+///
+/// Listed rather than computed as `601 + 30 * pack_index`, even though that is
+/// what the six blocks currently work out to. These are addresses on a device
+/// we do not control; if the client renumbers or leaves a gap, that should be
+/// a one-line data change here rather than arithmetic that quietly keeps
+/// producing plausible-looking wrong addresses.
+pub const MEGAPACK_ANALOG_BASE_POINT: [u16; MEGAPACK_ZONES.len()] = [601, 631, 661, 691, 721, 751];
+
+/// Analog points the spreadsheet places outside a Megapack block.
+///
+/// Just the two transformer winding temperatures; every other analog row
+/// belongs to a pack. Both carry a 60C threshold and the spreadsheet's fire
+/// flag.
+pub mod site_analog_point {
+    /// Transformer 1 winding temperature (`49T1`).
+    pub const T1_WINDING_TEMPERATURE: u16 = 101;
+    /// Transformer 2 winding temperature (`49T2`).
+    pub const T2_WINDING_TEMPERATURE: u16 = 102;
+}
+
 /// Offsets within a pack's analog block, from the spreadsheet's canonical
 /// point order (`megapack_analog_template` in
 /// `docs/alarms/newtown-alarms.json`).
@@ -513,11 +555,6 @@ mod tests {
         for pack_index in 0..MEGAPACK_ZONES.len() {
             for offset in 0..MP_ANALOG_POINT_COUNT as u16 {
                 let addr = RegisterMap::mp_analog_address(pack_index, offset);
-                assert!(
-                    addr >= RegisterMap::MP_ANALOG_BLOCK_START,
-                    "address {} fell below the block start",
-                    addr
-                );
                 // Must not collide with the status/alarm block or the command
                 // block, or a charge reading would alias a live register.
                 assert!(addr >= RegisterMap::STATUS_READ_COUNT);
@@ -534,11 +571,117 @@ mod tests {
     }
 
     #[test]
-    fn megapack_analog_address_is_stride_spaced() {
-        assert_eq!(RegisterMap::mp_analog_address(0, 0), 200);
-        assert_eq!(RegisterMap::mp_analog_address(0, 29), 229);
-        assert_eq!(RegisterMap::mp_analog_address(1, 0), 232);
-        assert_eq!(RegisterMap::mp_analog_address(5, 29), 389);
+    fn the_site_analogs_are_clear_of_the_command_block() {
+        // The reason the command block moved off 100-104: these two are
+        // client-assigned and cannot be relocated, ours could.
+        for point in [
+            site_analog_point::T1_WINDING_TEMPERATURE,
+            site_analog_point::T2_WINDING_TEMPERATURE,
+        ] {
+            let addr = RegisterMap::point_address(point);
+            assert!(
+                !(RegisterMap::CMD_START_ADDRESS
+                    ..RegisterMap::CMD_START_ADDRESS + RegisterMap::CMD_WRITE_COUNT)
+                    .contains(&addr),
+                "site analog {} collides with the command block",
+                point
+            );
+        }
+    }
+
+    #[test]
+    fn megapack_analog_address_is_the_spreadsheet_point_number() {
+        // The whole point of the change: an address is the number the client
+        // wrote on the row, not a slot in a layout we invented.
+        assert_eq!(RegisterMap::mp_analog_address(0, 0), 601); // MP-1A real_power_target
+        assert_eq!(RegisterMap::mp_analog_address(0, 29), 630); // MP-1A AI_spare_7
+        assert_eq!(RegisterMap::mp_analog_address(1, 0), 631); // MP-1B, no gap
+        assert_eq!(RegisterMap::mp_analog_address(5, 29), 780); // MP-2C, last row
+
+        // The three the SLD renders, spelled out so a shifted offset table
+        // fails here rather than on an operator's gauge.
+        assert_eq!(RegisterMap::mp_analog_address(0, mp_analog_offset::STATE_OF_ENERGY), 605);
+        assert_eq!(RegisterMap::mp_analog_address(0, mp_analog_offset::AC_VOLTAGE), 611);
+        assert_eq!(
+            RegisterMap::mp_analog_address(0, mp_analog_offset::MAX_BATTERY_TEMPERATURE),
+            619
+        );
+    }
+
+    #[test]
+    fn every_megapack_block_is_thirty_points_long() {
+        // A renumbering that overlapped two packs would otherwise be caught
+        // only by the disjointness test above, which cannot say which pack
+        // moved.
+        for (pack_index, base) in MEGAPACK_ANALOG_BASE_POINT.iter().enumerate() {
+            assert_eq!(RegisterMap::mp_analog_address(pack_index, 0), *base);
+            if let Some(next) = MEGAPACK_ANALOG_BASE_POINT.get(pack_index + 1) {
+                assert_eq!(
+                    next - base,
+                    MP_ANALOG_POINT_COUNT as u16,
+                    "pack {} block is not {} points long",
+                    pack_index,
+                    MP_ANALOG_POINT_COUNT
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_generated_registry_agrees_with_the_address_map() {
+        use super::super::analog_points::ANALOG_POINTS;
+
+        assert_eq!(ANALOG_POINTS.len(), 182, "spec defines 182 analog points");
+
+        for point in ANALOG_POINTS {
+            match point.offset {
+                // A pack's point must be reachable at its own number through
+                // the address map. This is the join between the generated
+                // table and the arithmetic the client actually uses; without
+                // it the two could disagree and each would look right alone.
+                Some(offset) => {
+                    let pack_index = MEGAPACK_ZONES
+                        .iter()
+                        .position(|z| *z == point.zone)
+                        .unwrap_or_else(|| panic!("{} is not a Megapack zone", point.zone));
+                    assert_eq!(
+                        RegisterMap::mp_analog_address(pack_index, offset),
+                        RegisterMap::point_address(point.point_number),
+                        "{} {} does not sit where the address map puts it",
+                        point.zone,
+                        point.name
+                    );
+                    assert!((offset as usize) < MP_ANALOG_POINT_COUNT);
+                }
+                // The only points outside a pack block are the two transformer
+                // winding temperatures.
+                None => assert!(
+                    point.point_number == site_analog_point::T1_WINDING_TEMPERATURE
+                        || point.point_number == site_analog_point::T2_WINDING_TEMPERATURE,
+                    "unexpected block-less analog point {}",
+                    point.point_number
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn the_named_offsets_point_at_the_measurements_they_claim() {
+        use super::super::analog_points::analog_point;
+
+        // mp_analog_offset is hand-written while the registry is generated, so
+        // a spreadsheet reordering would silently repoint these three at
+        // whatever moved into the slot. Checking the names catches that.
+        for (offset, expected) in [
+            (mp_analog_offset::STATE_OF_ENERGY, "state_of_energy"),
+            (mp_analog_offset::AC_VOLTAGE, "ac_voltage"),
+            (mp_analog_offset::MAX_BATTERY_TEMPERATURE, "max_battery_temperature"),
+        ] {
+            let number = RegisterMap::mp_analog_address(0, offset);
+            let point = analog_point(number).expect("MP-1A point exists");
+            assert_eq!(point.name, expected, "offset {} is no longer {}", offset, expected);
+            assert_eq!(point.zone, AlarmZone::Mp1a);
+        }
     }
 
     #[test]

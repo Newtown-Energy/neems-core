@@ -14,7 +14,7 @@
 use neems_data::rtac::{
     alarm_definitions::{ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM},
     protocol::{
-        CommandType, MEGAPACK_ZONES, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
+        CommandType, MEGAPACK_ANALOG_BASE_POINT, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
         current_to_register, grid_frequency_to_register, mp_analog_offset, parse_soc,
         power_kw_to_registers, soc_to_register, temperature_to_register, voltage_to_register,
     },
@@ -216,20 +216,25 @@ impl SimState {
             {
                 self.cmd_regs[(a - RegisterMap::CMD_START_ADDRESS) as usize]
             }
-            a if a >= RegisterMap::MP_ANALOG_BLOCK_START => {
-                let relative = a - RegisterMap::MP_ANALOG_BLOCK_START;
-                let pack_index = (relative / RegisterMap::MP_ANALOG_STRIDE) as usize;
-                let offset = relative % RegisterMap::MP_ANALOG_STRIDE;
-                // The stride leaves two reserved registers per pack, and the
-                // block ends after the sixth; both read as unmapped.
-                if pack_index < MEGAPACK_ZONES.len() && (offset as usize) < MP_ANALOG_POINT_COUNT {
-                    self.megapack_register_at(pack_index, offset)
-                } else {
-                    0
-                }
-            }
-            _ => 0,
+            a => match Self::megapack_point_at(a) {
+                Some((pack_index, offset)) => self.megapack_register_at(pack_index, offset),
+                None => 0,
+            },
         }
+    }
+
+    /// Which pack and offset, if any, the analog point at `addr` belongs to.
+    ///
+    /// A scan of the base table rather than division by a stride: the blocks
+    /// are the client's point numbers now, so nothing guarantees they stay
+    /// evenly spaced, and arithmetic that assumes they do would answer
+    /// confidently for an address the client never assigned.
+    fn megapack_point_at(addr: u16) -> Option<(usize, u16)> {
+        MEGAPACK_ANALOG_BASE_POINT.iter().enumerate().find_map(|(pack_index, base)| {
+            let base = RegisterMap::point_address(*base);
+            let offset = addr.checked_sub(base)?;
+            ((offset as usize) < MP_ANALOG_POINT_COUNT).then_some((pack_index, offset))
+        })
     }
 
     /// How far pack `pack_index` sits from the site-level figure.
@@ -314,6 +319,8 @@ impl SimState {
 
 #[cfg(test)]
 mod tests {
+    use neems_data::rtac::protocol::MEGAPACK_ZONES;
+
     use super::*;
 
     fn fast_config() -> SimConfig {
@@ -355,19 +362,32 @@ mod tests {
     }
 
     #[test]
-    fn reserved_and_out_of_range_analog_addresses_read_zero() {
+    fn addresses_outside_the_analog_range_read_zero() {
         let mut state = SimState::new(fast_config());
         state.soc_percent = 50.0;
 
-        // The two reserved registers at the tail of a pack's stride.
-        let reserved = RegisterMap::MP_ANALOG_BLOCK_START + MP_ANALOG_POINT_COUNT as u16;
-        assert_eq!(state.register_at(reserved), 0);
-        assert_eq!(state.register_at(reserved + 1), 0);
+        // Just below MP-1A and just past MP-2C: the client assigned no analog
+        // point either side, so neither may answer as one.
+        let first = RegisterMap::mp_analog_address(0, 0);
+        let last = RegisterMap::mp_analog_address(MEGAPACK_ZONES.len() - 1, 29);
+        assert_eq!(state.register_at(first - 1), 0);
+        assert_eq!(state.register_at(last + 1), 0);
 
-        // Past the sixth pack.
-        let past_end = RegisterMap::MP_ANALOG_BLOCK_START
-            + MEGAPACK_ZONES.len() as u16 * RegisterMap::MP_ANALOG_STRIDE;
-        assert_eq!(state.register_at(past_end), 0);
+        // The blocks themselves are contiguous — 601-780 with no gaps — so
+        // every address between the ends belongs to some pack.
+        assert_eq!((last - first + 1) as usize, MEGAPACK_ZONES.len() * MP_ANALOG_POINT_COUNT);
+    }
+
+    #[test]
+    fn analog_points_answer_at_their_spreadsheet_numbers() {
+        let mut state = SimState::new(fast_config());
+        state.soc_percent = 50.0;
+
+        // MP-1A state_of_energy is analog point 605; if the simulator and the
+        // client disagree about that, the integration test passes on a shared
+        // mistake. Pinning the literal number here is what stops that.
+        assert_ne!(state.register_at(605), 0);
+        assert_eq!(state.register_at(605), state.register_at(RegisterMap::mp_analog_address(0, 4)));
     }
 
     #[test]
