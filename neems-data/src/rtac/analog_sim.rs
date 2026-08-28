@@ -46,7 +46,13 @@ pub fn synthesize_megapack_block(
 ) -> [u16; MP_ANALOG_POINT_COUNT] {
     let spread = pack_spread(pack_index);
     let soc = soc_percent.clamp(0.0, 100.0);
-    let power = power_kw + spread * 20.0;
+    // Proportional, not additive. An offset of +/-20 kW per pack reads fine
+    // while the site is working, but around zero it straddles the sign: at
+    // standby the six packs came out -50, -30, -10, +10, +30, +50 kW, so the
+    // diagram showed three packs charging and three discharging while the
+    // site did nothing. Scaling instead means an idle site leaves every pack
+    // idle, and a working one still spreads them.
+    let power = power_kw * (1.0 + spread * 0.02);
 
     // Three-phase: I = P / (V * sqrt(3)).
     let current_a = if voltage_v != 0.0 {
@@ -160,6 +166,35 @@ mod tests {
                 let soc = decode(&regs, mp_analog_offset::STATE_OF_ENERGY as usize);
                 assert!((0.0..=100.0).contains(&soc), "SoC {} out of range at {}", soc, level);
             }
+        }
+    }
+
+    #[test]
+    fn an_idle_site_leaves_every_pack_idle() {
+        // The per-pack spread must not straddle zero. An additive offset put
+        // three packs charging and three discharging while the site was in
+        // standby, which reads as the packs shuttling power between each
+        // other -- and "idle" is what the SLD prints for exactly 0.
+        for (_, regs) in synthesize_all_packs(50.0, 0.0, 480.0, 20.0) {
+            assert_eq!(decode(&regs, 1), 0.0, "an idle site produced pack power");
+            assert_eq!(decode(&regs, 14), 0.0, "an idle site produced pack current");
+        }
+    }
+
+    #[test]
+    fn a_working_site_still_spreads_the_packs() {
+        // Losing the straddle must not cost the spread: six identical power
+        // readouts would hide what per-pack values exist to show.
+        let powers: Vec<f32> = synthesize_all_packs(50.0, -1000.0, 480.0, 20.0)
+            .iter()
+            .map(|(_, r)| decode(r, 1))
+            .collect();
+        for w in powers.windows(2) {
+            assert_ne!(w[0], w[1]);
+        }
+        // ...and every pack keeps the site's sign.
+        for p in &powers {
+            assert!(*p < 0.0, "pack power {} flipped against a charging site", p);
         }
     }
 
