@@ -19,21 +19,22 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-/// Consecutive unanswered analog reads — refused, or answered with a block we
-/// cannot parse — before polling backs off.
+/// Consecutive failed analog reads — refused, answered with a block we cannot
+/// parse, or timed out hard enough to take the link — before polling backs
+/// off.
 ///
 /// Two full cycles, so a single pack answering intermittently does not stop
 /// the sweep — only the whole block failing does. That is the expected state
 /// until the client confirms the analog register addresses and their scaling,
 /// and without a limit it would cost a doomed round trip on every tick,
 /// forever.
-const ANALOG_REFUSAL_LIMIT: u32 = 2 * MEGAPACK_ZONES.len() as u32;
+const ANALOG_FAILURE_LIMIT: u32 = 2 * MEGAPACK_ZONES.len() as u32;
 
-/// How long to stop polling analogs after hitting [`ANALOG_REFUSAL_LIMIT`].
+/// How long to stop polling analogs after hitting [`ANALOG_FAILURE_LIMIT`].
 ///
 /// Long enough that a wrong address costs almost nothing, short enough that
 /// correcting one is picked up without a restart.
-const ANALOG_REFUSAL_BACKOFF: Duration = Duration::from_secs(60);
+const ANALOG_FAILURE_BACKOFF: Duration = Duration::from_secs(60);
 
 /// Round-robin bookkeeping for the per-Megapack analog poll.
 ///
@@ -46,8 +47,9 @@ struct AnalogPollState {
     /// Latest block per pack, indexed by position in [`MEGAPACK_ZONES`].
     packs: [Option<MegapackAnalogs>; MEGAPACK_ZONES.len()],
     next: usize,
-    /// Consecutive refusals across all packs; any successful read resets it.
-    refusals: u32,
+    /// Consecutive failed reads across all packs; any successful read resets
+    /// it.
+    failures: u32,
     suspended_until: Option<Instant>,
 }
 
@@ -56,7 +58,7 @@ impl AnalogPollState {
         Self {
             packs: [const { None }; MEGAPACK_ZONES.len()],
             next: 0,
-            refusals: 0,
+            failures: 0,
             suspended_until: None,
         }
     }
@@ -70,7 +72,7 @@ impl AnalogPollState {
             }
             info!("Resuming Megapack analog polling after backoff");
             self.suspended_until = None;
-            self.refusals = 0;
+            self.failures = 0;
         }
         let pack_index = self.next;
         self.next = (pack_index + 1) % MEGAPACK_ZONES.len();
@@ -78,7 +80,7 @@ impl AnalogPollState {
     }
 
     fn record_read(&mut self, pack_index: usize, analogs: MegapackAnalogs) {
-        self.refusals = 0;
+        self.failures = 0;
         self.packs[pack_index] = Some(analogs);
     }
 
@@ -95,9 +97,9 @@ impl AnalogPollState {
     /// not help.
     fn record_failure(&mut self, pack_index: usize, now: Instant) -> bool {
         self.packs[pack_index] = None;
-        self.refusals += 1;
-        if self.refusals >= ANALOG_REFUSAL_LIMIT && self.suspended_until.is_none() {
-            self.suspended_until = Some(now + ANALOG_REFUSAL_BACKOFF);
+        self.failures += 1;
+        if self.failures >= ANALOG_FAILURE_LIMIT && self.suspended_until.is_none() {
+            self.suspended_until = Some(now + ANALOG_FAILURE_BACKOFF);
             return true;
         }
         false
@@ -673,7 +675,7 @@ impl ModbusWorker {
             Ok(MegapackAnalogRead::Refused) => {
                 if self.analogs.record_failure(pack_index, now) {
                     warn!(
-                        backoff_secs = ANALOG_REFUSAL_BACKOFF.as_secs(),
+                        backoff_secs = ANALOG_FAILURE_BACKOFF.as_secs(),
                         "Megapack analog reads refused across every pack; backing off. \
                          Expected if the analog register addresses are still provisional."
                     );
@@ -683,7 +685,7 @@ impl ModbusWorker {
             Ok(MegapackAnalogRead::Unusable) => {
                 if self.analogs.record_failure(pack_index, now) {
                     warn!(
-                        backoff_secs = ANALOG_REFUSAL_BACKOFF.as_secs(),
+                        backoff_secs = ANALOG_FAILURE_BACKOFF.as_secs(),
                         "Megapack analog blocks unusable across every pack; backing off. \
                          Expected if the assumed analog scaling does not match the hardware."
                     );
@@ -699,7 +701,7 @@ impl ModbusWorker {
                 self.analogs.discard_all();
                 if self.analogs.record_failure(pack_index, now) {
                     warn!(
-                        backoff_secs = ANALOG_REFUSAL_BACKOFF.as_secs(),
+                        backoff_secs = ANALOG_FAILURE_BACKOFF.as_secs(),
                         "Megapack analog reads keep dropping the link; backing off. \
                          Expected if the device ignores reads of the analog block \
                          rather than refusing them."
@@ -861,7 +863,7 @@ mod tests {
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
             assert!(!poll.record_failure(pack, now), "backed off too early");
         }
@@ -879,7 +881,7 @@ mod tests {
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
             poll.discard_all();
             assert!(!poll.record_failure(pack, now), "backed off too early");
@@ -895,8 +897,8 @@ mod tests {
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 
-        // One refusal short of the limit, polling continues.
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        // One failure short of the limit, polling continues.
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
             assert!(!poll.record_failure(pack, now), "backed off too early");
         }
@@ -905,26 +907,26 @@ mod tests {
 
         // Suspended: no pack is offered, and no further backoff is announced.
         assert_eq!(poll.take_next(now), None);
-        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF / 2), None);
+        assert_eq!(poll.take_next(now + ANALOG_FAILURE_BACKOFF / 2), None);
 
         // ...and resumes once the backoff elapses.
-        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF), Some(0));
+        assert_eq!(poll.take_next(now + ANALOG_FAILURE_BACKOFF), Some(0));
     }
 
     #[test]
-    fn one_good_read_resets_the_refusal_streak() {
+    fn one_good_read_resets_the_failure_streak() {
         // A single pack answering intermittently must not accumulate its way
         // into a backoff; only the whole block being rejected should.
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
             poll.record_failure(pack, now);
         }
         poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
 
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
             assert!(!poll.record_failure(pack, now), "streak was not reset");
         }
@@ -935,7 +937,7 @@ mod tests {
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
         poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
-        for _ in 0..ANALOG_REFUSAL_LIMIT {
+        for _ in 0..ANALOG_FAILURE_LIMIT {
             let pack = poll.take_next(now).expect("still polling");
             poll.record_failure(pack, now);
         }
@@ -952,7 +954,7 @@ mod tests {
         // timeout drops the link, and clearing the budget on the way meant the
         // failures could never accumulate.
         assert_eq!(poll.take_next(now), None, "backoff should have survived");
-        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF), Some(0));
+        assert_eq!(poll.take_next(now + ANALOG_FAILURE_BACKOFF), Some(0));
     }
 
     use super::*;
