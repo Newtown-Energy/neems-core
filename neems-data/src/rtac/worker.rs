@@ -19,19 +19,22 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-/// Consecutive refused analog reads before polling backs off.
+/// Consecutive failed analog reads — refused, answered with a block we cannot
+/// parse, or timed out hard enough to take the link — before polling backs
+/// off.
 ///
 /// Two full cycles, so a single pack answering intermittently does not stop
-/// the sweep — only the whole block being rejected does. That is the expected
-/// state until the client confirms the analog register addresses, and without
-/// a limit it would cost a doomed round trip on every tick, forever.
-const ANALOG_REFUSAL_LIMIT: u32 = 2 * MEGAPACK_ZONES.len() as u32;
+/// the sweep — only the whole block failing does. That is the expected state
+/// until the client confirms the analog register addresses and their scaling,
+/// and without a limit it would cost a doomed round trip on every tick,
+/// forever.
+const ANALOG_FAILURE_LIMIT: u32 = 2 * MEGAPACK_ZONES.len() as u32;
 
-/// How long to stop polling analogs after hitting [`ANALOG_REFUSAL_LIMIT`].
+/// How long to stop polling analogs after hitting [`ANALOG_FAILURE_LIMIT`].
 ///
 /// Long enough that a wrong address costs almost nothing, short enough that
 /// correcting one is picked up without a restart.
-const ANALOG_REFUSAL_BACKOFF: Duration = Duration::from_secs(60);
+const ANALOG_FAILURE_BACKOFF: Duration = Duration::from_secs(60);
 
 /// Round-robin bookkeeping for the per-Megapack analog poll.
 ///
@@ -44,8 +47,9 @@ struct AnalogPollState {
     /// Latest block per pack, indexed by position in [`MEGAPACK_ZONES`].
     packs: [Option<MegapackAnalogs>; MEGAPACK_ZONES.len()],
     next: usize,
-    /// Consecutive refusals across all packs; any successful read resets it.
-    refusals: u32,
+    /// Consecutive failed reads across all packs; any successful read resets
+    /// it.
+    failures: u32,
     suspended_until: Option<Instant>,
 }
 
@@ -54,7 +58,7 @@ impl AnalogPollState {
         Self {
             packs: [const { None }; MEGAPACK_ZONES.len()],
             next: 0,
-            refusals: 0,
+            failures: 0,
             suspended_until: None,
         }
     }
@@ -68,7 +72,7 @@ impl AnalogPollState {
             }
             info!("Resuming Megapack analog polling after backoff");
             self.suspended_until = None;
-            self.refusals = 0;
+            self.failures = 0;
         }
         let pack_index = self.next;
         self.next = (pack_index + 1) % MEGAPACK_ZONES.len();
@@ -76,32 +80,44 @@ impl AnalogPollState {
     }
 
     fn record_read(&mut self, pack_index: usize, analogs: MegapackAnalogs) {
-        self.refusals = 0;
+        self.failures = 0;
         self.packs[pack_index] = Some(analogs);
     }
 
-    /// Note a refusal, suspending the poll once every pack has refused twice
-    /// over. Returns whether this call is what triggered the backoff, so the
-    /// caller logs it once rather than on every subsequent refusal.
-    fn record_refused(&mut self, pack_index: usize, now: Instant) -> bool {
+    /// Note that a pack did not give us a value it is worth holding, spending
+    /// from the backoff budget and suspending the poll once every pack has
+    /// failed twice over. Returns whether this call is what triggered the
+    /// backoff, so the caller logs it once rather than on every failure after.
+    ///
+    /// Refusals, unusable blocks and reads that killed the link all spend from
+    /// one budget, because they are the same event seen through different
+    /// failure modes: the address is wrong, the encoding is wrong, or the
+    /// device black-holes registers it does not know. Which of our guesses was
+    /// wrong changes the log line, not the fact that repeating the read will
+    /// not help.
+    fn record_failure(&mut self, pack_index: usize, now: Instant) -> bool {
         self.packs[pack_index] = None;
-        self.refusals += 1;
-        if self.refusals >= ANALOG_REFUSAL_LIMIT && self.suspended_until.is_none() {
-            self.suspended_until = Some(now + ANALOG_REFUSAL_BACKOFF);
+        self.failures += 1;
+        if self.failures >= ANALOG_FAILURE_LIMIT && self.suspended_until.is_none() {
+            self.suspended_until = Some(now + ANALOG_FAILURE_BACKOFF);
             return true;
         }
         false
     }
 
-    fn record_unusable(&mut self, pack_index: usize) {
-        self.packs[pack_index] = None;
-    }
-
-    /// Drop everything: the link died, so every held value is of unknown age.
-    fn record_link_lost(&mut self) {
+    /// Drop every held block, because the link is gone and all of it is now of
+    /// unknown age.
+    ///
+    /// Deliberately leaves the backoff budget alone. Clearing it here — which
+    /// this did until a device that black-holes unknown registers was
+    /// considered — is what made the backoff unreachable: such a device never
+    /// answers `IllegalDataAddress`, so the read times out, the timeout tears
+    /// the link down, and resetting the budget on the way meant the poll could
+    /// never accumulate enough failures to give up. Every tick then spent the
+    /// full operation timeout on a read that could not succeed, in front of
+    /// the E-stop write.
+    fn discard_all(&mut self) {
         self.packs = [const { None }; MEGAPACK_ZONES.len()];
-        self.suspended_until = None;
-        self.refusals = 0;
     }
 
     /// The blocks currently held, in [`MEGAPACK_ZONES`] order.
@@ -635,6 +651,18 @@ impl ModbusWorker {
     /// charge level indefinitely.
     async fn poll_next_megapack_analogs(&mut self) -> bool {
         let now = Instant::now();
+
+        // Nothing to poll down a link that is already gone, and everything we
+        // hold became of unknown age the moment it dropped. Asking anyway
+        // would only produce a `NotConnected` error and a warning blaming the
+        // analog poll for a connection it did not lose — ten times a second
+        // for as long as the RTAC is unreachable. The status read is what
+        // notices the link is down and drives the reconnect.
+        if !self.client.is_connected() {
+            self.analogs.discard_all();
+            return true;
+        }
+
         let Some(pack_index) = self.analogs.take_next(now) else {
             return true;
         };
@@ -645,9 +673,9 @@ impl ModbusWorker {
                 true
             }
             Ok(MegapackAnalogRead::Refused) => {
-                if self.analogs.record_refused(pack_index, now) {
+                if self.analogs.record_failure(pack_index, now) {
                     warn!(
-                        backoff_secs = ANALOG_REFUSAL_BACKOFF.as_secs(),
+                        backoff_secs = ANALOG_FAILURE_BACKOFF.as_secs(),
                         "Megapack analog reads refused across every pack; backing off. \
                          Expected if the analog register addresses are still provisional."
                     );
@@ -655,12 +683,30 @@ impl ModbusWorker {
                 true
             }
             Ok(MegapackAnalogRead::Unusable) => {
-                self.analogs.record_unusable(pack_index);
+                if self.analogs.record_failure(pack_index, now) {
+                    warn!(
+                        backoff_secs = ANALOG_FAILURE_BACKOFF.as_secs(),
+                        "Megapack analog blocks unusable across every pack; backing off. \
+                         Expected if the assumed analog scaling does not match the hardware."
+                    );
+                }
                 true
             }
             Err(e) => {
+                // Everything held is now of unknown age, but the failure still
+                // counts: a device that black-holes unknown registers fails
+                // exactly this way, and without spending the budget the poll
+                // would retry it down every reconnected link forever.
                 warn!(error = %e, "Megapack analog poll lost the connection");
-                self.analogs.record_link_lost();
+                self.analogs.discard_all();
+                if self.analogs.record_failure(pack_index, now) {
+                    warn!(
+                        backoff_secs = ANALOG_FAILURE_BACKOFF.as_secs(),
+                        "Megapack analog reads keep dropping the link; backing off. \
+                         Expected if the device ignores reads of the analog block \
+                         rather than refusing them."
+                    );
+                }
                 false
             }
         }
@@ -801,11 +847,49 @@ mod tests {
         poll.record_read(1, analogs_for(AlarmZone::Mp1b, 47.75));
         assert_eq!(poll.collected().len(), 2);
 
-        poll.record_refused(0, Instant::now());
+        let now = Instant::now();
+        poll.record_failure(0, now);
         assert_eq!(poll.collected().len(), 1);
 
-        poll.record_unusable(1);
+        poll.record_failure(1, now);
         assert!(poll.collected().is_empty());
+    }
+
+    #[test]
+    fn unusable_blocks_back_off_the_same_as_refusals() {
+        // A wrong scaling assumption fails every block on every read. Without
+        // a budget that is a doomed round trip and a warning line ten times a
+        // second, for as long as the collector runs.
+        let mut poll = AnalogPollState::new();
+        let now = Instant::now();
+
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
+            let pack = poll.take_next(now).expect("still polling");
+            assert!(!poll.record_failure(pack, now), "backed off too early");
+        }
+        let pack = poll.take_next(now).expect("still polling");
+        assert!(poll.record_failure(pack, now), "should report the backoff once");
+        assert_eq!(poll.take_next(now), None);
+    }
+
+    #[test]
+    fn reads_that_kill_the_link_still_reach_the_backoff() {
+        // A device that black-holes unknown registers never refuses; the read
+        // times out and takes the link with it. Each such failure must still
+        // spend from the budget, or every reconnected link buys another doomed
+        // read — at the full operation timeout, ahead of the E-stop write.
+        let mut poll = AnalogPollState::new();
+        let now = Instant::now();
+
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
+            let pack = poll.take_next(now).expect("still polling");
+            poll.discard_all();
+            assert!(!poll.record_failure(pack, now), "backed off too early");
+        }
+        let pack = poll.take_next(now).expect("still polling");
+        poll.discard_all();
+        assert!(poll.record_failure(pack, now), "should report the backoff once");
+        assert_eq!(poll.take_next(now), None, "poll should be suspended");
     }
 
     #[test]
@@ -813,59 +897,64 @@ mod tests {
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 
-        // One refusal short of the limit, polling continues.
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        // One failure short of the limit, polling continues.
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
-            assert!(!poll.record_refused(pack, now), "backed off too early");
+            assert!(!poll.record_failure(pack, now), "backed off too early");
         }
         let pack = poll.take_next(now).expect("still polling");
-        assert!(poll.record_refused(pack, now), "should report the backoff once");
+        assert!(poll.record_failure(pack, now), "should report the backoff once");
 
         // Suspended: no pack is offered, and no further backoff is announced.
         assert_eq!(poll.take_next(now), None);
-        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF / 2), None);
+        assert_eq!(poll.take_next(now + ANALOG_FAILURE_BACKOFF / 2), None);
 
         // ...and resumes once the backoff elapses.
-        assert_eq!(poll.take_next(now + ANALOG_REFUSAL_BACKOFF), Some(0));
+        assert_eq!(poll.take_next(now + ANALOG_FAILURE_BACKOFF), Some(0));
     }
 
     #[test]
-    fn one_good_read_resets_the_refusal_streak() {
+    fn one_good_read_resets_the_failure_streak() {
         // A single pack answering intermittently must not accumulate its way
         // into a backoff; only the whole block being rejected should.
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
-            poll.record_refused(pack, now);
+            poll.record_failure(pack, now);
         }
         poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
 
-        for _ in 0..ANALOG_REFUSAL_LIMIT - 1 {
+        for _ in 0..ANALOG_FAILURE_LIMIT - 1 {
             let pack = poll.take_next(now).expect("still polling");
-            assert!(!poll.record_refused(pack, now), "streak was not reset");
+            assert!(!poll.record_failure(pack, now), "streak was not reset");
         }
     }
 
     #[test]
-    fn losing_the_link_discards_everything_and_clears_the_backoff() {
+    fn losing_the_link_discards_everything_but_keeps_the_backoff() {
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
         poll.record_read(0, analogs_for(AlarmZone::Mp1a, 46.25));
-        for _ in 0..ANALOG_REFUSAL_LIMIT {
+        for _ in 0..ANALOG_FAILURE_LIMIT {
             let pack = poll.take_next(now).expect("still polling");
-            poll.record_refused(pack, now);
+            poll.record_failure(pack, now);
         }
         assert_eq!(poll.take_next(now), None, "expected to be backed off");
 
-        poll.record_link_lost();
+        poll.discard_all();
 
         // Nothing survives a dropped link: every held value is of unknown age.
         assert!(poll.collected().is_empty());
-        // And the reconnected link gets polled immediately rather than serving
-        // out a backoff earned by a connection that no longer exists.
-        assert!(poll.take_next(now).is_some());
+        // But the backoff does survive. An earlier version cleared it here, on
+        // the reasoning that a new connection should not serve out a penalty
+        // earned by an old one. That is what made the backoff unreachable for
+        // a device that black-holes unknown registers: the read times out, the
+        // timeout drops the link, and clearing the budget on the way meant the
+        // failures could never accumulate.
+        assert_eq!(poll.take_next(now), None, "backoff should have survived");
+        assert_eq!(poll.take_next(now + ANALOG_FAILURE_BACKOFF), Some(0));
     }
 
     use super::*;

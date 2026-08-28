@@ -48,7 +48,7 @@ const DISPATCH_TIMEOUT_SECONDS: i64 = 60;
 ///
 /// Mirrors the schedule endpoints' rule: Newtown staff see every site, everyone
 /// else sees their own company's.
-fn can_access_site(
+pub(crate) fn can_access_site(
     user: &AuthenticatedUser,
     site_id: i32,
     conn: &mut diesel::SqliteConnection,

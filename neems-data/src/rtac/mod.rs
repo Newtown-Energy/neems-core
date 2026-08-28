@@ -10,6 +10,8 @@
 pub mod alarm_definitions;
 pub mod alarm_sld_meta;
 pub mod alarms;
+pub mod analog_points;
+pub mod analog_sim;
 pub mod control;
 pub mod estop_http;
 pub mod modbus_client;

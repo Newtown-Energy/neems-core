@@ -7,15 +7,15 @@
     ],
     "description": "Structured capture of the client alarm + SLD register spreadsheet for the Newtown BESS. Intended as the single source of truth for replacing alarms and data points across the backend (neems-core), frontend (neems-react), and Modbus simulation (neems-rtac-sim).",
     "conventions": {
-      "alarm_num_namespacing": "alarm_num is unique WITHIN a category but NOT across categories: e.g. 601 is a digital MP-1A status bit AND an analog MP-1A measurement. Always key by (category, alarm_num).",
+      "alarm_num_namespacing": "alarm_num is unique WITHIN a category but NOT across categories: e.g. 601 is a digital MP-1A status bit AND an analog MP-1A measurement. Always key by (category, alarm_num). The two never collide on the wire because alarm_num is the point's Modbus address and Modbus addresses bits and registers separately.",
       "derived_fields": "Any object containing \"_derived\": true was computed here, not taken from the spreadsheet (suggested_code_name, modbus, severity_signals, threshold). Raw spreadsheet values use *_raw keys.",
-      "modbus": "Digital alarms are packed into 22 contiguous 16-bit holding registers starting at address 8. register_index is 0-based within that block; register_address = 8 + register_index. Analog points have no register assignment in the spreadsheet (TBD).",
+      "modbus": "alarm_num IS the point's Modbus address on the RTAC. Analog points are registers at that address (modbus.register_address); digital alarms are discrete inputs at that address (modbus.discrete_address). register_index/register_address/bit on a digital alarm describe something else entirely: the packed 22-register holding block the simulator serves, which is the backend's own framing and predates knowing the client's addressing.",
       "severity": "The spreadsheet encodes severity indirectly via SLD color (red = critical/trip, yellow = warning), the IsFire flag, and the availability impact. These raw signals are captured under severity_signals; mapping them to a 1-5 level is left to implementation (see README)."
     },
     "counts": {
       "digital_alarms": 305,
-      "digital_named": 261,
-      "digital_reserved": 44,
+      "digital_named": 262,
+      "digital_reserved": 43,
       "analog_points": 182,
       "analog_spare": 42,
       "data_quality_issues": 8
@@ -173,7 +173,7 @@
       },
       {
         "token": "Relay",
-        "occurrences": 22
+        "occurrences": 23
       },
       {
         "token": "FACP",
@@ -741,6 +741,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 1,
         "register_index": 0,
         "register_address": 8,
         "bit": 0,
@@ -782,6 +783,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 2,
         "register_index": 0,
         "register_address": 8,
         "bit": 1,
@@ -828,6 +830,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 3,
         "register_index": 0,
         "register_address": 8,
         "bit": 2,
@@ -874,6 +877,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 4,
         "register_index": 0,
         "register_address": 8,
         "bit": 3,
@@ -915,6 +919,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 5,
         "register_index": 0,
         "register_address": 8,
         "bit": 4,
@@ -956,6 +961,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 6,
         "register_index": 0,
         "register_address": 8,
         "bit": 5,
@@ -997,6 +1003,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 7,
         "register_index": 0,
         "register_address": 8,
         "bit": 6,
@@ -1031,6 +1038,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 8,
         "register_index": 0,
         "register_address": 8,
         "bit": 7,
@@ -1065,6 +1073,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 9,
         "register_index": 0,
         "register_address": 8,
         "bit": 8,
@@ -1099,6 +1108,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 10,
         "register_index": 0,
         "register_address": 8,
         "bit": 9,
@@ -1133,6 +1143,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 11,
         "register_index": 0,
         "register_address": 8,
         "bit": 10,
@@ -1167,6 +1178,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 12,
         "register_index": 0,
         "register_address": 8,
         "bit": 11,
@@ -1201,6 +1213,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 13,
         "register_index": 0,
         "register_address": 8,
         "bit": 12,
@@ -1235,6 +1248,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 14,
         "register_index": 0,
         "register_address": 8,
         "bit": 13,
@@ -1269,6 +1283,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 15,
         "register_index": 0,
         "register_address": 8,
         "bit": 14,
@@ -1310,6 +1325,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 101,
         "register_index": 1,
         "register_address": 9,
         "bit": 0,
@@ -1351,6 +1367,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 102,
         "register_index": 1,
         "register_address": 9,
         "bit": 1,
@@ -1397,6 +1414,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 103,
         "register_index": 1,
         "register_address": 9,
         "bit": 2,
@@ -1443,6 +1461,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 104,
         "register_index": 1,
         "register_address": 9,
         "bit": 3,
@@ -1493,6 +1512,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 105,
         "register_index": 1,
         "register_address": 9,
         "bit": 4,
@@ -1543,6 +1563,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 106,
         "register_index": 1,
         "register_address": 9,
         "bit": 5,
@@ -1584,6 +1605,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 107,
         "register_index": 1,
         "register_address": 9,
         "bit": 6,
@@ -1625,6 +1647,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 108,
         "register_index": 1,
         "register_address": 9,
         "bit": 7,
@@ -1666,6 +1689,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 109,
         "register_index": 1,
         "register_address": 9,
         "bit": 8,
@@ -1707,6 +1731,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 110,
         "register_index": 1,
         "register_address": 9,
         "bit": 9,
@@ -1748,6 +1773,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 111,
         "register_index": 1,
         "register_address": 9,
         "bit": 10,
@@ -1789,6 +1815,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 112,
         "register_index": 1,
         "register_address": 9,
         "bit": 11,
@@ -1830,6 +1857,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 113,
         "register_index": 1,
         "register_address": 9,
         "bit": 12,
@@ -1871,6 +1899,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 114,
         "register_index": 1,
         "register_address": 9,
         "bit": 13,
@@ -1912,6 +1941,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 115,
         "register_index": 1,
         "register_address": 9,
         "bit": 14,
@@ -1953,6 +1983,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 116,
         "register_index": 1,
         "register_address": 9,
         "bit": 15,
@@ -1994,6 +2025,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 117,
         "register_index": 2,
         "register_address": 10,
         "bit": 0,
@@ -2035,6 +2067,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 118,
         "register_index": 2,
         "register_address": 10,
         "bit": 1,
@@ -2076,6 +2109,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 119,
         "register_index": 2,
         "register_address": 10,
         "bit": 2,
@@ -2117,6 +2151,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 120,
         "register_index": 2,
         "register_address": 10,
         "bit": 3,
@@ -2158,6 +2193,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 121,
         "register_index": 2,
         "register_address": 10,
         "bit": 4,
@@ -2199,6 +2235,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 122,
         "register_index": 2,
         "register_address": 10,
         "bit": 5,
@@ -2240,6 +2277,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 123,
         "register_index": 2,
         "register_address": 10,
         "bit": 6,
@@ -2281,6 +2319,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 124,
         "register_index": 2,
         "register_address": 10,
         "bit": 7,
@@ -2322,6 +2361,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 125,
         "register_index": 2,
         "register_address": 10,
         "bit": 8,
@@ -2363,43 +2403,10 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 126,
         "register_index": 2,
         "register_address": 10,
         "bit": 9,
-        "_derived": true
-      }
-    },
-    {
-      "alarm_num": 127,
-      "category": "digital",
-      "zone_raw": null,
-      "zone": "BreakerRelay",
-      "zone_inferred": true,
-      "sld_component_id": "breaker-main",
-      "name": null,
-      "suggested_code_name": null,
-      "reserved": true,
-      "pt_number": null,
-      "sld": {
-        "related_objects_raw": null,
-        "related_objects": [],
-        "change_raw": null,
-        "changes": []
-      },
-      "availability_impact": null,
-      "mouseover": null,
-      "is_fire": false,
-      "severity_signals": {
-        "primary_color": null,
-        "flashing": null,
-        "is_fire": false,
-        "availability_impact": null,
-        "_derived": true
-      },
-      "modbus": {
-        "register_index": 2,
-        "register_address": 10,
-        "bit": 10,
         "_derived": true
       }
     },
@@ -2431,6 +2438,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 128,
         "register_index": 2,
         "register_address": 10,
         "bit": 11,
@@ -2465,6 +2473,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 129,
         "register_index": 2,
         "register_address": 10,
         "bit": 12,
@@ -2499,6 +2508,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 130,
         "register_index": 2,
         "register_address": 10,
         "bit": 13,
@@ -2533,6 +2543,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 131,
         "register_index": 2,
         "register_address": 10,
         "bit": 14,
@@ -2567,6 +2578,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 132,
         "register_index": 2,
         "register_address": 10,
         "bit": 15,
@@ -2661,6 +2673,48 @@
       "modbus": null
     },
     {
+      "alarm_num": 127,
+      "category": "digital",
+      "zone_raw": "Breaker Relay SEL-451",
+      "zone": "BreakerRelay",
+      "zone_inferred": false,
+      "sld_component_id": "breaker-main",
+      "name": "ANSI function PSV05T",
+      "suggested_code_name": "ansi_function_psv05t",
+      "reserved": false,
+      "pt_number": null,
+      "sld": {
+        "related_objects_raw": "Relay",
+        "related_objects": [
+          "Relay"
+        ],
+        "change_raw": "Main obj: Red, show the alarm name",
+        "changes": [
+          {
+            "target": "Main obj",
+            "instruction": "Red, show the alarm name"
+          }
+        ]
+      },
+      "availability_impact": null,
+      "mouseover": "Relay protective function tripped disconnects",
+      "is_fire": false,
+      "severity_signals": {
+        "primary_color": "red",
+        "flashing": false,
+        "is_fire": false,
+        "availability_impact": null,
+        "_derived": true
+      },
+      "modbus": {
+        "discrete_address": 127,
+        "register_index": 2,
+        "register_address": 10,
+        "bit": 10,
+        "_derived": true
+      }
+    },
+    {
       "alarm_num": 201,
       "category": "digital",
       "zone_raw": "Meter 1 SEL735",
@@ -2695,6 +2749,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 201,
         "register_index": 3,
         "register_address": 11,
         "bit": 0,
@@ -2736,6 +2791,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 202,
         "register_index": 3,
         "register_address": 11,
         "bit": 1,
@@ -2777,6 +2833,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 203,
         "register_index": 3,
         "register_address": 11,
         "bit": 2,
@@ -2811,6 +2868,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 204,
         "register_index": 3,
         "register_address": 11,
         "bit": 3,
@@ -2845,6 +2903,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 205,
         "register_index": 3,
         "register_address": 11,
         "bit": 4,
@@ -2879,6 +2938,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 206,
         "register_index": 3,
         "register_address": 11,
         "bit": 5,
@@ -2913,6 +2973,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 207,
         "register_index": 3,
         "register_address": 11,
         "bit": 6,
@@ -2947,6 +3008,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 208,
         "register_index": 3,
         "register_address": 11,
         "bit": 7,
@@ -2981,6 +3043,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 209,
         "register_index": 3,
         "register_address": 11,
         "bit": 8,
@@ -3015,6 +3078,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 210,
         "register_index": 3,
         "register_address": 11,
         "bit": 9,
@@ -3056,6 +3120,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 301,
         "register_index": 4,
         "register_address": 12,
         "bit": 0,
@@ -3097,6 +3162,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 302,
         "register_index": 4,
         "register_address": 12,
         "bit": 1,
@@ -3138,6 +3204,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 303,
         "register_index": 4,
         "register_address": 12,
         "bit": 2,
@@ -3174,6 +3241,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 304,
         "register_index": 4,
         "register_address": 12,
         "bit": 3,
@@ -3210,6 +3278,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 305,
         "register_index": 4,
         "register_address": 12,
         "bit": 4,
@@ -3246,6 +3315,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 306,
         "register_index": 4,
         "register_address": 12,
         "bit": 5,
@@ -3282,6 +3352,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 307,
         "register_index": 4,
         "register_address": 12,
         "bit": 6,
@@ -3318,6 +3389,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 308,
         "register_index": 4,
         "register_address": 12,
         "bit": 7,
@@ -3354,6 +3426,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 309,
         "register_index": 4,
         "register_address": 12,
         "bit": 8,
@@ -3390,6 +3463,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 310,
         "register_index": 4,
         "register_address": 12,
         "bit": 9,
@@ -3431,6 +3505,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 311,
         "register_index": 5,
         "register_address": 13,
         "bit": 0,
@@ -3472,6 +3547,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 312,
         "register_index": 5,
         "register_address": 13,
         "bit": 1,
@@ -3513,6 +3589,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 313,
         "register_index": 5,
         "register_address": 13,
         "bit": 2,
@@ -3549,6 +3626,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 314,
         "register_index": 5,
         "register_address": 13,
         "bit": 3,
@@ -3585,6 +3663,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 315,
         "register_index": 5,
         "register_address": 13,
         "bit": 4,
@@ -3621,6 +3700,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 316,
         "register_index": 5,
         "register_address": 13,
         "bit": 5,
@@ -3657,6 +3737,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 317,
         "register_index": 5,
         "register_address": 13,
         "bit": 6,
@@ -3693,6 +3774,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 318,
         "register_index": 5,
         "register_address": 13,
         "bit": 7,
@@ -3729,6 +3811,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 319,
         "register_index": 5,
         "register_address": 13,
         "bit": 8,
@@ -3765,6 +3848,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 320,
         "register_index": 5,
         "register_address": 13,
         "bit": 9,
@@ -3806,6 +3890,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 321,
         "register_index": 6,
         "register_address": 14,
         "bit": 0,
@@ -3847,6 +3932,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 322,
         "register_index": 6,
         "register_address": 14,
         "bit": 1,
@@ -3888,6 +3974,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 323,
         "register_index": 6,
         "register_address": 14,
         "bit": 2,
@@ -3929,6 +4016,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 324,
         "register_index": 6,
         "register_address": 14,
         "bit": 3,
@@ -3970,6 +4058,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 325,
         "register_index": 6,
         "register_address": 14,
         "bit": 4,
@@ -4004,6 +4093,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 326,
         "register_index": 6,
         "register_address": 14,
         "bit": 5,
@@ -4038,6 +4128,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 327,
         "register_index": 6,
         "register_address": 14,
         "bit": 6,
@@ -4072,6 +4163,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 328,
         "register_index": 6,
         "register_address": 14,
         "bit": 7,
@@ -4106,6 +4198,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 329,
         "register_index": 6,
         "register_address": 14,
         "bit": 8,
@@ -4140,6 +4233,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 330,
         "register_index": 6,
         "register_address": 14,
         "bit": 9,
@@ -4185,6 +4279,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 401,
         "register_index": 7,
         "register_address": 15,
         "bit": 0,
@@ -4226,6 +4321,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 402,
         "register_index": 7,
         "register_address": 15,
         "bit": 1,
@@ -4267,6 +4363,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 403,
         "register_index": 7,
         "register_address": 15,
         "bit": 2,
@@ -4308,6 +4405,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 404,
         "register_index": 7,
         "register_address": 15,
         "bit": 3,
@@ -4349,6 +4447,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 405,
         "register_index": 7,
         "register_address": 15,
         "bit": 4,
@@ -4390,6 +4489,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 406,
         "register_index": 7,
         "register_address": 15,
         "bit": 5,
@@ -4431,6 +4531,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 407,
         "register_index": 7,
         "register_address": 15,
         "bit": 6,
@@ -4472,6 +4573,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 408,
         "register_index": 7,
         "register_address": 15,
         "bit": 7,
@@ -4513,6 +4615,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 409,
         "register_index": 7,
         "register_address": 15,
         "bit": 8,
@@ -4554,6 +4657,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 410,
         "register_index": 7,
         "register_address": 15,
         "bit": 9,
@@ -4595,6 +4699,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 411,
         "register_index": 7,
         "register_address": 15,
         "bit": 10,
@@ -4636,6 +4741,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 412,
         "register_index": 7,
         "register_address": 15,
         "bit": 11,
@@ -4677,6 +4783,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 413,
         "register_index": 7,
         "register_address": 15,
         "bit": 12,
@@ -4718,6 +4825,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 414,
         "register_index": 7,
         "register_address": 15,
         "bit": 13,
@@ -4759,6 +4867,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 415,
         "register_index": 7,
         "register_address": 15,
         "bit": 14,
@@ -4800,6 +4909,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 416,
         "register_index": 7,
         "register_address": 15,
         "bit": 15,
@@ -4841,6 +4951,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 417,
         "register_index": 8,
         "register_address": 16,
         "bit": 0,
@@ -4882,6 +4993,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 418,
         "register_index": 8,
         "register_address": 16,
         "bit": 1,
@@ -4918,6 +5030,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 419,
         "register_index": 8,
         "register_address": 16,
         "bit": 2,
@@ -4952,6 +5065,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 420,
         "register_index": 8,
         "register_address": 16,
         "bit": 3,
@@ -4986,6 +5100,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 421,
         "register_index": 8,
         "register_address": 16,
         "bit": 4,
@@ -5020,6 +5135,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 422,
         "register_index": 8,
         "register_address": 16,
         "bit": 5,
@@ -5054,6 +5170,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 423,
         "register_index": 8,
         "register_address": 16,
         "bit": 6,
@@ -5088,6 +5205,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 424,
         "register_index": 8,
         "register_address": 16,
         "bit": 7,
@@ -5122,6 +5240,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 425,
         "register_index": 8,
         "register_address": 16,
         "bit": 8,
@@ -5163,6 +5282,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 501,
         "register_index": 9,
         "register_address": 17,
         "bit": 0,
@@ -5204,6 +5324,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 502,
         "register_index": 9,
         "register_address": 17,
         "bit": 1,
@@ -5245,6 +5366,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 503,
         "register_index": 9,
         "register_address": 17,
         "bit": 2,
@@ -5286,6 +5408,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 504,
         "register_index": 9,
         "register_address": 17,
         "bit": 3,
@@ -5327,6 +5450,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 505,
         "register_index": 9,
         "register_address": 17,
         "bit": 4,
@@ -5368,6 +5492,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 506,
         "register_index": 9,
         "register_address": 17,
         "bit": 5,
@@ -5409,6 +5534,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 507,
         "register_index": 9,
         "register_address": 17,
         "bit": 6,
@@ -5450,6 +5576,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 508,
         "register_index": 9,
         "register_address": 17,
         "bit": 7,
@@ -5491,6 +5618,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 509,
         "register_index": 9,
         "register_address": 17,
         "bit": 8,
@@ -5532,6 +5660,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 510,
         "register_index": 9,
         "register_address": 17,
         "bit": 9,
@@ -5573,6 +5702,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 601,
         "register_index": 10,
         "register_address": 18,
         "bit": 0,
@@ -5614,6 +5744,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 602,
         "register_index": 10,
         "register_address": 18,
         "bit": 1,
@@ -5655,6 +5786,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 603,
         "register_index": 10,
         "register_address": 18,
         "bit": 2,
@@ -5696,6 +5828,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 604,
         "register_index": 10,
         "register_address": 18,
         "bit": 3,
@@ -5737,6 +5870,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 605,
         "register_index": 10,
         "register_address": 18,
         "bit": 4,
@@ -5778,6 +5912,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 606,
         "register_index": 10,
         "register_address": 18,
         "bit": 5,
@@ -5819,6 +5954,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 607,
         "register_index": 10,
         "register_address": 18,
         "bit": 6,
@@ -5860,6 +5996,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 608,
         "register_index": 10,
         "register_address": 18,
         "bit": 7,
@@ -5901,6 +6038,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 609,
         "register_index": 10,
         "register_address": 18,
         "bit": 8,
@@ -5942,6 +6080,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 610,
         "register_index": 10,
         "register_address": 18,
         "bit": 9,
@@ -5983,6 +6122,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 611,
         "register_index": 10,
         "register_address": 18,
         "bit": 10,
@@ -6024,6 +6164,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 612,
         "register_index": 10,
         "register_address": 18,
         "bit": 11,
@@ -6065,6 +6206,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 613,
         "register_index": 10,
         "register_address": 18,
         "bit": 12,
@@ -6106,6 +6248,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 614,
         "register_index": 10,
         "register_address": 18,
         "bit": 13,
@@ -6147,6 +6290,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 615,
         "register_index": 10,
         "register_address": 18,
         "bit": 14,
@@ -6183,6 +6327,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 616,
         "register_index": 10,
         "register_address": 18,
         "bit": 15,
@@ -6224,6 +6369,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 617,
         "register_index": 11,
         "register_address": 19,
         "bit": 0,
@@ -6265,6 +6411,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 618,
         "register_index": 11,
         "register_address": 19,
         "bit": 1,
@@ -6306,6 +6453,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 619,
         "register_index": 11,
         "register_address": 19,
         "bit": 2,
@@ -6342,6 +6490,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 620,
         "register_index": 11,
         "register_address": 19,
         "bit": 3,
@@ -6383,6 +6532,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 621,
         "register_index": 11,
         "register_address": 19,
         "bit": 4,
@@ -6419,6 +6569,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 622,
         "register_index": 11,
         "register_address": 19,
         "bit": 5,
@@ -6455,6 +6606,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 623,
         "register_index": 11,
         "register_address": 19,
         "bit": 6,
@@ -6491,6 +6643,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 624,
         "register_index": 11,
         "register_address": 19,
         "bit": 7,
@@ -6527,6 +6680,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 625,
         "register_index": 11,
         "register_address": 19,
         "bit": 8,
@@ -6563,6 +6717,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 626,
         "register_index": 11,
         "register_address": 19,
         "bit": 9,
@@ -6599,6 +6754,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 627,
         "register_index": 11,
         "register_address": 19,
         "bit": 10,
@@ -6635,6 +6791,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 628,
         "register_index": 11,
         "register_address": 19,
         "bit": 11,
@@ -6671,6 +6828,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 629,
         "register_index": 11,
         "register_address": 19,
         "bit": 12,
@@ -6707,6 +6865,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 630,
         "register_index": 11,
         "register_address": 19,
         "bit": 13,
@@ -6748,6 +6907,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 631,
         "register_index": 12,
         "register_address": 20,
         "bit": 0,
@@ -6789,6 +6949,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 632,
         "register_index": 12,
         "register_address": 20,
         "bit": 1,
@@ -6830,6 +6991,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 633,
         "register_index": 12,
         "register_address": 20,
         "bit": 2,
@@ -6871,6 +7033,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 634,
         "register_index": 12,
         "register_address": 20,
         "bit": 3,
@@ -6912,6 +7075,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 635,
         "register_index": 12,
         "register_address": 20,
         "bit": 4,
@@ -6953,6 +7117,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 636,
         "register_index": 12,
         "register_address": 20,
         "bit": 5,
@@ -6994,6 +7159,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 637,
         "register_index": 12,
         "register_address": 20,
         "bit": 6,
@@ -7035,6 +7201,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 638,
         "register_index": 12,
         "register_address": 20,
         "bit": 7,
@@ -7076,6 +7243,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 639,
         "register_index": 12,
         "register_address": 20,
         "bit": 8,
@@ -7117,6 +7285,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 640,
         "register_index": 12,
         "register_address": 20,
         "bit": 9,
@@ -7158,6 +7327,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 641,
         "register_index": 12,
         "register_address": 20,
         "bit": 10,
@@ -7199,6 +7369,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 642,
         "register_index": 12,
         "register_address": 20,
         "bit": 11,
@@ -7240,6 +7411,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 643,
         "register_index": 12,
         "register_address": 20,
         "bit": 12,
@@ -7281,6 +7453,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 644,
         "register_index": 12,
         "register_address": 20,
         "bit": 13,
@@ -7322,6 +7495,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 645,
         "register_index": 12,
         "register_address": 20,
         "bit": 14,
@@ -7358,6 +7532,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 646,
         "register_index": 12,
         "register_address": 20,
         "bit": 15,
@@ -7399,6 +7574,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 647,
         "register_index": 13,
         "register_address": 21,
         "bit": 0,
@@ -7440,6 +7616,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 648,
         "register_index": 13,
         "register_address": 21,
         "bit": 1,
@@ -7481,6 +7658,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 649,
         "register_index": 13,
         "register_address": 21,
         "bit": 2,
@@ -7517,6 +7695,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 650,
         "register_index": 13,
         "register_address": 21,
         "bit": 3,
@@ -7558,6 +7737,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 651,
         "register_index": 13,
         "register_address": 21,
         "bit": 4,
@@ -7594,6 +7774,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 652,
         "register_index": 13,
         "register_address": 21,
         "bit": 5,
@@ -7630,6 +7811,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 653,
         "register_index": 13,
         "register_address": 21,
         "bit": 6,
@@ -7666,6 +7848,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 654,
         "register_index": 13,
         "register_address": 21,
         "bit": 7,
@@ -7702,6 +7885,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 655,
         "register_index": 13,
         "register_address": 21,
         "bit": 8,
@@ -7738,6 +7922,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 656,
         "register_index": 13,
         "register_address": 21,
         "bit": 9,
@@ -7774,6 +7959,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 657,
         "register_index": 13,
         "register_address": 21,
         "bit": 10,
@@ -7810,6 +7996,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 658,
         "register_index": 13,
         "register_address": 21,
         "bit": 11,
@@ -7846,6 +8033,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 659,
         "register_index": 13,
         "register_address": 21,
         "bit": 12,
@@ -7882,6 +8070,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 660,
         "register_index": 13,
         "register_address": 21,
         "bit": 13,
@@ -7923,6 +8112,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 661,
         "register_index": 14,
         "register_address": 22,
         "bit": 0,
@@ -7964,6 +8154,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 662,
         "register_index": 14,
         "register_address": 22,
         "bit": 1,
@@ -8005,6 +8196,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 663,
         "register_index": 14,
         "register_address": 22,
         "bit": 2,
@@ -8046,6 +8238,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 664,
         "register_index": 14,
         "register_address": 22,
         "bit": 3,
@@ -8087,6 +8280,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 665,
         "register_index": 14,
         "register_address": 22,
         "bit": 4,
@@ -8128,6 +8322,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 666,
         "register_index": 14,
         "register_address": 22,
         "bit": 5,
@@ -8169,6 +8364,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 667,
         "register_index": 14,
         "register_address": 22,
         "bit": 6,
@@ -8210,6 +8406,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 668,
         "register_index": 14,
         "register_address": 22,
         "bit": 7,
@@ -8251,6 +8448,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 669,
         "register_index": 14,
         "register_address": 22,
         "bit": 8,
@@ -8292,6 +8490,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 670,
         "register_index": 14,
         "register_address": 22,
         "bit": 9,
@@ -8333,6 +8532,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 671,
         "register_index": 14,
         "register_address": 22,
         "bit": 10,
@@ -8374,6 +8574,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 672,
         "register_index": 14,
         "register_address": 22,
         "bit": 11,
@@ -8415,6 +8616,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 673,
         "register_index": 14,
         "register_address": 22,
         "bit": 12,
@@ -8456,6 +8658,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 674,
         "register_index": 14,
         "register_address": 22,
         "bit": 13,
@@ -8497,6 +8700,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 675,
         "register_index": 14,
         "register_address": 22,
         "bit": 14,
@@ -8533,6 +8737,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 676,
         "register_index": 14,
         "register_address": 22,
         "bit": 15,
@@ -8574,6 +8779,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 677,
         "register_index": 15,
         "register_address": 23,
         "bit": 0,
@@ -8615,6 +8821,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 678,
         "register_index": 15,
         "register_address": 23,
         "bit": 1,
@@ -8656,6 +8863,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 679,
         "register_index": 15,
         "register_address": 23,
         "bit": 2,
@@ -8692,6 +8900,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 680,
         "register_index": 15,
         "register_address": 23,
         "bit": 3,
@@ -8733,6 +8942,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 681,
         "register_index": 15,
         "register_address": 23,
         "bit": 4,
@@ -8769,6 +8979,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 682,
         "register_index": 15,
         "register_address": 23,
         "bit": 5,
@@ -8805,6 +9016,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 683,
         "register_index": 15,
         "register_address": 23,
         "bit": 6,
@@ -8841,6 +9053,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 684,
         "register_index": 15,
         "register_address": 23,
         "bit": 7,
@@ -8877,6 +9090,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 685,
         "register_index": 15,
         "register_address": 23,
         "bit": 8,
@@ -8913,6 +9127,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 686,
         "register_index": 15,
         "register_address": 23,
         "bit": 9,
@@ -8949,6 +9164,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 687,
         "register_index": 15,
         "register_address": 23,
         "bit": 10,
@@ -8985,6 +9201,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 688,
         "register_index": 15,
         "register_address": 23,
         "bit": 11,
@@ -9021,6 +9238,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 689,
         "register_index": 15,
         "register_address": 23,
         "bit": 12,
@@ -9057,6 +9275,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 690,
         "register_index": 15,
         "register_address": 23,
         "bit": 13,
@@ -9098,6 +9317,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 691,
         "register_index": 16,
         "register_address": 24,
         "bit": 0,
@@ -9139,6 +9359,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 692,
         "register_index": 16,
         "register_address": 24,
         "bit": 1,
@@ -9180,6 +9401,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 693,
         "register_index": 16,
         "register_address": 24,
         "bit": 2,
@@ -9221,6 +9443,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 694,
         "register_index": 16,
         "register_address": 24,
         "bit": 3,
@@ -9262,6 +9485,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 695,
         "register_index": 16,
         "register_address": 24,
         "bit": 4,
@@ -9303,6 +9527,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 696,
         "register_index": 16,
         "register_address": 24,
         "bit": 5,
@@ -9344,6 +9569,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 697,
         "register_index": 16,
         "register_address": 24,
         "bit": 6,
@@ -9385,6 +9611,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 698,
         "register_index": 16,
         "register_address": 24,
         "bit": 7,
@@ -9426,6 +9653,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 699,
         "register_index": 16,
         "register_address": 24,
         "bit": 8,
@@ -9467,6 +9695,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 700,
         "register_index": 16,
         "register_address": 24,
         "bit": 9,
@@ -9508,6 +9737,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 701,
         "register_index": 16,
         "register_address": 24,
         "bit": 10,
@@ -9549,6 +9779,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 702,
         "register_index": 16,
         "register_address": 24,
         "bit": 11,
@@ -9590,6 +9821,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 703,
         "register_index": 16,
         "register_address": 24,
         "bit": 12,
@@ -9631,6 +9863,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 704,
         "register_index": 16,
         "register_address": 24,
         "bit": 13,
@@ -9672,6 +9905,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 705,
         "register_index": 16,
         "register_address": 24,
         "bit": 14,
@@ -9708,6 +9942,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 706,
         "register_index": 16,
         "register_address": 24,
         "bit": 15,
@@ -9749,6 +9984,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 707,
         "register_index": 17,
         "register_address": 25,
         "bit": 0,
@@ -9790,6 +10026,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 708,
         "register_index": 17,
         "register_address": 25,
         "bit": 1,
@@ -9831,6 +10068,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 709,
         "register_index": 17,
         "register_address": 25,
         "bit": 2,
@@ -9867,6 +10105,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 710,
         "register_index": 17,
         "register_address": 25,
         "bit": 3,
@@ -9908,6 +10147,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 711,
         "register_index": 17,
         "register_address": 25,
         "bit": 4,
@@ -9944,6 +10184,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 712,
         "register_index": 17,
         "register_address": 25,
         "bit": 5,
@@ -9980,6 +10221,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 713,
         "register_index": 17,
         "register_address": 25,
         "bit": 6,
@@ -10016,6 +10258,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 714,
         "register_index": 17,
         "register_address": 25,
         "bit": 7,
@@ -10052,6 +10295,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 715,
         "register_index": 17,
         "register_address": 25,
         "bit": 8,
@@ -10088,6 +10332,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 716,
         "register_index": 17,
         "register_address": 25,
         "bit": 9,
@@ -10124,6 +10369,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 717,
         "register_index": 17,
         "register_address": 25,
         "bit": 10,
@@ -10160,6 +10406,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 718,
         "register_index": 17,
         "register_address": 25,
         "bit": 11,
@@ -10196,6 +10443,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 719,
         "register_index": 17,
         "register_address": 25,
         "bit": 12,
@@ -10232,6 +10480,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 720,
         "register_index": 17,
         "register_address": 25,
         "bit": 13,
@@ -10273,6 +10522,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 721,
         "register_index": 18,
         "register_address": 26,
         "bit": 0,
@@ -10314,6 +10564,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 722,
         "register_index": 18,
         "register_address": 26,
         "bit": 1,
@@ -10355,6 +10606,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 723,
         "register_index": 18,
         "register_address": 26,
         "bit": 2,
@@ -10396,6 +10648,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 724,
         "register_index": 18,
         "register_address": 26,
         "bit": 3,
@@ -10437,6 +10690,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 725,
         "register_index": 18,
         "register_address": 26,
         "bit": 4,
@@ -10478,6 +10732,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 726,
         "register_index": 18,
         "register_address": 26,
         "bit": 5,
@@ -10519,6 +10774,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 727,
         "register_index": 18,
         "register_address": 26,
         "bit": 6,
@@ -10560,6 +10816,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 728,
         "register_index": 18,
         "register_address": 26,
         "bit": 7,
@@ -10601,6 +10858,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 729,
         "register_index": 18,
         "register_address": 26,
         "bit": 8,
@@ -10642,6 +10900,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 730,
         "register_index": 18,
         "register_address": 26,
         "bit": 9,
@@ -10683,6 +10942,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 731,
         "register_index": 18,
         "register_address": 26,
         "bit": 10,
@@ -10724,6 +10984,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 732,
         "register_index": 18,
         "register_address": 26,
         "bit": 11,
@@ -10765,6 +11026,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 733,
         "register_index": 18,
         "register_address": 26,
         "bit": 12,
@@ -10806,6 +11068,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 734,
         "register_index": 18,
         "register_address": 26,
         "bit": 13,
@@ -10847,6 +11110,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 735,
         "register_index": 18,
         "register_address": 26,
         "bit": 14,
@@ -10883,6 +11147,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 736,
         "register_index": 18,
         "register_address": 26,
         "bit": 15,
@@ -10924,6 +11189,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 737,
         "register_index": 19,
         "register_address": 27,
         "bit": 0,
@@ -10965,6 +11231,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 738,
         "register_index": 19,
         "register_address": 27,
         "bit": 1,
@@ -11006,6 +11273,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 739,
         "register_index": 19,
         "register_address": 27,
         "bit": 2,
@@ -11042,6 +11310,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 740,
         "register_index": 19,
         "register_address": 27,
         "bit": 3,
@@ -11083,6 +11352,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 741,
         "register_index": 19,
         "register_address": 27,
         "bit": 4,
@@ -11119,6 +11389,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 742,
         "register_index": 19,
         "register_address": 27,
         "bit": 5,
@@ -11155,6 +11426,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 743,
         "register_index": 19,
         "register_address": 27,
         "bit": 6,
@@ -11191,6 +11463,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 744,
         "register_index": 19,
         "register_address": 27,
         "bit": 7,
@@ -11227,6 +11500,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 745,
         "register_index": 19,
         "register_address": 27,
         "bit": 8,
@@ -11263,6 +11537,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 746,
         "register_index": 19,
         "register_address": 27,
         "bit": 9,
@@ -11299,6 +11574,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 747,
         "register_index": 19,
         "register_address": 27,
         "bit": 10,
@@ -11335,6 +11611,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 748,
         "register_index": 19,
         "register_address": 27,
         "bit": 11,
@@ -11371,6 +11648,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 749,
         "register_index": 19,
         "register_address": 27,
         "bit": 12,
@@ -11407,6 +11685,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 750,
         "register_index": 19,
         "register_address": 27,
         "bit": 13,
@@ -11448,6 +11727,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 751,
         "register_index": 20,
         "register_address": 28,
         "bit": 0,
@@ -11489,6 +11769,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 752,
         "register_index": 20,
         "register_address": 28,
         "bit": 1,
@@ -11530,6 +11811,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 753,
         "register_index": 20,
         "register_address": 28,
         "bit": 2,
@@ -11571,6 +11853,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 754,
         "register_index": 20,
         "register_address": 28,
         "bit": 3,
@@ -11612,6 +11895,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 755,
         "register_index": 20,
         "register_address": 28,
         "bit": 4,
@@ -11653,6 +11937,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 756,
         "register_index": 20,
         "register_address": 28,
         "bit": 5,
@@ -11694,6 +11979,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 757,
         "register_index": 20,
         "register_address": 28,
         "bit": 6,
@@ -11735,6 +12021,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 758,
         "register_index": 20,
         "register_address": 28,
         "bit": 7,
@@ -11776,6 +12063,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 759,
         "register_index": 20,
         "register_address": 28,
         "bit": 8,
@@ -11817,6 +12105,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 760,
         "register_index": 20,
         "register_address": 28,
         "bit": 9,
@@ -11858,6 +12147,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 761,
         "register_index": 20,
         "register_address": 28,
         "bit": 10,
@@ -11899,6 +12189,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 762,
         "register_index": 20,
         "register_address": 28,
         "bit": 11,
@@ -11940,6 +12231,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 763,
         "register_index": 20,
         "register_address": 28,
         "bit": 12,
@@ -11981,6 +12273,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 764,
         "register_index": 20,
         "register_address": 28,
         "bit": 13,
@@ -12022,6 +12315,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 765,
         "register_index": 20,
         "register_address": 28,
         "bit": 14,
@@ -12058,6 +12352,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 766,
         "register_index": 20,
         "register_address": 28,
         "bit": 15,
@@ -12099,6 +12394,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 767,
         "register_index": 21,
         "register_address": 29,
         "bit": 0,
@@ -12140,6 +12436,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 768,
         "register_index": 21,
         "register_address": 29,
         "bit": 1,
@@ -12181,6 +12478,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 769,
         "register_index": 21,
         "register_address": 29,
         "bit": 2,
@@ -12217,6 +12515,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 770,
         "register_index": 21,
         "register_address": 29,
         "bit": 3,
@@ -12258,6 +12557,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 771,
         "register_index": 21,
         "register_address": 29,
         "bit": 4,
@@ -12294,6 +12594,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 772,
         "register_index": 21,
         "register_address": 29,
         "bit": 5,
@@ -12330,6 +12631,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 773,
         "register_index": 21,
         "register_address": 29,
         "bit": 6,
@@ -12366,6 +12668,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 774,
         "register_index": 21,
         "register_address": 29,
         "bit": 7,
@@ -12402,6 +12705,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 775,
         "register_index": 21,
         "register_address": 29,
         "bit": 8,
@@ -12438,6 +12742,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 776,
         "register_index": 21,
         "register_address": 29,
         "bit": 9,
@@ -12474,6 +12779,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 777,
         "register_index": 21,
         "register_address": 29,
         "bit": 10,
@@ -12510,6 +12816,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 778,
         "register_index": 21,
         "register_address": 29,
         "bit": 11,
@@ -12546,6 +12853,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 779,
         "register_index": 21,
         "register_address": 29,
         "bit": 12,
@@ -12582,6 +12890,7 @@
         "_derived": true
       },
       "modbus": {
+        "discrete_address": 780,
         "register_index": 21,
         "register_address": 29,
         "bit": 13,
@@ -12615,7 +12924,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 101,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 102,
@@ -12642,7 +12955,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 102,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 601,
@@ -12665,7 +12982,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 601,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 602,
@@ -12688,7 +13009,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 602,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 603,
@@ -12711,7 +13036,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 603,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 604,
@@ -12734,7 +13063,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 604,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 605,
@@ -12759,7 +13092,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 605,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 606,
@@ -12782,7 +13119,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 606,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 607,
@@ -12805,7 +13146,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 607,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 608,
@@ -12828,7 +13173,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 608,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 609,
@@ -12851,7 +13200,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 609,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 610,
@@ -12874,7 +13227,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 610,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 611,
@@ -12897,7 +13254,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 611,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 612,
@@ -12920,7 +13281,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 612,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 613,
@@ -12943,7 +13308,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 613,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 614,
@@ -12966,7 +13335,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 614,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 615,
@@ -12989,7 +13362,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 615,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 616,
@@ -13012,7 +13389,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 616,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 617,
@@ -13035,7 +13416,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 617,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 618,
@@ -13058,7 +13443,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 618,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 619,
@@ -13087,7 +13476,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 619,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 620,
@@ -13116,7 +13509,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 620,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 621,
@@ -13139,7 +13536,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 621,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 622,
@@ -13162,7 +13563,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 622,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 623,
@@ -13185,7 +13590,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 623,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 624,
@@ -13208,7 +13617,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 624,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 625,
@@ -13231,7 +13644,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 625,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 626,
@@ -13254,7 +13671,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 626,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 627,
@@ -13277,7 +13698,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 627,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 628,
@@ -13300,7 +13725,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 628,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 629,
@@ -13323,7 +13752,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 629,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 630,
@@ -13346,7 +13779,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 630,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 631,
@@ -13369,7 +13806,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 631,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 632,
@@ -13392,7 +13833,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 632,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 633,
@@ -13415,7 +13860,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 633,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 634,
@@ -13438,7 +13887,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 634,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 635,
@@ -13463,7 +13916,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 635,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 636,
@@ -13486,7 +13943,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 636,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 637,
@@ -13509,7 +13970,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 637,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 638,
@@ -13532,7 +13997,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 638,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 639,
@@ -13555,7 +14024,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 639,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 640,
@@ -13578,7 +14051,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 640,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 641,
@@ -13601,7 +14078,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 641,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 642,
@@ -13624,7 +14105,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 642,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 643,
@@ -13647,7 +14132,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 643,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 644,
@@ -13670,7 +14159,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 644,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 645,
@@ -13693,7 +14186,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 645,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 646,
@@ -13716,7 +14213,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 646,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 647,
@@ -13739,7 +14240,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 647,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 648,
@@ -13762,7 +14267,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 648,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 649,
@@ -13791,7 +14300,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 649,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 650,
@@ -13820,7 +14333,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 650,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 651,
@@ -13843,7 +14360,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 651,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 652,
@@ -13866,7 +14387,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 652,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 653,
@@ -13889,7 +14414,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 653,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 654,
@@ -13912,7 +14441,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 654,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 655,
@@ -13935,7 +14468,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 655,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 656,
@@ -13958,7 +14495,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 656,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 657,
@@ -13981,7 +14522,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 657,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 658,
@@ -14004,7 +14549,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 658,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 659,
@@ -14027,7 +14576,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 659,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 660,
@@ -14050,7 +14603,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 660,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 661,
@@ -14073,7 +14630,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 661,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 662,
@@ -14096,7 +14657,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 662,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 663,
@@ -14119,7 +14684,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 663,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 664,
@@ -14142,7 +14711,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 664,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 665,
@@ -14167,7 +14740,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 665,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 666,
@@ -14190,7 +14767,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 666,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 667,
@@ -14213,7 +14794,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 667,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 668,
@@ -14236,7 +14821,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 668,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 669,
@@ -14259,7 +14848,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 669,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 670,
@@ -14282,7 +14875,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 670,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 671,
@@ -14305,7 +14902,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 671,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 672,
@@ -14328,7 +14929,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 672,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 673,
@@ -14351,7 +14956,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 673,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 674,
@@ -14374,7 +14983,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 674,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 675,
@@ -14397,7 +15010,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 675,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 676,
@@ -14420,7 +15037,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 676,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 677,
@@ -14443,7 +15064,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 677,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 678,
@@ -14466,7 +15091,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 678,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 679,
@@ -14495,7 +15124,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 679,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 680,
@@ -14524,7 +15157,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 680,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 681,
@@ -14547,7 +15184,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 681,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 682,
@@ -14570,7 +15211,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 682,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 683,
@@ -14593,7 +15238,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 683,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 684,
@@ -14616,7 +15265,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 684,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 685,
@@ -14639,7 +15292,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 685,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 686,
@@ -14662,7 +15319,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 686,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 687,
@@ -14685,7 +15346,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 687,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 688,
@@ -14708,7 +15373,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 688,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 689,
@@ -14731,7 +15400,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 689,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 690,
@@ -14754,7 +15427,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 690,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 691,
@@ -14777,7 +15454,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 691,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 692,
@@ -14800,7 +15481,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 692,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 693,
@@ -14823,7 +15508,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 693,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 694,
@@ -14846,7 +15535,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 694,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 695,
@@ -14871,7 +15564,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 695,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 696,
@@ -14894,7 +15591,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 696,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 697,
@@ -14917,7 +15618,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 697,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 698,
@@ -14940,7 +15645,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 698,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 699,
@@ -14963,7 +15672,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 699,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 700,
@@ -14986,7 +15699,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 700,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 701,
@@ -15009,7 +15726,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 701,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 702,
@@ -15032,7 +15753,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 702,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 703,
@@ -15055,7 +15780,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 703,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 704,
@@ -15078,7 +15807,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 704,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 705,
@@ -15101,7 +15834,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 705,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 706,
@@ -15124,7 +15861,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 706,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 707,
@@ -15147,7 +15888,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 707,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 708,
@@ -15170,7 +15915,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 708,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 709,
@@ -15199,7 +15948,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 709,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 710,
@@ -15228,7 +15981,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 710,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 711,
@@ -15251,7 +16008,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 711,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 712,
@@ -15274,7 +16035,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 712,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 713,
@@ -15297,7 +16062,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 713,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 714,
@@ -15320,7 +16089,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 714,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 715,
@@ -15343,7 +16116,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 715,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 716,
@@ -15366,7 +16143,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 716,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 717,
@@ -15389,7 +16170,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 717,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 718,
@@ -15412,7 +16197,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 718,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 719,
@@ -15435,7 +16224,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 719,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 720,
@@ -15458,7 +16251,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 720,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 721,
@@ -15481,7 +16278,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 721,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 722,
@@ -15504,7 +16305,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 722,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 723,
@@ -15527,7 +16332,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 723,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 724,
@@ -15550,7 +16359,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 724,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 725,
@@ -15575,7 +16388,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 725,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 726,
@@ -15598,7 +16415,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 726,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 727,
@@ -15621,7 +16442,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 727,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 728,
@@ -15644,7 +16469,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 728,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 729,
@@ -15667,7 +16496,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 729,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 730,
@@ -15690,7 +16523,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 730,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 731,
@@ -15713,7 +16550,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 731,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 732,
@@ -15736,7 +16577,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 732,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 733,
@@ -15759,7 +16604,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 733,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 734,
@@ -15782,7 +16631,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 734,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 735,
@@ -15805,7 +16658,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 735,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 736,
@@ -15828,7 +16685,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 736,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 737,
@@ -15851,7 +16712,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 737,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 738,
@@ -15874,7 +16739,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 738,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 739,
@@ -15903,7 +16772,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 739,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 740,
@@ -15932,7 +16805,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 740,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 741,
@@ -15955,7 +16832,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 741,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 742,
@@ -15978,7 +16859,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 742,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 743,
@@ -16001,7 +16886,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 743,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 744,
@@ -16024,7 +16913,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 744,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 745,
@@ -16047,7 +16940,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 745,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 746,
@@ -16070,7 +16967,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 746,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 747,
@@ -16093,7 +16994,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 747,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 748,
@@ -16116,7 +17021,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 748,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 749,
@@ -16139,7 +17048,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 749,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 750,
@@ -16162,7 +17075,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 750,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 751,
@@ -16185,7 +17102,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 751,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 752,
@@ -16208,7 +17129,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 752,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 753,
@@ -16231,7 +17156,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 753,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 754,
@@ -16254,7 +17183,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 754,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 755,
@@ -16279,7 +17212,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 755,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 756,
@@ -16302,7 +17239,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 756,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 757,
@@ -16325,7 +17266,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 757,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 758,
@@ -16348,7 +17293,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 758,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 759,
@@ -16371,7 +17320,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 759,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 760,
@@ -16394,7 +17347,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 760,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 761,
@@ -16417,7 +17374,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 761,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 762,
@@ -16440,7 +17401,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 762,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 763,
@@ -16463,7 +17428,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 763,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 764,
@@ -16486,7 +17455,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 764,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 765,
@@ -16509,7 +17482,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 765,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 766,
@@ -16532,7 +17509,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 766,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 767,
@@ -16555,7 +17536,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 767,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 768,
@@ -16578,7 +17563,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 768,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 769,
@@ -16607,7 +17596,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 769,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 770,
@@ -16636,7 +17629,11 @@
       },
       "mouseover": null,
       "is_fire": true,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 770,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 771,
@@ -16659,7 +17656,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 771,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 772,
@@ -16682,7 +17683,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 772,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 773,
@@ -16705,7 +17710,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 773,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 774,
@@ -16728,7 +17737,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 774,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 775,
@@ -16751,7 +17764,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 775,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 776,
@@ -16774,7 +17791,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 776,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 777,
@@ -16797,7 +17818,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 777,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 778,
@@ -16820,7 +17845,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 778,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 779,
@@ -16843,7 +17872,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 779,
+        "_derived": true
+      }
     },
     {
       "alarm_num": 780,
@@ -16866,7 +17899,11 @@
       "threshold": null,
       "mouseover": null,
       "is_fire": false,
-      "alarm_levels": null
+      "alarm_levels": null,
+      "modbus": {
+        "register_address": 780,
+        "_derived": true
+      }
     }
   ],
   "data_quality_issues": [

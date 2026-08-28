@@ -7,12 +7,22 @@
 //! The /api/1/data/schema endpoint is feature-gated behind the `test-staging`
 //! feature to prevent exposure in production environments.
 
+use std::collections::HashMap;
+
 use chrono::NaiveDateTime;
+use neems_data::rtac::{
+    analog_points::megapack_point_name,
+    protocol::{MEGAPACK_ZONES, MP_ANALOG_ENCODING, MP_ANALOG_POINT_COUNT, RegisterMap},
+};
 use rocket::{Route, form::FromForm, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{orm::neems_data::db::SiteDbConn, session_guards::AuthenticatedUser};
+use crate::{
+    api::estop::can_access_site,
+    orm::{DbConn, neems_data::db::SiteDbConn},
+    session_guards::AuthenticatedUser,
+};
 
 /// Response structure for data sources list
 #[derive(Serialize, Deserialize, TS)]
@@ -720,6 +730,240 @@ pub async fn get_site_soc_history(
         .await
 }
 
+/// The analog measurements we currently read per Megapack.
+///
+/// Named for the client spreadsheet's `Analogs` sheet rather than for the
+/// diagram slots they end up in — the frontend owns that mapping, and keeping
+/// the wire names aligned with the spec is what lets the two be checked
+/// against each other.
+///
+/// Every field is optional because a pack that did not answer must be
+/// distinguishable from one reading zero. On a charge gauge those are opposite
+/// claims.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ZoneAnalogs {
+    /// Charge level as a percentage, 0-100.
+    pub state_of_energy: Option<f64>,
+    pub ac_voltage: Option<f64>,
+    pub max_battery_temperature: Option<f64>,
+    /// Every measurement in the pack's block, in the spreadsheet's order.
+    ///
+    /// Empty for a reading stored before raw registers were kept; the three
+    /// fields above still populate, so an old reading degrades rather than
+    /// disappears.
+    pub points: Vec<AnalogPointValue>,
+}
+
+/// One analog measurement, as read and as we currently interpret it.
+///
+/// Both halves are present on purpose. `raw` is what the RTAC actually
+/// returned and is the only part we can state as fact. `value` and `unit` are
+/// this build's reading of it, from `MP_ANALOG_ENCODING`, and every one of
+/// them is an assumption until the client confirms the encoding — the
+/// spreadsheet gives no units for any analog row. A consumer that shows
+/// `value` is trusting our guess; one that needs certainty has `raw`.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalogPointValue {
+    /// Spreadsheet name, e.g. `state_of_energy`, `inverter_phaseA_current`.
+    pub name: String,
+    /// Position within the pack's 30-point block, and the offset from its
+    /// base Modbus address.
+    pub offset: u16,
+    /// Modbus register this was read from.
+    pub address: u16,
+    /// The register value, unscaled.
+    pub raw: u16,
+    /// Interpreted value, or `None` for the spare points we decline to guess.
+    pub value: Option<f64>,
+    /// Unit of `value`; `None` whenever `value` is.
+    pub unit: Option<String>,
+}
+
+/// Response payload for `GET /api/1/Sites/<id>/LatestAnalogs`.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LatestAnalogsResponse {
+    pub site_id: i32,
+    /// Timestamp of the reading these values came from, or `None` when the
+    /// site has no readings at all. Lets a caller judge staleness rather than
+    /// assuming what it received is current.
+    pub timestamp: Option<NaiveDateTime>,
+    /// Keyed by alarm zone (`Mp1a`...`Mp2c`). A zone absent from the map has
+    /// no reading; it is never present with zeros.
+    pub zones: HashMap<String, ZoneAnalogs>,
+}
+
+/// Pull one numeric field out of a zone's analog object.
+///
+/// Returns `None` for a missing or non-numeric field, and for a non-finite
+/// one — NaN would serialize as JSON `null` anyway, but by way of a value that
+/// compares false against itself first.
+fn analog_field(zone: &serde_json::Value, key: &str) -> Option<f64> {
+    let n = zone.get(key)?.as_f64()?;
+    n.is_finite().then_some(n)
+}
+
+/// Extract the per-zone analog measurements from a reading's JSON `data` blob.
+///
+/// The RTAC collector writes `{ "megapacks": { "Mp1a": { ... } } }`. A reading
+/// predating that field, or written by a different collector, yields an empty
+/// map rather than an error — this endpoint reports what is there.
+pub fn parse_zone_analogs(data_json: &str) -> HashMap<String, ZoneAnalogs> {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data_json) else {
+        return HashMap::new();
+    };
+    let Some(megapacks) = parsed.get("megapacks").and_then(|m| m.as_object()) else {
+        return HashMap::new();
+    };
+
+    megapacks
+        .iter()
+        .map(|(zone, values)| {
+            (
+                zone.clone(),
+                ZoneAnalogs {
+                    state_of_energy: analog_field(values, "state_of_energy"),
+                    ac_voltage: analog_field(values, "ac_voltage"),
+                    max_battery_temperature: analog_field(values, "max_battery_temperature"),
+                    points: parse_analog_points(zone, values),
+                },
+            )
+        })
+        .collect()
+}
+
+/// Expand a zone's stored `raw` register block into named, interpreted points.
+///
+/// Decoding here rather than at collection time is what lets a corrected
+/// encoding reach readings already on disk: storage keeps the registers, and
+/// this applies whatever `MP_ANALOG_ENCODING` currently says.
+///
+/// Returns empty for a zone with no `raw` array (readings written before it
+/// was stored) or a zone name that is not a Megapack — an unrecognised zone
+/// has no block layout to read the values against, and guessing one would
+/// attach real-looking names to arbitrary numbers.
+fn parse_analog_points(zone: &str, values: &serde_json::Value) -> Vec<AnalogPointValue> {
+    let Some(raw) = values.get("raw").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    let Some(pack_index) = MEGAPACK_ZONES.iter().position(|z| z.code() == zone) else {
+        return Vec::new();
+    };
+
+    raw.iter()
+        .take(MP_ANALOG_POINT_COUNT)
+        .enumerate()
+        .filter_map(|(offset, value)| {
+            let raw = u16::try_from(value.as_u64()?).ok()?;
+            let offset = offset as u16;
+            let encoding = MP_ANALOG_ENCODING[offset as usize];
+            Some(AnalogPointValue {
+                name: megapack_point_name(offset)?.to_string(),
+                offset,
+                address: RegisterMap::mp_analog_address(pack_index, offset),
+                raw,
+                // A spare point has no unit because we decline to interpret
+                // it; reporting a value anyway would be a claim we just said
+                // we would not make.
+                value: encoding.unit.map(|_| encoding.decode(raw) as f64),
+                unit: encoding.unit.map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+/// Get the most recent per-zone analog measurements for a site.
+///
+/// - **URL:** `/api/1/Sites/<site_id>/LatestAnalogs`
+/// - **Method:** `GET`
+/// - **Authentication:** Required, and the user must have access to the site
+///
+/// Returns the analog values from the most recent `charging_state` reading
+/// that carries any. Deliberately not a time series: callers poll this for
+/// "what is true now", and making them fetch a window to read its last point
+/// would move the cost to every caller.
+#[get("/1/Sites/<site_id>/LatestAnalogs")]
+pub async fn get_site_latest_analogs(
+    site_id: i32,
+    user: AuthenticatedUser,
+    db: DbConn,
+    site_db: SiteDbConn,
+) -> Result<Json<LatestAnalogsResponse>, Status> {
+    // Authentication alone would let any signed-in user read any site's packs
+    // by guessing an id. The sibling endpoints in this file check only that
+    // someone is logged in, which is tracked separately; a new endpoint should
+    // not add to that. `sites` lives in the main database, so this needs its
+    // own connection alongside the site data one, the way estop.rs does it.
+    let allowed = db.run(move |conn| can_access_site(&user, site_id, conn)).await;
+    if !allowed {
+        return Err(Status::Forbidden);
+    }
+
+    site_db
+        .run(move |conn| {
+            use diesel::prelude::*;
+            use neems_data::schema::{readings, sources};
+
+            let source_ids: Vec<i32> = sources::table
+                .filter(sources::site_id.eq(site_id))
+                .filter(sources::test_type.eq("charging_state"))
+                .select(sources::id.assume_not_null())
+                .load::<i32>(conn)
+                .map_err(|e| {
+                    eprintln!("Error loading charging_state sources: {:?}", e);
+                    Status::InternalServerError
+                })?;
+
+            // Newest reading from each source, not the newest across all of
+            // them. A site can carry more than one `charging_state` source —
+            // a hand-added collector, or demo-seeded history — and only the
+            // RTAC's readings carry analogs. Taking the globally newest row
+            // would let any of the others blank every gauge simply by writing
+            // more recently.
+            let mut latest_per_source = Vec::with_capacity(source_ids.len());
+            for source_id in source_ids {
+                let reading: Option<neems_data::models::Reading> = readings::table
+                    .filter(readings::source_id.eq(source_id))
+                    .order(readings::timestamp.desc())
+                    .first(conn)
+                    .optional()
+                    .map_err(|e| {
+                        eprintln!("Error loading latest reading: {:?}", e);
+                        Status::InternalServerError
+                    })?;
+                if let Some(reading) = reading {
+                    latest_per_source.push(reading);
+                }
+            }
+
+            let newest_with_analogs = latest_per_source
+                .iter()
+                .map(|r| (r, parse_zone_analogs(&r.data)))
+                .filter(|(_, zones)| !zones.is_empty())
+                .max_by_key(|(r, _)| r.timestamp);
+
+            if let Some((reading, zones)) = newest_with_analogs {
+                return Ok(Json(LatestAnalogsResponse {
+                    site_id,
+                    timestamp: Some(reading.timestamp),
+                    zones,
+                }));
+            }
+
+            // Nothing carries analogs. Still date the answer from the newest
+            // reading we have, so "the RTAC is not reporting analogs" is
+            // distinguishable from "this site has no data at all".
+            Ok(Json(LatestAnalogsResponse {
+                site_id,
+                timestamp: latest_per_source.iter().map(|r| r.timestamp).max(),
+                zones: HashMap::new(),
+            }))
+        })
+        .await
+}
+
 /// Per-day breakdown of how long a site spent in each battery state.
 /// Minutes (not seconds) keeps the wire format friendly for the chart.
 #[derive(Serialize, Deserialize, TS)]
@@ -871,6 +1115,7 @@ pub fn routes() -> Vec<Route> {
             get_multi_source_readings,
             get_site_soc_history,
             get_site_charge_discharge_summary,
+            get_site_latest_analogs,
         ];
         data_routes.extend(routes![get_site_schema]);
         data_routes
@@ -884,13 +1129,80 @@ pub fn routes() -> Vec<Route> {
             get_multi_source_readings,
             get_site_soc_history,
             get_site_charge_discharge_summary,
+            get_site_latest_analogs,
         ]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_soc_level, parse_soc_state};
+    use super::{parse_soc_level, parse_soc_state, parse_zone_analogs};
+
+    #[test]
+    fn expands_every_point_in_a_stored_raw_block() {
+        // MP-1A block: state_of_energy (offset 4) = 82.5%, ac_voltage
+        // (offset 10) = 480.0V, everything else zero.
+        let mut raw = vec![0u16; 30];
+        raw[4] = 8250;
+        raw[10] = 4800;
+        let blob = format!(r#"{{"megapacks":{{"Mp1a":{{"raw":{:?}}}}}}}"#, raw);
+
+        let zones = parse_zone_analogs(&blob);
+        let mp1a = zones.get("Mp1a").expect("Mp1a present");
+        assert_eq!(mp1a.points.len(), 30, "every offset in the block is reported");
+
+        let soe = &mp1a.points[4];
+        assert_eq!(soe.name, "state_of_energy");
+        assert_eq!(soe.raw, 8250);
+        assert_eq!(soe.value, Some(82.5));
+        assert_eq!(soe.unit.as_deref(), Some("%"));
+        // Point number 605 is the address this came from; a shifted map shows
+        // up here rather than as a quietly wrong gauge.
+        assert_eq!(soe.address, 605);
+        assert_eq!(soe.offset, 4);
+
+        let volts = &mp1a.points[10];
+        assert_eq!(volts.name, "ac_voltage");
+        assert_eq!(volts.value, Some(480.0));
+        assert_eq!(volts.address, 611);
+
+        // A spare carries the register but makes no claim about it.
+        let spare = &mp1a.points[17];
+        assert!(spare.name.contains("spare"));
+        assert_eq!(spare.value, None);
+        assert_eq!(spare.unit, None);
+    }
+
+    #[test]
+    fn addresses_are_offset_per_pack() {
+        let raw = vec![0u16; 30];
+        let blob = format!(r#"{{"megapacks":{{"Mp2c":{{"raw":{:?}}}}}}}"#, raw);
+        let zones = parse_zone_analogs(&blob);
+        // MP-2C's block starts at 751, so its state_of_energy is 755.
+        assert_eq!(zones["Mp2c"].points[4].address, 755);
+    }
+
+    #[test]
+    fn a_reading_without_raw_still_reports_the_decoded_three() {
+        // Readings stored before raw registers were kept must degrade, not
+        // vanish: the gauges that already worked keep working.
+        let blob = r#"{"megapacks":{"Mp1a":{"state_of_energy":61.0,"ac_voltage":480.0,
+                       "max_battery_temperature":25.0}}}"#;
+        let zones = parse_zone_analogs(blob);
+        let mp1a = &zones["Mp1a"];
+        assert_eq!(mp1a.state_of_energy, Some(61.0));
+        assert!(mp1a.points.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_zone_reports_no_points() {
+        // Without a block layout there is nothing to read the values against,
+        // and naming them anyway would attach real point names to arbitrary
+        // numbers.
+        let raw = vec![7u16; 30];
+        let blob = format!(r#"{{"megapacks":{{"Facp":{{"raw":{:?}}}}}}}"#, raw);
+        assert!(parse_zone_analogs(&blob)["Facp"].points.is_empty());
+    }
 
     #[test]
     fn parses_level_from_charging_state_blob() {
@@ -932,5 +1244,59 @@ mod tests {
         assert_eq!(parse_soc_state(r#"{"level":80.0}"#), None);
         assert_eq!(parse_soc_state(r#"{"state":42}"#), None);
         assert_eq!(parse_soc_state("not json"), None);
+    }
+
+    #[test]
+    fn parses_megapack_analogs_keyed_by_zone() {
+        let blob = r#"{
+            "level": 50.0,
+            "megapacks": {
+                "Mp1a": {"state_of_energy": 46.25, "ac_voltage": 480.0, "max_battery_temperature": 24.0},
+                "Mp2c": {"state_of_energy": 53.75, "ac_voltage": 480.0, "max_battery_temperature": 26.0}
+            }
+        }"#;
+        let zones = parse_zone_analogs(blob);
+
+        assert_eq!(zones.len(), 2);
+        assert_eq!(zones["Mp1a"].state_of_energy, Some(46.25));
+        assert_eq!(zones["Mp1a"].ac_voltage, Some(480.0));
+        assert_eq!(zones["Mp1a"].max_battery_temperature, Some(24.0));
+        assert_eq!(zones["Mp2c"].state_of_energy, Some(53.75));
+        // A pack the RTAC did not report is absent, not present-and-zero.
+        assert!(!zones.contains_key("Mp1b"));
+    }
+
+    #[test]
+    fn distinguishes_a_zero_reading_from_a_missing_one() {
+        // The whole reason every field is Option: a flat pack and a silent one
+        // must not arrive looking the same.
+        let blob = r#"{"megapacks":{"Mp1a":{"state_of_energy":0.0},"Mp1b":{}}}"#;
+        let zones = parse_zone_analogs(blob);
+
+        assert_eq!(zones["Mp1a"].state_of_energy, Some(0.0));
+        assert_eq!(zones["Mp1b"].state_of_energy, None);
+    }
+
+    #[test]
+    fn tolerates_readings_without_megapack_analogs() {
+        // Readings predating the analog block, or written by another
+        // collector, are reported as "nothing here" rather than as an error.
+        assert!(parse_zone_analogs(r#"{"level":50.0}"#).is_empty());
+        assert!(parse_zone_analogs(r#"{"megapacks":[]}"#).is_empty());
+        assert!(parse_zone_analogs("not json").is_empty());
+    }
+
+    #[test]
+    fn drops_non_numeric_and_non_finite_analog_fields() {
+        let blob = r#"{"megapacks":{"Mp1a":{
+            "state_of_energy":"high",
+            "ac_voltage":null,
+            "max_battery_temperature":24.0
+        }}}"#;
+        let zones = parse_zone_analogs(blob);
+
+        assert_eq!(zones["Mp1a"].state_of_energy, None);
+        assert_eq!(zones["Mp1a"].ac_voltage, None);
+        assert_eq!(zones["Mp1a"].max_battery_temperature, Some(24.0));
     }
 }

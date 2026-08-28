@@ -13,10 +13,11 @@
 
 use neems_data::rtac::{
     alarm_definitions::{ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM},
+    analog_sim::{pack_spread, synthesize_megapack_block},
     protocol::{
-        CommandType, MEGAPACK_ZONES, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
-        current_to_register, grid_frequency_to_register, mp_analog_offset, parse_soc,
-        power_kw_to_registers, soc_to_register, temperature_to_register, voltage_to_register,
+        CommandType, MEGAPACK_ANALOG_BASE_POINT, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
+        current_to_register, grid_frequency_to_register, parse_soc, power_kw_to_registers,
+        soc_to_register, temperature_to_register, voltage_to_register,
     },
     state::AlarmFlags,
 };
@@ -216,47 +217,48 @@ impl SimState {
             {
                 self.cmd_regs[(a - RegisterMap::CMD_START_ADDRESS) as usize]
             }
-            a if a >= RegisterMap::MP_ANALOG_BLOCK_START => {
-                let relative = a - RegisterMap::MP_ANALOG_BLOCK_START;
-                let pack_index = (relative / RegisterMap::MP_ANALOG_STRIDE) as usize;
-                let offset = relative % RegisterMap::MP_ANALOG_STRIDE;
-                // The stride leaves two reserved registers per pack, and the
-                // block ends after the sixth; both read as unmapped.
-                if pack_index < MEGAPACK_ZONES.len() && (offset as usize) < MP_ANALOG_POINT_COUNT {
-                    self.megapack_register_at(pack_index, offset)
-                } else {
-                    0
-                }
-            }
-            _ => 0,
+            a => match Self::megapack_point_at(a) {
+                Some((pack_index, offset)) => self.megapack_register_at(pack_index, offset),
+                None => 0,
+            },
         }
     }
 
-    /// How far pack `pack_index` sits from the site-level figure.
+    /// Which pack and offset, if any, the analog point at `addr` belongs to.
     ///
-    /// Deterministic rather than random: six identical gauges would hide the
-    /// very thing per-pack readings exist to show, but a value that moves
-    /// between reads would make screenshots and tests unreproducible.
-    fn megapack_spread(pack_index: usize) -> f32 {
-        pack_index as f32 - 2.5
+    /// A scan of the base table rather than division by a stride: the blocks
+    /// are the client's point numbers now, so nothing guarantees they stay
+    /// evenly spaced, and arithmetic that assumes they do would answer
+    /// confidently for an address the client never assigned.
+    fn megapack_point_at(addr: u16) -> Option<(usize, u16)> {
+        MEGAPACK_ANALOG_BASE_POINT.iter().enumerate().find_map(|(pack_index, base)| {
+            let base = RegisterMap::point_address(*base);
+            let offset = addr.checked_sub(base)?;
+            ((offset as usize) < MP_ANALOG_POINT_COUNT).then_some((pack_index, offset))
+        })
     }
 
     /// Value of `offset` within pack `pack_index`'s analog block.
     ///
-    /// Only the points the SLD renders are simulated; the rest of the block
-    /// reads 0, matching the spreadsheet's silence about their encoding.
+    /// The whole 30-point block is simulated, not just the three the SLD
+    /// currently renders. A frontend being built against this needs every
+    /// gauge it might draw to carry a plausible number; 27 points reading zero
+    /// look like a broken pack rather than an unimplemented one.
+    ///
+    /// Shared with the demo history seeder via [`synthesize_megapack_block`],
+    /// so live simulator data and seeded history agree.
     fn megapack_register_at(&self, pack_index: usize, offset: u16) -> u16 {
-        let spread = Self::megapack_spread(pack_index);
-        match offset {
-            mp_analog_offset::STATE_OF_ENERGY => {
-                soc_to_register((self.soc_percent + spread * 1.5).clamp(0.0, 100.0))
-            }
-            mp_analog_offset::AC_VOLTAGE => voltage_to_register(self.voltage_v),
-            mp_analog_offset::MAX_BATTERY_TEMPERATURE => {
-                temperature_to_register(self.temperature_c + spread * 0.4)
-            }
-            _ => 0,
-        }
+        let soc = self.soc_percent + pack_spread(pack_index) * 1.5;
+        let block = synthesize_megapack_block(
+            pack_index,
+            soc,
+            self.power_kw,
+            self.voltage_v,
+            // The simulator has no ambient of its own; its temperature_c is
+            // the site figure, which already tracks activity.
+            self.temperature_c,
+        );
+        block.get(offset as usize).copied().unwrap_or(0)
     }
 
     /// Read `count` consecutive registers starting at `start`.
@@ -314,6 +316,8 @@ impl SimState {
 
 #[cfg(test)]
 mod tests {
+    use neems_data::rtac::protocol::{MEGAPACK_ZONES, mp_analog_offset};
+
     use super::*;
 
     fn fast_config() -> SimConfig {
@@ -355,19 +359,32 @@ mod tests {
     }
 
     #[test]
-    fn reserved_and_out_of_range_analog_addresses_read_zero() {
+    fn addresses_outside_the_analog_range_read_zero() {
         let mut state = SimState::new(fast_config());
         state.soc_percent = 50.0;
 
-        // The two reserved registers at the tail of a pack's stride.
-        let reserved = RegisterMap::MP_ANALOG_BLOCK_START + MP_ANALOG_POINT_COUNT as u16;
-        assert_eq!(state.register_at(reserved), 0);
-        assert_eq!(state.register_at(reserved + 1), 0);
+        // Just below MP-1A and just past MP-2C: the client assigned no analog
+        // point either side, so neither may answer as one.
+        let first = RegisterMap::mp_analog_address(0, 0);
+        let last = RegisterMap::mp_analog_address(MEGAPACK_ZONES.len() - 1, 29);
+        assert_eq!(state.register_at(first - 1), 0);
+        assert_eq!(state.register_at(last + 1), 0);
 
-        // Past the sixth pack.
-        let past_end = RegisterMap::MP_ANALOG_BLOCK_START
-            + MEGAPACK_ZONES.len() as u16 * RegisterMap::MP_ANALOG_STRIDE;
-        assert_eq!(state.register_at(past_end), 0);
+        // The blocks themselves are contiguous — 601-780 with no gaps — so
+        // every address between the ends belongs to some pack.
+        assert_eq!((last - first + 1) as usize, MEGAPACK_ZONES.len() * MP_ANALOG_POINT_COUNT);
+    }
+
+    #[test]
+    fn analog_points_answer_at_their_spreadsheet_numbers() {
+        let mut state = SimState::new(fast_config());
+        state.soc_percent = 50.0;
+
+        // MP-1A state_of_energy is analog point 605; if the simulator and the
+        // client disagree about that, the integration test passes on a shared
+        // mistake. Pinning the literal number here is what stops that.
+        assert_ne!(state.register_at(605), 0);
+        assert_eq!(state.register_at(605), state.register_at(RegisterMap::mp_analog_address(0, 4)));
     }
 
     #[test]

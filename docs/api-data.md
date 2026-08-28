@@ -216,6 +216,98 @@ const response = await fetch('/api/1/data/readings?source_ids=1,2,3&latest=10', 
 }
 ```
 
+### Get Latest Analog Values for a Site
+
+- **URL:** `/api/1/Sites/<site_id>/LatestAnalogs`
+- **Method:** `GET`
+- **Purpose:** Returns the most recent per-Megapack analog measurements for a site
+- **Authentication:** Required. Newtown staff may read any site; everyone else
+  only their own company's, matching the E-stop and schedule endpoints.
+
+Returns the analog values from the most recent `charging_state` reading that
+carries any. This is deliberately not a time series: callers poll it for "what
+is true now", and making them fetch a window in order to read its last point
+would push that cost onto every caller. Use `/api/1/Sites/<id>/SocHistory` when
+you want the series.
+
+A site can have more than one `charging_state` source — a hand-added collector,
+or demo-seeded history — and only the RTAC's readings carry analogs, so the
+newest row overall is not necessarily the one to answer from.
+
+#### Response
+
+**Success (HTTP 200 OK):**
+```json
+{
+  "site_id": 1,
+  "timestamp": "2026-08-21T17:34:10.549730133",
+  "zones": {
+    "Mp1a": {
+      "state_of_energy": 46.25,
+      "ac_voltage": 478.5,
+      "max_battery_temperature": 28.2,
+      "points": [
+        { "name": "real_power_target", "offset": 0, "address": 601,
+          "raw": 65486, "value": -50.0, "unit": "kW" },
+        { "name": "state_of_energy", "offset": 4, "address": 605,
+          "raw": 4625, "value": 46.25, "unit": "%" },
+        { "name": "AI_spare_1", "offset": 17, "address": 618,
+          "raw": 0, "value": null, "unit": null }
+      ]
+    }
+  }
+}
+```
+
+(`points` carries all 30 of a pack's measurements; three are shown here.)
+
+#### Reading the response
+
+- **Zones are keyed by alarm zone** (`Mp1a`...`Mp2c`), not by SLD component id.
+  The diagram's component ids are a frontend layout concern; keying by zone
+  matches how alarms are already published and keeps the API independent of
+  how any particular diagram is drawn.
+- **Field names come from the client spreadsheet's `Analogs` sheet**, not from
+  the display slots they end up in. `state_of_energy` is the charge
+  percentage; the frontend maps it to whatever it calls that.
+- **`points` carries the whole 30-measurement block**, in the spreadsheet's
+  order. Each entry has the `address` it was read from, the `raw` register, and
+  our interpretation of it as `value` + `unit`. The three top-level fields are
+  the same measurements pulled out for convenience and predate `points`; they
+  remain for existing callers.
+- **`raw` is fact, `value` is interpretation.** `raw` is what the RTAC
+  returned. `value` applies this build's assumed encoding, so a consumer that
+  needs certainty should use `raw`. Spare points carry `raw` with `value` and
+  `unit` both `null` — the client reserved them and defined nothing, so we
+  decline to guess rather than invent a meaning.
+- **`points` is empty for readings stored before raw registers were kept.** The
+  three top-level fields still populate, so old readings degrade rather than
+  disappear.
+- **Absence means "no reading", never zero.** A pack that did not answer is
+  omitted from `zones`; a field we could not parse is `null`. A gauge showing
+  0% and a gauge with no reading are opposite claims and must not arrive
+  looking alike.
+- **`timestamp` is `null`** when the site has no readings at all. Otherwise it
+  is the timestamp of the reading the values came from, so a caller can judge
+  staleness rather than assume what it received is current. A timestamp with an
+  empty `zones` means the site is reporting, but nothing is reporting analogs.
+
+#### Caveat: scaling is assumed, not specified
+
+Every `value` and `unit` rests on an assumed encoding — `MP_ANALOG_ENCODING` in
+`neems-data/src/rtac/protocol.rs`. The client spreadsheet gives no analog point
+its units, so that table is our reading of what each measurement must be:
+percent, volts, amps, degrees and hertz copy the encoding the site-level status
+registers already use; power and energy are taken as whole kW/kVAR/kWh, which
+is what fits a 16-bit register across a Megapack's range; spare points get no
+interpretation at all.
+
+Confirm this with the client alongside the register addresses. Wrong here is
+quiet — a divisor of 10 where the device means 1 reports 48.0 V on a 480 V bus,
+which looks like a plausible reading rather than an obvious fault. Values are
+decoded on read rather than at collection precisely so a correction reaches
+readings already stored: the raw registers are what get persisted.
+
 ## Data System Overview
 
 ### Data Sources

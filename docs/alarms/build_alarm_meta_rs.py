@@ -90,7 +90,11 @@ pub const ALARM_SLD_META: &[AlarmSldMeta] = &[
 def main():
     spec = json.loads(SPEC.read_text())
     rows = []
-    for e in spec["digital_alarms"]:
+    # Sorted, not spreadsheet order: the table below documents itself as being
+    # in alarm-number order, and a row the client appends out of sequence
+    # (PSV05T, added below the reserved block) would otherwise land in the
+    # middle of nowhere and make the next diff unreadable.
+    for e in sorted(spec["digital_alarms"], key=lambda e: e["alarm_num"]):
         msg = e.get("mouseover") or ""
         targets = e["sld"]["related_objects"]
         # Emit the rustfmt layout directly so regenerating round-trips cleanly

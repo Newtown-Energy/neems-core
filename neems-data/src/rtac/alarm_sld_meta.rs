@@ -246,8 +246,8 @@ pub const ALARM_SLD_META: &[AlarmSldMeta] = &[
     },
     AlarmSldMeta {
         alarm_num: 127,
-        message: "",
-        sld_targets: &[],
+        message: "Relay protective function tripped disconnects",
+        sld_targets: &["Relay"],
     },
     AlarmSldMeta {
         alarm_num: 128,

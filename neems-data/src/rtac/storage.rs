@@ -100,6 +100,15 @@ impl From<RtacReading> for StorageReading {
                         "state_of_energy": mp.state_of_energy_percent,
                         "ac_voltage": mp.ac_voltage_v,
                         "max_battery_temperature": mp.max_battery_temperature_c,
+                        // The whole block, unscaled. Stored raw on purpose:
+                        // every scaling we apply is assumed (see
+                        // MP_ANALOG_ENCODING), and persisting decoded values
+                        // would bake today's guess into history no correction
+                        // could reach. Keeping the registers means fixing the
+                        // encoding reinterprets what we already collected.
+                        // The three decoded fields above stay for readers
+                        // that predate this.
+                        "raw": mp.raw_registers.to_vec(),
                     }),
                 )
             })
