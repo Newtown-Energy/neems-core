@@ -522,6 +522,22 @@ pub fn get_recent_readings(
 /// `last_falling_at`, and either updates `data_active` and `updated_at`. The
 /// collector calls this once per observed edge (see
 /// `rtac::alarms::DatabaseAlarmStateHandler`), so writes are rare.
+///
+/// A call asserting the state the row already holds is *not* an edge, and is
+/// dropped: the stored timestamps keep pointing at the transition that actually
+/// started the current state. That is what lets `last_rising_at` mean "the
+/// start of the current continuous activation" — the unit an acknowledgement
+/// covers. An alarm read as active every second for five hours is one
+/// activation, settled by one acknowledgement; only a clear splits the timeline
+/// into two instances needing two acknowledgements.
+///
+/// Enforcing it here rather than in each caller makes the invariant true by
+/// construction. Two callers depend on it: `POST /1/Demo/AlarmState` writes
+/// whatever state it is handed, and the collector re-reports every still-active
+/// alarm as a fresh rising edge after a restart, because `RtacWorker`'s
+/// `last_alarm_flags` starts out all-clear. Either would otherwise re-stamp
+/// `last_rising_at` mid-activation and silently discard an operator's
+/// acknowledgement.
 pub fn upsert_alarm_transition(
     connection: &mut SqliteConnection,
     alarm_num: i32,
@@ -529,6 +545,15 @@ pub fn upsert_alarm_transition(
     at: chrono::NaiveDateTime,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     use schema::alarm_state::dsl as s;
+
+    let current: Option<bool> = s::alarm_state
+        .find(alarm_num)
+        .select(s::data_active)
+        .first(connection)
+        .optional()?;
+    if current == Some(active) {
+        return Ok(());
+    }
 
     // A rising edge stamps last_rising_at; a falling edge stamps
     // last_falling_at. The opposite edge column is left untouched on update so
