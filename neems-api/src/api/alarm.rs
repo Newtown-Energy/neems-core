@@ -141,22 +141,22 @@ impl From<&AlarmDefinition> for AlarmDefinitionDto {
     }
 }
 
-/// Effective status of a visible alarm, combining raw data state with
-/// acknowledgement. Cleared alarms (acknowledged after returning to normal,
-/// with no activity since) are omitted from the active list entirely.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum AlarmStatusDto {
-    /// Data is currently active and has not been acknowledged since it last
-    /// went active.
-    Active,
-    /// Data is currently active and has been acknowledged — the operator has
-    /// seen it, but the condition is still physically present.
-    AcknowledgedActive,
-    /// Data is no longer active, but the alarm was active at some point since
-    /// the last acknowledgement (the "blip" / returned-to-normal-unacked). It
-    /// still requires acknowledgement before it clears.
-    ReturnedUnacknowledged,
+/// The two independent axes of an alarm's state, as reported to clients.
+///
+/// Data state and acknowledgement are orthogonal: acknowledging records that an
+/// operator has seen the alarm and does nothing to the condition itself, and
+/// the condition going away does not acknowledge anything. The one coupling
+/// between them is that a rising edge sets the alarm unacknowledged.
+///
+/// Three of the four combinations are visible; the fourth (cleared *and*
+/// acknowledged) is exactly what it means for an alarm to be finished, and such
+/// alarms are omitted from the active list entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlarmState {
+    /// The condition is physically present right now.
+    pub data_active: bool,
+    /// An operator has acknowledged the alarm since it last went active.
+    pub acknowledged: bool,
 }
 
 /// A currently visible alarm: either active now, or latched (returned to
@@ -172,29 +172,39 @@ pub struct ActiveAlarmDto {
     pub message: Option<String>,
     /// Target SLD object tokens (spreadsheet "Related SLD Object").
     pub sld_targets: Vec<String>,
-    /// Effective status (active / acknowledged-active / returned-unacked).
-    pub status: AlarmStatusDto,
-    /// Raw current data state, independent of acknowledgement. `false` for a
-    /// returned-to-normal alarm that is still latched awaiting acknowledgement.
+    /// Current data state: whether the condition is physically present. `false`
+    /// for a returned-to-normal alarm that is still latched awaiting
+    /// acknowledgement.
     pub data_active: bool,
-    /// ISO 8601 timestamp of the most recent acknowledgement, if any.
+    /// Whether an operator has acknowledged the alarm since it last went
+    /// active. Orthogonal to [`Self::data_active`]: an acknowledged alarm may
+    /// still be firing, and a cleared one may still be waiting for an
+    /// acknowledgement.
+    pub acknowledged: bool,
+    /// ISO 8601 timestamp of the acknowledgement in force, if any.
     pub acknowledged_at: Option<String>,
-    /// User id of the most recent acknowledger, if any.
+    /// User id of the acknowledger, if any.
     pub acknowledged_by_user_id: Option<i32>,
-    /// Email of the most recent acknowledger, if any.
+    /// Email of the acknowledger, if any.
     pub acknowledged_by_email: Option<String>,
 }
 
 impl ActiveAlarmDto {
-    /// Build a visible-alarm DTO from its definition plus the computed status
-    /// and the most recent acknowledgement (if any).
+    /// Build a visible-alarm DTO from its definition, its two-axis state, and
+    /// the most recent acknowledgement (if any).
+    ///
+    /// The acknowledger fields describe the acknowledgement *currently in
+    /// force*, so they are populated only when the alarm reads as acknowledged.
+    /// An alarm that was acknowledged and then went active again is
+    /// unacknowledged, and naming the operator who acknowledged the previous
+    /// activation would misattribute this one.
     fn build(
         def: &AlarmDefinition,
-        status: AlarmStatusDto,
-        data_active: bool,
+        state: AlarmState,
         ack: Option<&AlarmAcknowledgement>,
         emails: &HashMap<i32, String>,
     ) -> Self {
+        let in_force = ack.filter(|_| state.acknowledged);
         Self {
             alarm_num: def.alarm_num,
             zone: def.zone.into(),
@@ -202,58 +212,47 @@ impl ActiveAlarmDto {
             severity: AlarmSeverityDto::from_level(def.level),
             message: message_for(def.alarm_num),
             sld_targets: sld_targets_for(def.alarm_num),
-            status,
-            data_active,
-            acknowledged_at: ack
+            data_active: state.data_active,
+            acknowledged: state.acknowledged,
+            acknowledged_at: in_force
                 .map(|a| a.acknowledged_at.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
-            acknowledged_by_user_id: ack.map(|a| a.user_id),
-            acknowledged_by_email: ack.and_then(|a| emails.get(&a.user_id).cloned()),
+            acknowledged_by_user_id: in_force.map(|a| a.user_id),
+            acknowledged_by_email: in_force.and_then(|a| emails.get(&a.user_id).cloned()),
         }
     }
 }
 
-/// Effective visible status of a single alarm.
+/// The two-axis state of a single alarm, or `None` when it is not visible.
 ///
-/// Inputs are the raw current data state, the last rising/falling edge
-/// timestamps, and the timestamp of the most recent acknowledgement (all UTC).
-/// Returns `None` when the alarm is cleared (not visible).
+/// Inputs are the current data state, the last rising edge, and the most recent
+/// acknowledgement (all UTC).
 ///
-/// Rules (see issue #76):
-/// - Active now: `AcknowledgedActive` if an ack landed at/after the rising edge
-///   that started the current activation, else `Active`. With no recorded
-///   rising edge (seeded/forced data) any ack counts as acknowledged.
-/// - Inactive now: visible as `ReturnedUnacknowledged` only if it went active
-///   since the last ack — i.e. the last falling edge is after the most recent
-///   ack (or it was never acked). Otherwise it has cleared.
-fn effective_status(
+/// Acknowledgement latches to the *rising* edge, because the unit an operator
+/// acknowledges is an activation instance rather than a reading (see issue
+/// #106). An alarm held active for hours has one rising edge, so one
+/// acknowledgement settles the whole span; a clear followed by a re-activation
+/// stamps a new rising edge, which is what makes the second instance demand its
+/// own acknowledgement. Returning to normal is not an acknowledgement event and
+/// does not enter into it — `last_falling_at` plays no part here.
+///
+/// - Acknowledged: an acknowledgement landed at or after the rising edge that
+///   started the current activation. With no recorded rising edge (seeded or
+///   forced data) any acknowledgement counts.
+/// - Visible: the alarm is active now, or it has gone active at some point and
+///   is not acknowledged. Cleared *and* acknowledged means finished, so it
+///   drops off the list.
+fn effective_state(
     data_active: bool,
     last_rising_at: Option<NaiveDateTime>,
-    last_falling_at: Option<NaiveDateTime>,
     last_ack_at: Option<NaiveDateTime>,
-) -> Option<AlarmStatusDto> {
-    if data_active {
-        let acked = match (last_ack_at, last_rising_at) {
-            (Some(ack), Some(rise)) => ack >= rise,
-            (Some(_), None) => true,
-            _ => false,
-        };
-        Some(if acked {
-            AlarmStatusDto::AcknowledgedActive
-        } else {
-            AlarmStatusDto::Active
-        })
-    } else {
-        match last_falling_at {
-            Some(fall) => {
-                let visible = match last_ack_at {
-                    Some(ack) => fall > ack,
-                    None => true,
-                };
-                visible.then_some(AlarmStatusDto::ReturnedUnacknowledged)
-            }
-            None => None,
-        }
-    }
+) -> Option<AlarmState> {
+    let acknowledged = match (last_ack_at, last_rising_at) {
+        (Some(ack), Some(rise)) => ack >= rise,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    let visible = data_active || (last_rising_at.is_some() && !acknowledged);
+    visible.then_some(AlarmState { data_active, acknowledged })
 }
 
 /// Response for active alarms endpoint
@@ -385,7 +384,7 @@ pub async fn get_active_alarms(
         alarm_state.iter().map(|s| (s.alarm_num, s)).collect();
 
     // Consider every alarm that is active now or has any recorded data state,
-    // and keep the ones [`effective_status`] deems still visible. Iterating
+    // and keep the ones [`effective_state`] deems still visible. Iterating
     // ALARM_DEFINITIONS gives a stable (definition) order.
     let mut consider: HashSet<u16> = reading_active.clone();
     for s in &alarm_state {
@@ -401,18 +400,17 @@ pub async fn get_active_alarms(
         }
         let num_i32 = def.alarm_num as i32;
         let ack = latest_ack.get(&num_i32);
-        let state = state_by_num.get(&num_i32).copied();
+        let row = state_by_num.get(&num_i32).copied();
         let data_active = reading_active.contains(&def.alarm_num);
 
-        let status = effective_status(
+        let state = effective_state(
             data_active,
-            state.and_then(|s| s.last_rising_at),
-            state.and_then(|s| s.last_falling_at),
+            row.and_then(|s| s.last_rising_at),
             ack.map(|a| a.acknowledged_at),
         );
 
-        if let Some(status) = status {
-            alarms.push(ActiveAlarmDto::build(def, status, data_active, ack, &emails));
+        if let Some(state) = state {
+            alarms.push(ActiveAlarmDto::build(def, state, ack, &emails));
         }
     }
 
@@ -934,7 +932,7 @@ mod tests {
     use chrono::{Duration, NaiveDate, NaiveDateTime};
     use neems_data::rtac::alarm_definitions::AlarmZone;
 
-    use super::{AlarmStatusDto, AlarmZoneDto, effective_status};
+    use super::{AlarmState, AlarmZoneDto, effective_state};
 
     /// A zone must spell itself the same way everywhere the frontend meets it.
     ///
@@ -961,65 +959,81 @@ mod tests {
             + Duration::seconds(secs)
     }
 
-    #[test]
-    fn active_and_never_acked_is_active() {
-        assert_eq!(effective_status(true, Some(t(10)), None, None), Some(AlarmStatusDto::Active));
+    /// A visible alarm in the given state.
+    fn visible(data_active: bool, acknowledged: bool) -> Option<AlarmState> {
+        Some(AlarmState { data_active, acknowledged })
     }
 
     #[test]
-    fn acked_after_rise_while_active_is_acknowledged_active() {
-        // rose at 10, acked at 20, still active
-        assert_eq!(
-            effective_status(true, Some(t(10)), None, Some(t(20))),
-            Some(AlarmStatusDto::AcknowledgedActive)
-        );
+    fn active_and_never_acked_is_unacknowledged() {
+        assert_eq!(effective_state(true, Some(t(10)), None), visible(true, false));
+    }
+
+    #[test]
+    fn acked_after_rise_while_active_stays_active_and_acknowledged() {
+        // rose at 10, acked at 20, still active: acking does not clear
+        assert_eq!(effective_state(true, Some(t(10)), Some(t(20))), visible(true, true));
     }
 
     #[test]
     fn stale_ack_before_current_rise_does_not_acknowledge() {
-        // a new activation rose at 30; the ack at 10 predates it
-        assert_eq!(
-            effective_status(true, Some(t(30)), Some(t(20)), Some(t(10))),
-            Some(AlarmStatusDto::Active)
-        );
+        // a new activation rose at 30; the ack at 10 belongs to an earlier one
+        assert_eq!(effective_state(true, Some(t(30)), Some(t(10))), visible(true, false));
     }
 
     #[test]
     fn blip_never_acked_stays_visible() {
-        // rose 10, fell 15, now inactive, never acked
-        assert_eq!(
-            effective_status(false, Some(t(10)), Some(t(15)), None),
-            Some(AlarmStatusDto::ReturnedUnacknowledged)
-        );
+        // rose 10, fell 15, now inactive, never acked: the operator missed it
+        // overnight and must still be told it happened
+        assert_eq!(effective_state(false, Some(t(10)), None), visible(false, false));
     }
 
+    /// One acknowledgement settles the activation it belongs to, for good.
+    ///
+    /// This is the fix for issue #106, and inverts the "require 2nd ack" rule
+    /// from #76: acking a firing alarm used to leave it demanding a second
+    /// acknowledgement once it returned to normal.
     #[test]
-    fn ack_while_active_then_return_requires_second_ack() {
-        // rose 10, acked 20 (while active), fell 30 -> still needs ack
-        assert_eq!(
-            effective_status(false, Some(t(10)), Some(t(30)), Some(t(20))),
-            Some(AlarmStatusDto::ReturnedUnacknowledged)
-        );
+    fn ack_while_active_then_return_is_finished() {
+        // rose 10, acked 20 (while active), fell 30 -> done, not visible
+        assert_eq!(effective_state(false, Some(t(10)), Some(t(20))), None);
+    }
+
+    /// A clear splits the timeline: what follows is a second instance, and an
+    /// acknowledgement of the first does not carry over to it.
+    #[test]
+    fn reactivation_after_ack_requires_its_own_ack() {
+        // rose 10, acked 20, fell 30, rose 40, fell 50 -> needs another ack
+        assert_eq!(effective_state(false, Some(t(40)), Some(t(20))), visible(false, false));
+    }
+
+    /// Conversely, a continuously-active alarm is one instance however long it
+    /// runs. This function reads only the rising edge, so elapsed time cannot
+    /// re-arm the acknowledgement; what keeps that edge from moving under a
+    /// stream of active readings is `upsert_alarm_transition`, which drops
+    /// writes that assert the state the row already holds.
+    #[test]
+    fn continuous_activation_stays_acknowledged() {
+        // rose at 10, acked at 20, still reading active five hours on
+        assert_eq!(effective_state(true, Some(t(10)), Some(t(20))), visible(true, true));
+        assert_eq!(effective_state(true, Some(t(10)), Some(t(18_000))), visible(true, true));
     }
 
     #[test]
     fn ack_after_return_to_normal_clears() {
         // rose 10, fell 30, acked 40 (after it returned) -> cleared
-        assert_eq!(effective_status(false, Some(t(10)), Some(t(30)), Some(t(40))), None);
+        assert_eq!(effective_state(false, Some(t(10)), Some(t(40))), None);
     }
 
     #[test]
     fn never_active_is_cleared() {
-        assert_eq!(effective_status(false, None, None, None), None);
+        assert_eq!(effective_state(false, None, None), None);
     }
 
     #[test]
     fn active_without_recorded_edges_falls_back_to_ack_presence() {
         // forced/seeded data has no edges recorded
-        assert_eq!(effective_status(true, None, None, None), Some(AlarmStatusDto::Active));
-        assert_eq!(
-            effective_status(true, None, None, Some(t(5))),
-            Some(AlarmStatusDto::AcknowledgedActive)
-        );
+        assert_eq!(effective_state(true, None, None), visible(true, false));
+        assert_eq!(effective_state(true, None, Some(t(5))), visible(true, true));
     }
 }

@@ -59,13 +59,12 @@ async fn active_entry(
 /// The capability this endpoint exists for: an alarm raised and cleared
 /// through the demo path latches exactly like a real one.
 ///
-/// Raise -> `Active`. Acknowledge -> `AcknowledgedActive`, still visible.
-/// Clear -> `ReturnedUnacknowledged`, *still visible*, because the operator
-/// acknowledged it while it was firing and owes a second acknowledgement now
-/// that it has returned to normal. The old in-memory forced-alarm overlay made
-/// the alarm vanish at this step, which is precisely the bug this replaces.
+/// Raise -> active, unacknowledged. Clear without acknowledging -> *still
+/// visible*, no longer firing but still owed an acknowledgement. The old
+/// in-memory forced-alarm overlay made the alarm vanish at this step, which is
+/// precisely the bug this replaces. Acknowledging is what finally ends it.
 #[tokio::test]
-async fn clearing_a_demo_alarm_latches_it_as_returned_unacknowledged() {
+async fn clearing_an_unacknowledged_demo_alarm_keeps_it_visible() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
@@ -73,30 +72,19 @@ async fn clearing_a_demo_alarm_latches_it_as_returned_unacknowledged() {
     let resp = set_alarm_state(&client, &session, ALARM, true).await;
     assert_eq!(resp.status(), Status::Ok);
     let raised = active_entry(&client, &session, ALARM).await.expect("alarm should be active");
-    assert_eq!(raised["status"], json!("Active"));
     assert_eq!(raised["data_active"], json!(true));
+    assert_eq!(raised["acknowledged"], json!(false));
 
-    // Acknowledge while still firing — must not clear it.
-    let ack = client
-        .post("/api/1/Alarms/Acknowledge")
-        .cookie(session.clone())
-        .json(&json!({ "alarm_num": ALARM }))
-        .dispatch()
-        .await;
-    assert_eq!(ack.status(), Status::Ok);
-    let acked = active_entry(&client, &session, ALARM).await.expect("alarm should still show");
-    assert_eq!(acked["status"], json!("AcknowledgedActive"));
-
-    // Return it to normal. It must remain visible, awaiting a second ack.
+    // Return it to normal with nobody having seen it. It must stay visible.
     let resp = set_alarm_state(&client, &session, ALARM, false).await;
     assert_eq!(resp.status(), Status::Ok);
     let returned = active_entry(&client, &session, ALARM)
         .await
         .expect("a returned-but-unacknowledged alarm must stay visible");
-    assert_eq!(returned["status"], json!("ReturnedUnacknowledged"));
     assert_eq!(returned["data_active"], json!(false));
+    assert_eq!(returned["acknowledged"], json!(false));
 
-    // The second acknowledgement is what finally clears it.
+    // Acknowledging it is what ends it.
     let ack = client
         .post("/api/1/Alarms/Acknowledge")
         .cookie(session.clone())
@@ -107,6 +95,35 @@ async fn clearing_a_demo_alarm_latches_it_as_returned_unacknowledged() {
     assert!(
         active_entry(&client, &session, ALARM).await.is_none(),
         "alarm should clear once acknowledged after returning to normal"
+    );
+}
+
+/// Acknowledging while the alarm is still firing does not clear it — the
+/// condition is still physically present — but it does settle that activation,
+/// so the alarm ends when the condition goes away rather than asking the
+/// operator again (issue #106).
+#[tokio::test]
+async fn acknowledging_a_firing_demo_alarm_settles_that_activation() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    assert_eq!(set_alarm_state(&client, &session, ALARM, true).await.status(), Status::Ok);
+    let ack = client
+        .post("/api/1/Alarms/Acknowledge")
+        .cookie(session.clone())
+        .json(&json!({ "alarm_num": ALARM }))
+        .dispatch()
+        .await;
+    assert_eq!(ack.status(), Status::Ok);
+
+    let acked = active_entry(&client, &session, ALARM).await.expect("alarm is still firing");
+    assert_eq!(acked["data_active"], json!(true));
+    assert_eq!(acked["acknowledged"], json!(true));
+
+    assert_eq!(set_alarm_state(&client, &session, ALARM, false).await.status(), Status::Ok);
+    assert!(
+        active_entry(&client, &session, ALARM).await.is_none(),
+        "an acknowledged alarm is finished once the condition clears"
     );
 }
 
@@ -213,7 +230,8 @@ async fn forced_set_view_agrees_with_per_alarm_writes() {
     let entry = active_entry(&client, &session, ALARM)
         .await
         .expect("cleared alarm should latch as returned");
-    assert_eq!(entry["status"], json!("ReturnedUnacknowledged"));
+    assert_eq!(entry["data_active"], json!(false));
+    assert_eq!(entry["acknowledged"], json!(false));
 }
 
 /// Demo-only means demo-only: with demo mode off the routes are not there at
