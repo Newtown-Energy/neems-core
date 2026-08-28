@@ -70,9 +70,10 @@ async fn forced_alarms_round_trip_as_newtown_admin() {
     assert_eq!(cleared["alarm_nums"], json!([]));
 
     // Clearing lowers the condition but does NOT hide the alarm: it was never
-    // acknowledged, so it stays visible as `ReturnedUnacknowledged` until an
-    // operator acknowledges it. This is the whole point of the latch — an
-    // alarm that blipped and cleared must not slip by unseen.
+    // acknowledged, so it stays visible — no longer firing, still awaiting an
+    // acknowledgement — until an operator acknowledges it. This is the whole
+    // point of the latch: an alarm that blipped and cleared must not slip by
+    // unseen.
     let active2 = client.get("/api/1/Alarms/Active").cookie(session.clone()).dispatch().await;
     let active2_body: Value = active2.into_json().await.expect("json");
     let entry = active2_body["alarms"]
@@ -82,8 +83,8 @@ async fn forced_alarms_round_trip_as_newtown_admin() {
         .find(|a| a["alarm_num"].as_u64() == Some(401))
         .cloned()
         .expect("a cleared but unacknowledged alarm must stay visible");
-    assert_eq!(entry["status"], json!("ReturnedUnacknowledged"));
     assert_eq!(entry["data_active"], json!(false));
+    assert_eq!(entry["acknowledged"], json!(false));
 
     // Acknowledging it now — after it has returned to normal — clears it.
     let ack = client

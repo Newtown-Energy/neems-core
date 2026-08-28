@@ -8,7 +8,9 @@
 //! Alarm 401 (`fire_alarm`, Emergency) is driven through the demo forced-alarm
 //! endpoint so these tests don't depend on a live RTAC feed. The fast test
 //! fixture has no readings carrying alarm registers, so a forced alarm is the
-//! only thing in the active set and there are no recorded rising/falling edges.
+//! only thing in the active set. The demo endpoints write real edges through
+//! `upsert_alarm_transition`, the same path the RTAC collector uses, so an
+//! alarm driven from here latches exactly like one driven by hardware.
 
 use chrono::{Duration, SecondsFormat, Utc};
 use neems_api::orm::testing::fast_test_rocket;
@@ -34,6 +36,24 @@ async fn force_alarms(client: &Client, session: &rocket::http::Cookie<'static>, 
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok, "forcing alarms {:?} failed", nums);
+}
+
+/// Set one alarm's data state directly, the way the RTAC collector reports it.
+/// Unlike [`force_alarms`] this does not diff against the current state, so it
+/// can assert a state the alarm is already in.
+async fn set_alarm_state(
+    client: &Client,
+    session: &rocket::http::Cookie<'static>,
+    alarm_num: u16,
+    active: bool,
+) {
+    let resp = client
+        .post("/api/1/Demo/AlarmState")
+        .cookie(session.clone())
+        .json(&json!({ "alarm_num": alarm_num, "active": active }))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok, "setting alarm {} to {} failed", alarm_num, active);
 }
 
 /// Fetch `/Alarms/Active` and return the entry for `alarm_num`, if visible.
@@ -71,9 +91,9 @@ async fn acknowledge<'c>(
         .await
 }
 
-/// The core round trip: an unacknowledged active alarm reports `Active`, and
-/// after acknowledgement it stays visible as `AcknowledgedActive` (still
-/// physically present) carrying who acknowledged it and when.
+/// The core round trip: an active alarm reports unacknowledged, and after
+/// acknowledgement it stays visible and still active — the condition has not
+/// gone anywhere — carrying who acknowledged it and when.
 #[tokio::test]
 async fn acknowledging_an_active_alarm_latches_it_as_acknowledged() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
@@ -85,8 +105,8 @@ async fn acknowledging_an_active_alarm_latches_it_as_acknowledged() {
     let before = active_entry(&client, &session, ALARM)
         .await
         .expect("alarm 401 should be active");
-    assert_eq!(before["status"], json!("Active"));
     assert_eq!(before["data_active"], json!(true));
+    assert_eq!(before["acknowledged"], json!(false));
     assert_eq!(before["acknowledged_at"], Value::Null);
     assert_eq!(before["acknowledged_by_user_id"], Value::Null);
 
@@ -104,14 +124,107 @@ async fn acknowledging_an_active_alarm_latches_it_as_acknowledged() {
     let after = active_entry(&client, &session, ALARM)
         .await
         .expect("alarm 401 should still be visible after ack");
-    assert_eq!(after["status"], json!("AcknowledgedActive"));
     assert_eq!(after["data_active"], json!(true));
+    assert_eq!(after["acknowledged"], json!(true));
     assert_eq!(after["acknowledged_by_user_id"], json!(ack_user_id));
     assert_eq!(after["acknowledged_by_email"], json!("newtown_superadmin@example.com"));
     assert!(
         after["acknowledged_at"].as_str().is_some_and(|s| !s.is_empty()),
         "expected an acknowledged_at timestamp, got {:?}",
         after["acknowledged_at"]
+    );
+}
+
+/// Acknowledging an active alarm settles that activation for good: once the
+/// condition goes away the alarm is finished and drops off the active list.
+///
+/// This is the fix for issue #106. The previous rule ("require 2nd ack", from
+/// issue #76) left the alarm demanding a second acknowledgement after it
+/// returned to normal, which meant an operator who had already responded got
+/// asked again about an alarm that was over.
+#[tokio::test]
+async fn acknowledging_then_clearing_finishes_the_alarm() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    force_alarms(&client, &session, &[ALARM]).await;
+    assert_eq!(acknowledge(&client, &session, ALARM, None).await.status(), Status::Ok);
+    force_alarms(&client, &session, &[]).await;
+
+    assert!(
+        active_entry(&client, &session, ALARM).await.is_none(),
+        "an acknowledged alarm that has returned to normal is finished"
+    );
+}
+
+/// A clear splits the timeline into separate instances: the second activation
+/// is a new event, so the acknowledgement of the first does not carry over.
+#[tokio::test]
+async fn reactivation_after_an_ack_requires_a_new_ack() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    force_alarms(&client, &session, &[ALARM]).await;
+    assert_eq!(acknowledge(&client, &session, ALARM, None).await.status(), Status::Ok);
+    force_alarms(&client, &session, &[]).await;
+
+    // Second instance: fires again, then clears again on its own.
+    force_alarms(&client, &session, &[ALARM]).await;
+    force_alarms(&client, &session, &[]).await;
+
+    let entry = active_entry(&client, &session, ALARM)
+        .await
+        .expect("the second activation still needs acknowledging");
+    assert_eq!(entry["data_active"], json!(false));
+    assert_eq!(entry["acknowledged"], json!(false));
+    // The earlier acknowledgement belongs to the previous instance, so it must
+    // not be reported against this one.
+    assert_eq!(entry["acknowledged_by_user_id"], Value::Null);
+    assert_eq!(entry["acknowledged_at"], Value::Null);
+}
+
+/// An alarm that fires and clears unattended stays visible, so an operator
+/// coming on shift is still told it happened.
+#[tokio::test]
+async fn an_unacknowledged_alarm_stays_visible_after_it_clears() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    force_alarms(&client, &session, &[ALARM]).await;
+    force_alarms(&client, &session, &[]).await;
+
+    let entry = active_entry(&client, &session, ALARM)
+        .await
+        .expect("an unacknowledged alarm stays visible after returning to normal");
+    assert_eq!(entry["data_active"], json!(false));
+    assert_eq!(entry["acknowledged"], json!(false));
+}
+
+/// Re-reporting a state the alarm is already in is not a new activation, so it
+/// must not throw away the acknowledgement.
+///
+/// Two things do exactly this: `POST /Demo/AlarmState` writes whatever it is
+/// handed, and the RTAC collector re-reports every still-active alarm as a
+/// rising edge after a restart (`RtacWorker::last_alarm_flags` starts
+/// all-clear). Both would otherwise re-stamp `last_rising_at` mid-activation
+/// and silently un-acknowledge an alarm nobody had touched.
+#[tokio::test]
+async fn a_repeated_active_report_keeps_the_acknowledgement() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    set_alarm_state(&client, &session, ALARM, true).await;
+    assert_eq!(acknowledge(&client, &session, ALARM, None).await.status(), Status::Ok);
+
+    // Still the same activation, reported again.
+    set_alarm_state(&client, &session, ALARM, true).await;
+
+    let entry = active_entry(&client, &session, ALARM).await.expect("alarm still active");
+    assert_eq!(entry["data_active"], json!(true));
+    assert_eq!(
+        entry["acknowledged"],
+        json!(true),
+        "a repeated active report is not a new activation"
     );
 }
 
