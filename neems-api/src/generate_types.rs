@@ -175,7 +175,7 @@ mod tests {
 
         // Data API types
         use crate::api::data::{
-            ChargeDischargeBucket, ChargeDischargeSummary, DataSourcesResponse,
+            AnalogPointValue, ChargeDischargeBucket, ChargeDischargeSummary, DataSourcesResponse,
             LatestAnalogsResponse, ReadingsQuery, ReadingsResponse, SocHistoryPoint,
             SocHistoryResponse, ZoneAnalogs,
         };
@@ -186,6 +186,7 @@ mod tests {
         SocHistoryResponse::export().expect("Failed to export SocHistoryResponse type");
         ChargeDischargeBucket::export().expect("Failed to export ChargeDischargeBucket type");
         ChargeDischargeSummary::export().expect("Failed to export ChargeDischargeSummary type");
+        AnalogPointValue::export().expect("Failed to export AnalogPointValue type");
         ZoneAnalogs::export().expect("Failed to export ZoneAnalogs type");
         LatestAnalogsResponse::export().expect("Failed to export LatestAnalogsResponse type");
 

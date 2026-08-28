@@ -13,10 +13,11 @@
 
 use neems_data::rtac::{
     alarm_definitions::{ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM},
+    analog_sim::{pack_spread, synthesize_megapack_block},
     protocol::{
         CommandType, MEGAPACK_ANALOG_BASE_POINT, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
-        current_to_register, grid_frequency_to_register, mp_analog_offset, parse_soc,
-        power_kw_to_registers, soc_to_register, temperature_to_register, voltage_to_register,
+        current_to_register, grid_frequency_to_register, parse_soc, power_kw_to_registers,
+        soc_to_register, temperature_to_register, voltage_to_register,
     },
     state::AlarmFlags,
 };
@@ -237,31 +238,27 @@ impl SimState {
         })
     }
 
-    /// How far pack `pack_index` sits from the site-level figure.
-    ///
-    /// Deterministic rather than random: six identical gauges would hide the
-    /// very thing per-pack readings exist to show, but a value that moves
-    /// between reads would make screenshots and tests unreproducible.
-    fn megapack_spread(pack_index: usize) -> f32 {
-        pack_index as f32 - 2.5
-    }
-
     /// Value of `offset` within pack `pack_index`'s analog block.
     ///
-    /// Only the points the SLD renders are simulated; the rest of the block
-    /// reads 0, matching the spreadsheet's silence about their encoding.
+    /// The whole 30-point block is simulated, not just the three the SLD
+    /// currently renders. A frontend being built against this needs every
+    /// gauge it might draw to carry a plausible number; 27 points reading zero
+    /// look like a broken pack rather than an unimplemented one.
+    ///
+    /// Shared with the demo history seeder via [`synthesize_megapack_block`],
+    /// so live simulator data and seeded history agree.
     fn megapack_register_at(&self, pack_index: usize, offset: u16) -> u16 {
-        let spread = Self::megapack_spread(pack_index);
-        match offset {
-            mp_analog_offset::STATE_OF_ENERGY => {
-                soc_to_register((self.soc_percent + spread * 1.5).clamp(0.0, 100.0))
-            }
-            mp_analog_offset::AC_VOLTAGE => voltage_to_register(self.voltage_v),
-            mp_analog_offset::MAX_BATTERY_TEMPERATURE => {
-                temperature_to_register(self.temperature_c + spread * 0.4)
-            }
-            _ => 0,
-        }
+        let soc = self.soc_percent + pack_spread(pack_index) * 1.5;
+        let block = synthesize_megapack_block(
+            pack_index,
+            soc,
+            self.power_kw,
+            self.voltage_v,
+            // The simulator has no ambient of its own; its temperature_c is
+            // the site figure, which already tracks activity.
+            self.temperature_c,
+        );
+        block.get(offset as usize).copied().unwrap_or(0)
     }
 
     /// Read `count` consecutive registers starting at `start`.
@@ -319,7 +316,7 @@ impl SimState {
 
 #[cfg(test)]
 mod tests {
-    use neems_data::rtac::protocol::MEGAPACK_ZONES;
+    use neems_data::rtac::protocol::{MEGAPACK_ZONES, mp_analog_offset};
 
     use super::*;
 

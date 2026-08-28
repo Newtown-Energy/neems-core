@@ -90,6 +90,23 @@ pub fn analog_point(point_number: u16) -> Option<&'static AnalogPoint> {
     ANALOG_POINTS.iter().find(|p| p.point_number == point_number)
 }
 
+/// Look up a Megapack point's name by its offset within a pack block.
+pub fn megapack_point_name(offset: u16) -> Option<&'static str> {
+    MEGAPACK_ANALOG_NAMES.get(offset as usize).copied()
+}
+
+/// The 30 per-Megapack measurement names, in block order, from MP-1A.
+///
+/// Every pack repeats this list, so it is captured once. MP-1A is the clean
+/// copy: blocks 1B-2C label offset 14 `ac_voltage_phaseA` where MP-1A has
+/// `inverter_phaseA_current`, which the spec flags as a copy/paste error.
+pub const MEGAPACK_ANALOG_NAMES: [&str; MEGAPACK_ANALOG_NAME_COUNT] = [
+{names}];
+
+/// Length of [`MEGAPACK_ANALOG_NAMES`]; matches
+/// [`MP_ANALOG_POINT_COUNT`][crate::rtac::protocol::MP_ANALOG_POINT_COUNT].
+pub const MEGAPACK_ANALOG_NAME_COUNT: usize = {name_count};
+
 /// Every analog point the client defines, in point-number order.
 pub const ANALOG_POINTS: &[AnalogPoint] = &[
 '''
@@ -133,7 +150,11 @@ def main():
             "    },"
         )
 
-    OUT.write_text(HEADER + "\n".join(rows) + "\n];\n")
+    mp1a = [e for e in points if e["zone"] == "Mp1a"]
+    names = "".join(f"    {rust_str(e['name'])},\n" for e in mp1a)
+    header = HEADER.replace("{names}", names).replace("{name_count}", str(len(mp1a)))
+
+    OUT.write_text(header + "\n".join(rows) + "\n];\n")
     n_spare = sum(1 for e in points if e["spare"])
     n_site = sum(1 for e in points if e["zone"] not in MP_BASE)
     print(f"wrote {OUT}")

@@ -51,6 +51,53 @@ pub fn analog_point(point_number: u16) -> Option<&'static AnalogPoint> {
     ANALOG_POINTS.iter().find(|p| p.point_number == point_number)
 }
 
+/// Look up a Megapack point's name by its offset within a pack block.
+pub fn megapack_point_name(offset: u16) -> Option<&'static str> {
+    MEGAPACK_ANALOG_NAMES.get(offset as usize).copied()
+}
+
+/// The 30 per-Megapack measurement names, in block order, from MP-1A.
+///
+/// Every pack repeats this list, so it is captured once. MP-1A is the clean
+/// copy: blocks 1B-2C label offset 14 `ac_voltage_phaseA` where MP-1A has
+/// `inverter_phaseA_current`, which the spec flags as a copy/paste error.
+pub const MEGAPACK_ANALOG_NAMES: [&str; MEGAPACK_ANALOG_NAME_COUNT] = [
+    "real_power_target",
+    "real_power_output",
+    "reactive_power_target",
+    "reactive_power_output",
+    "state_of_energy",
+    "energy_remaining",
+    "energy_to_full_SOC",
+    "full_pack_energy",
+    "nominal_full_pack",
+    "frequency",
+    "ac_voltage",
+    "ac_voltage_phaseA",
+    "ac_voltage_phaseB",
+    "ac_voltage_phaseC",
+    "inverter_phaseA_current",
+    "inverter_phaseB_current",
+    "inverter_phaseC_current",
+    "AI_spare_1",
+    "max_battery_temperature",
+    "ambient_temperature",
+    "available_charge_power",
+    "available_discharge_power",
+    "nominal_charge_power",
+    "nominal_discharge_power",
+    "AI_spare_2",
+    "AI_spare_3",
+    "AI_spare_4",
+    "AI_spare_5",
+    "AI_spare_6",
+    "AI_spare_7",
+];
+
+/// Length of [`MEGAPACK_ANALOG_NAMES`]; matches
+/// [`MP_ANALOG_POINT_COUNT`][crate::rtac::protocol::MP_ANALOG_POINT_COUNT].
+pub const MEGAPACK_ANALOG_NAME_COUNT: usize = 30;
+
 /// Every analog point the client defines, in point-number order.
 pub const ANALOG_POINTS: &[AnalogPoint] = &[
     AnalogPoint {

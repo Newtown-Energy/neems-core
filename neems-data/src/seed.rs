@@ -19,7 +19,11 @@ use crate::{
     NewReading, NewSource,
     collectors::data_sources::charging_state_with_level,
     create_source, insert_readings_batch,
-    rtac::state::AlarmFlags,
+    rtac::{
+        analog_sim::{PACK_POWER_KW, ambient_at, synthesize_all_packs},
+        protocol::{MP_ANALOG_ENCODING, mp_analog_offset},
+        state::AlarmFlags,
+    },
     schema::{readings, sources},
 };
 
@@ -195,12 +199,58 @@ pub fn seed_soc_history(
                 "battery_id": "default",
                 "state": state,
                 "level": level,
+                // Same key and shape the RTAC collector writes, so seeded
+                // history and live readings are indistinguishable to
+                // LatestAnalogs and to the frontend built against it.
+                "megapacks": seeded_megapack_analogs(utc, level, state),
                 "timestamp_utc": utc.to_rfc3339(),
                 "seeded": true,
             })
             .to_string()
         },
     )
+}
+
+/// Plausible per-Megapack analog blocks for one moment, as raw registers.
+///
+/// Returns the `megapacks` object the RTAC collector writes, so seeded history
+/// and live readings are the same shape and `LatestAnalogs` needs no special
+/// case for demo data.
+///
+/// The block itself comes from [`analog_sim`], shared with the Modbus
+/// simulator, so a frontend built against seeded history and one built against
+/// the simulator see the same magnitudes.
+pub fn seeded_megapack_analogs(utc: DateTime<Utc>, level: f64, state: &str) -> serde_json::Value {
+    // Each pack carries a share of the site's power, and the sign is what
+    // makes a charging demo read as charging rather than merely move.
+    let site_power_kw = match state {
+        "charging" => -(PACK_POWER_KW * 0.55),
+        "discharging" => PACK_POWER_KW * 0.55,
+        _ => 0.0,
+    };
+    let ambient_c = ambient_at(utc.timestamp());
+
+    let zones = synthesize_all_packs(level as f32, site_power_kw, 480.0, ambient_c)
+        .into_iter()
+        .map(|(zone, regs)| {
+            let decode = |offset: u16| {
+                MP_ANALOG_ENCODING[offset as usize].decode(regs[offset as usize]) as f64
+            };
+            (
+                zone.to_string(),
+                json!({
+                    // The three decoded fields the collector also writes, so a
+                    // reader that predates the raw block still works.
+                    "state_of_energy": decode(mp_analog_offset::STATE_OF_ENERGY),
+                    "ac_voltage": decode(mp_analog_offset::AC_VOLTAGE),
+                    "max_battery_temperature": decode(mp_analog_offset::MAX_BATTERY_TEMPERATURE),
+                    "raw": regs.to_vec(),
+                }),
+            )
+        })
+        .collect::<serde_json::Map<String, serde_json::Value>>();
+
+    serde_json::Value::Object(zones)
 }
 
 /// Backfill plausible past alarm readings for the given site.
@@ -229,4 +279,74 @@ pub fn seed_alarm_history(
             .to_string()
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rtac::protocol::{MEGAPACK_ZONES, MP_ANALOG_POINT_COUNT};
+
+    fn at(utc: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(utc).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn seeded_analogs_cover_every_pack_and_decode_back() {
+        let analogs = seeded_megapack_analogs(at("2026-08-28T18:00:00Z"), 62.0, "discharging");
+        let zones = analogs.as_object().expect("object");
+        assert_eq!(zones.len(), MEGAPACK_ZONES.len());
+
+        for zone in MEGAPACK_ZONES {
+            let v = &zones[zone.code()];
+            let raw = v["raw"].as_array().expect("raw array");
+            assert_eq!(raw.len(), MP_ANALOG_POINT_COUNT);
+
+            // The decoded convenience fields must agree with the registers
+            // they were derived from, or the demo would show one number while
+            // a client reading `raw` computed another.
+            let soe_raw = raw[mp_analog_offset::STATE_OF_ENERGY as usize].as_u64().unwrap() as u16;
+            let decoded = MP_ANALOG_ENCODING[mp_analog_offset::STATE_OF_ENERGY as usize]
+                .decode(soe_raw) as f64;
+            assert!((v["state_of_energy"].as_f64().unwrap() - decoded).abs() < 0.01);
+
+            // Charge level stays in range whatever the site figure does.
+            assert!((0.0..=100.0).contains(&decoded), "SoC {} out of range", decoded);
+        }
+    }
+
+    #[test]
+    fn seeded_packs_differ_from_one_another() {
+        let analogs = seeded_megapack_analogs(at("2026-08-28T18:00:00Z"), 50.0, "discharging");
+        let socs: Vec<f64> = MEGAPACK_ZONES
+            .iter()
+            .map(|z| analogs[z.code()]["state_of_energy"].as_f64().unwrap())
+            .collect();
+        // Six identical gauges would make the per-pack view look broken.
+        for w in socs.windows(2) {
+            assert_ne!(w[0], w[1]);
+        }
+    }
+
+    #[test]
+    fn seeded_power_takes_its_sign_from_the_state() {
+        let power = |state: &str| {
+            let a = seeded_megapack_analogs(at("2026-08-28T03:00:00Z"), 50.0, state);
+            let raw = a["Mp1a"]["raw"].as_array().unwrap()[1].as_u64().unwrap() as u16;
+            MP_ANALOG_ENCODING[1].decode(raw)
+        };
+        // A charging pack draws power; the sign is what makes the demo read
+        // correctly rather than just move.
+        assert!(power("charging") < 0.0, "charging should be negative");
+        assert!(power("discharging") > 0.0, "discharging should be positive");
+    }
+
+    #[test]
+    fn seeded_analogs_are_deterministic() {
+        // A demo has to replay identically, and screenshots have to match.
+        let t = at("2026-08-28T18:00:00Z");
+        assert_eq!(
+            seeded_megapack_analogs(t, 62.0, "discharging"),
+            seeded_megapack_analogs(t, 62.0, "discharging")
+        );
+    }
 }

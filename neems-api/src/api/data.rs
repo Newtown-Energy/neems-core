@@ -10,6 +10,10 @@
 use std::collections::HashMap;
 
 use chrono::NaiveDateTime;
+use neems_data::rtac::{
+    analog_points::megapack_point_name,
+    protocol::{MEGAPACK_ZONES, MP_ANALOG_ENCODING, MP_ANALOG_POINT_COUNT, RegisterMap},
+};
 use rocket::{Route, form::FromForm, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -743,6 +747,38 @@ pub struct ZoneAnalogs {
     pub state_of_energy: Option<f64>,
     pub ac_voltage: Option<f64>,
     pub max_battery_temperature: Option<f64>,
+    /// Every measurement in the pack's block, in the spreadsheet's order.
+    ///
+    /// Empty for a reading stored before raw registers were kept; the three
+    /// fields above still populate, so an old reading degrades rather than
+    /// disappears.
+    pub points: Vec<AnalogPointValue>,
+}
+
+/// One analog measurement, as read and as we currently interpret it.
+///
+/// Both halves are present on purpose. `raw` is what the RTAC actually
+/// returned and is the only part we can state as fact. `value` and `unit` are
+/// this build's reading of it, from `MP_ANALOG_ENCODING`, and every one of
+/// them is an assumption until the client confirms the encoding — the
+/// spreadsheet gives no units for any analog row. A consumer that shows
+/// `value` is trusting our guess; one that needs certainty has `raw`.
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalogPointValue {
+    /// Spreadsheet name, e.g. `state_of_energy`, `inverter_phaseA_current`.
+    pub name: String,
+    /// Position within the pack's 30-point block, and the offset from its
+    /// base Modbus address.
+    pub offset: u16,
+    /// Modbus register this was read from.
+    pub address: u16,
+    /// The register value, unscaled.
+    pub raw: u16,
+    /// Interpreted value, or `None` for the spare points we decline to guess.
+    pub value: Option<f64>,
+    /// Unit of `value`; `None` whenever `value` is.
+    pub unit: Option<String>,
 }
 
 /// Response payload for `GET /api/1/Sites/<id>/LatestAnalogs`.
@@ -791,8 +827,49 @@ pub fn parse_zone_analogs(data_json: &str) -> HashMap<String, ZoneAnalogs> {
                     state_of_energy: analog_field(values, "state_of_energy"),
                     ac_voltage: analog_field(values, "ac_voltage"),
                     max_battery_temperature: analog_field(values, "max_battery_temperature"),
+                    points: parse_analog_points(zone, values),
                 },
             )
+        })
+        .collect()
+}
+
+/// Expand a zone's stored `raw` register block into named, interpreted points.
+///
+/// Decoding here rather than at collection time is what lets a corrected
+/// encoding reach readings already on disk: storage keeps the registers, and
+/// this applies whatever `MP_ANALOG_ENCODING` currently says.
+///
+/// Returns empty for a zone with no `raw` array (readings written before it
+/// was stored) or a zone name that is not a Megapack — an unrecognised zone
+/// has no block layout to read the values against, and guessing one would
+/// attach real-looking names to arbitrary numbers.
+fn parse_analog_points(zone: &str, values: &serde_json::Value) -> Vec<AnalogPointValue> {
+    let Some(raw) = values.get("raw").and_then(|r| r.as_array()) else {
+        return Vec::new();
+    };
+    let Some(pack_index) = MEGAPACK_ZONES.iter().position(|z| z.code() == zone) else {
+        return Vec::new();
+    };
+
+    raw.iter()
+        .take(MP_ANALOG_POINT_COUNT)
+        .enumerate()
+        .filter_map(|(offset, value)| {
+            let raw = u16::try_from(value.as_u64()?).ok()?;
+            let offset = offset as u16;
+            let encoding = MP_ANALOG_ENCODING[offset as usize];
+            Some(AnalogPointValue {
+                name: megapack_point_name(offset)?.to_string(),
+                offset,
+                address: RegisterMap::mp_analog_address(pack_index, offset),
+                raw,
+                // A spare point has no unit because we decline to interpret
+                // it; reporting a value anyway would be a claim we just said
+                // we would not make.
+                value: encoding.unit.map(|_| encoding.decode(raw) as f64),
+                unit: encoding.unit.map(str::to_string),
+            })
         })
         .collect()
 }
@@ -1060,6 +1137,72 @@ pub fn routes() -> Vec<Route> {
 #[cfg(test)]
 mod tests {
     use super::{parse_soc_level, parse_soc_state, parse_zone_analogs};
+
+    #[test]
+    fn expands_every_point_in_a_stored_raw_block() {
+        // MP-1A block: state_of_energy (offset 4) = 82.5%, ac_voltage
+        // (offset 10) = 480.0V, everything else zero.
+        let mut raw = vec![0u16; 30];
+        raw[4] = 8250;
+        raw[10] = 4800;
+        let blob = format!(r#"{{"megapacks":{{"Mp1a":{{"raw":{:?}}}}}}}"#, raw);
+
+        let zones = parse_zone_analogs(&blob);
+        let mp1a = zones.get("Mp1a").expect("Mp1a present");
+        assert_eq!(mp1a.points.len(), 30, "every offset in the block is reported");
+
+        let soe = &mp1a.points[4];
+        assert_eq!(soe.name, "state_of_energy");
+        assert_eq!(soe.raw, 8250);
+        assert_eq!(soe.value, Some(82.5));
+        assert_eq!(soe.unit.as_deref(), Some("%"));
+        // Point number 605 is the address this came from; a shifted map shows
+        // up here rather than as a quietly wrong gauge.
+        assert_eq!(soe.address, 605);
+        assert_eq!(soe.offset, 4);
+
+        let volts = &mp1a.points[10];
+        assert_eq!(volts.name, "ac_voltage");
+        assert_eq!(volts.value, Some(480.0));
+        assert_eq!(volts.address, 611);
+
+        // A spare carries the register but makes no claim about it.
+        let spare = &mp1a.points[17];
+        assert!(spare.name.contains("spare"));
+        assert_eq!(spare.value, None);
+        assert_eq!(spare.unit, None);
+    }
+
+    #[test]
+    fn addresses_are_offset_per_pack() {
+        let raw = vec![0u16; 30];
+        let blob = format!(r#"{{"megapacks":{{"Mp2c":{{"raw":{:?}}}}}}}"#, raw);
+        let zones = parse_zone_analogs(&blob);
+        // MP-2C's block starts at 751, so its state_of_energy is 755.
+        assert_eq!(zones["Mp2c"].points[4].address, 755);
+    }
+
+    #[test]
+    fn a_reading_without_raw_still_reports_the_decoded_three() {
+        // Readings stored before raw registers were kept must degrade, not
+        // vanish: the gauges that already worked keep working.
+        let blob = r#"{"megapacks":{"Mp1a":{"state_of_energy":61.0,"ac_voltage":480.0,
+                       "max_battery_temperature":25.0}}}"#;
+        let zones = parse_zone_analogs(blob);
+        let mp1a = &zones["Mp1a"];
+        assert_eq!(mp1a.state_of_energy, Some(61.0));
+        assert!(mp1a.points.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_zone_reports_no_points() {
+        // Without a block layout there is nothing to read the values against,
+        // and naming them anyway would attach real point names to arbitrary
+        // numbers.
+        let raw = vec![7u16; 30];
+        let blob = format!(r#"{{"megapacks":{{"Facp":{{"raw":{:?}}}}}}}"#, raw);
+        assert!(parse_zone_analogs(&blob)["Facp"].points.is_empty());
+    }
 
     #[test]
     fn parses_level_from_charging_state_blob() {

@@ -450,6 +450,120 @@ pub mod mp_analog_offset {
     pub const MAX_BATTERY_TEMPERATURE: u16 = 18;
 }
 
+/// How we believe the register at one analog offset is encoded.
+///
+/// **Every entry is an educated guess.** The spreadsheet gives no units and no
+/// scaling for any analog row, so this table is our reading of what each
+/// measurement must be, not a specification. It lives here, hand-written,
+/// rather than in the generated `analog_points` module precisely to keep that
+/// line visible: generated code is the client's data, this is our assumption.
+///
+/// Wrong here is quiet. A divisor of 1 where the device means 10 reports 4800
+/// volts on a 480V bus, which at least looks wrong; a divisor of 10 where the
+/// device means 1 reports 48.0, which does not. Confirm with the client.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnalogEncoding {
+    /// Display unit, or `None` where we decline to guess (the spare points).
+    pub unit: Option<&'static str>,
+    /// Divide the register by this to reach a value in `unit`.
+    pub divisor: f32,
+    /// Read the register as `i16` before scaling — measurements that can run
+    /// negative because the pack both imports and exports.
+    pub signed: bool,
+}
+
+impl AnalogEncoding {
+    /// A plain count: no unit, no scaling, no claim.
+    const fn raw() -> Self {
+        Self { unit: None, divisor: 1.0, signed: false }
+    }
+
+    const fn new(unit: &'static str, divisor: f32, signed: bool) -> Self {
+        Self { unit: Some(unit), divisor, signed }
+    }
+
+    /// Interpret `raw` under this encoding.
+    pub fn decode(&self, raw: u16) -> f32 {
+        let n = if self.signed {
+            raw as i16 as f32
+        } else {
+            raw as f32
+        };
+        n / self.divisor
+    }
+
+    /// Inverse of [`decode`][Self::decode]: the register that would carry
+    /// `value`.
+    ///
+    /// For the simulator and the demo seeder, so generated data is written
+    /// through the same table the API reads it back with. That makes a
+    /// mistake in this table show up as a wrong number on the demo rather
+    /// than cancelling itself out — which is the whole reason to seed
+    /// registers instead of decoded values.
+    ///
+    /// Clamped to the representable range: a value that does not fit says the
+    /// encoding is wrong, and wrapping would hide it behind a plausible
+    /// number.
+    pub fn encode(&self, value: f32) -> u16 {
+        let scaled = value * self.divisor;
+        if self.signed {
+            (scaled.clamp(i16::MIN as f32, i16::MAX as f32) as i16) as u16
+        } else {
+            scaled.clamp(0.0, u16::MAX as f32) as u16
+        }
+    }
+}
+
+/// Assumed encoding for each of the 30 per-Megapack offsets, in block order.
+///
+/// Three groups, and the reasoning differs by group:
+///
+/// - **Scaled** (percent, volts, amps, degrees, hertz) copy the encoding the
+///   site-level status registers already use. That is the only precedent we
+///   have, and it is what [`MegapackAnalogs`] already assumed for the three
+///   points the SLD renders — this table does not introduce the assumption, it
+///   makes it explicit for the rest.
+/// - **Whole units** (kW, kVAR, kWh) take the register as a plain integer. A
+///   Megapack is roughly 1,900 kW and 3,900 kWh, so whole units fit a 16-bit
+///   register with room to spare while any decimal scaling would overflow it
+///   well inside the pack's normal range. Power is signed because a pack both
+///   charges and discharges.
+/// - **Spare** points get no unit and no scaling. The client reserved them and
+///   defined nothing; inventing a meaning would be worse than passing the
+///   number through.
+pub const MP_ANALOG_ENCODING: [AnalogEncoding; MP_ANALOG_POINT_COUNT] = [
+    AnalogEncoding::new("kW", 1.0, true),    //  0 real_power_target
+    AnalogEncoding::new("kW", 1.0, true),    //  1 real_power_output
+    AnalogEncoding::new("kVAR", 1.0, true),  //  2 reactive_power_target
+    AnalogEncoding::new("kVAR", 1.0, true),  //  3 reactive_power_output
+    AnalogEncoding::new("%", 100.0, false),  //  4 state_of_energy
+    AnalogEncoding::new("kWh", 1.0, false),  //  5 energy_remaining
+    AnalogEncoding::new("kWh", 1.0, false),  //  6 energy_to_full_SOC
+    AnalogEncoding::new("kWh", 1.0, false),  //  7 full_pack_energy
+    AnalogEncoding::new("kWh", 1.0, false),  //  8 nominal_full_pack
+    AnalogEncoding::new("Hz", 100.0, false), //  9 frequency
+    AnalogEncoding::new("V", 10.0, false),   // 10 ac_voltage
+    AnalogEncoding::new("V", 10.0, false),   // 11 ac_voltage_phaseA
+    AnalogEncoding::new("V", 10.0, false),   // 12 ac_voltage_phaseB
+    AnalogEncoding::new("V", 10.0, false),   // 13 ac_voltage_phaseC
+    AnalogEncoding::new("A", 10.0, true),    // 14 inverter_phaseA_current
+    AnalogEncoding::new("A", 10.0, true),    // 15 inverter_phaseB_current
+    AnalogEncoding::new("A", 10.0, true),    // 16 inverter_phaseC_current
+    AnalogEncoding::raw(),                   // 17 AI_spare_1
+    AnalogEncoding::new("C", 10.0, true),    // 18 max_battery_temperature
+    AnalogEncoding::new("C", 10.0, true),    // 19 ambient_temperature
+    AnalogEncoding::new("kW", 1.0, false),   // 20 available_charge_power
+    AnalogEncoding::new("kW", 1.0, false),   // 21 available_discharge_power
+    AnalogEncoding::new("kW", 1.0, false),   // 22 nominal_charge_power
+    AnalogEncoding::new("kW", 1.0, false),   // 23 nominal_discharge_power
+    AnalogEncoding::raw(),                   // 24 AI_spare_2
+    AnalogEncoding::raw(),                   // 25 AI_spare_3
+    AnalogEncoding::raw(),                   // 26 AI_spare_4
+    AnalogEncoding::raw(),                   // 27 AI_spare_5
+    AnalogEncoding::raw(),                   // 28 AI_spare_6
+    AnalogEncoding::raw(),                   // 29 AI_spare_7
+];
+
 /// Parsed analog measurements for a single Megapack.
 ///
 /// The three named fields are the ones the SLD renders. `raw_registers` keeps
@@ -681,6 +795,65 @@ mod tests {
             let point = analog_point(number).expect("MP-1A point exists");
             assert_eq!(point.name, expected, "offset {} is no longer {}", offset, expected);
             assert_eq!(point.zone, AlarmZone::Mp1a);
+        }
+    }
+
+    #[test]
+    fn analog_encodings_round_trip_and_cover_every_offset() {
+        assert_eq!(MP_ANALOG_ENCODING.len(), MP_ANALOG_POINT_COUNT);
+
+        for (offset, encoding) in MP_ANALOG_ENCODING.iter().enumerate() {
+            // A spare makes no claim, so it carries no unit and no scaling.
+            if encoding.unit.is_none() {
+                assert_eq!(encoding.divisor, 1.0, "offset {} scales but has no unit", offset);
+                assert!(!encoding.signed);
+            }
+            assert!(encoding.divisor > 0.0, "offset {} has a non-positive divisor", offset);
+        }
+
+        // The seeder and simulator write through `encode` and the API reads
+        // through `decode`; if these two ever disagree the demo would look
+        // right while the real path was wrong.
+        for (value, offset) in [
+            (82.5, mp_analog_offset::STATE_OF_ENERGY),
+            (479.6, mp_analog_offset::AC_VOLTAGE),
+            (27.4, mp_analog_offset::MAX_BATTERY_TEMPERATURE),
+        ] {
+            let encoding = MP_ANALOG_ENCODING[offset as usize];
+            assert!((encoding.decode(encoding.encode(value)) - value).abs() < 0.05);
+        }
+
+        // Power runs negative while a pack charges.
+        let kw = MP_ANALOG_ENCODING[0];
+        assert!(kw.signed);
+        assert_eq!(kw.decode(kw.encode(-1200.0)), -1200.0);
+    }
+
+    #[test]
+    fn the_encoding_table_lines_up_with_the_point_names() {
+        use super::super::analog_points::MEGAPACK_ANALOG_NAMES;
+
+        // The table is hand-written and indexed by offset while the names are
+        // generated, so a spreadsheet reordering would silently repoint every
+        // unit. Spot-check the ones whose unit is unambiguous from the name.
+        for (offset, name) in MEGAPACK_ANALOG_NAMES.iter().enumerate() {
+            let unit = MP_ANALOG_ENCODING[offset].unit;
+            let expected = if name.contains("spare") {
+                None
+            } else if name.contains("temperature") {
+                Some("C")
+            } else if name.contains("current") {
+                Some("A")
+            } else if name.starts_with("ac_voltage") {
+                Some("V")
+            } else if *name == "frequency" {
+                Some("Hz")
+            } else if *name == "state_of_energy" {
+                Some("%")
+            } else {
+                continue;
+            };
+            assert_eq!(unit, expected, "offset {} ({}) has unit {:?}", offset, name, unit);
         }
     }
 
