@@ -103,9 +103,13 @@ pub fn ambient_at(unix_seconds: i64) -> f32 {
 }
 
 /// Every pack's block for one moment, paired with its zone code.
+///
+/// `pack_power_kw` is per pack, not the site total: it reaches each pack's
+/// block unchanged, give or take that pack's spread. Handing this the site
+/// figure would report every pack at six times its real output.
 pub fn synthesize_all_packs(
     soc_percent: f32,
-    site_power_kw: f32,
+    pack_power_kw: f32,
     voltage_v: f32,
     ambient_c: f32,
 ) -> Vec<(&'static str, [u16; MP_ANALOG_POINT_COUNT])> {
@@ -116,7 +120,7 @@ pub fn synthesize_all_packs(
             let soc = soc_percent + pack_spread(i) * 1.5;
             (
                 zone.code(),
-                synthesize_megapack_block(i, soc, site_power_kw, voltage_v, ambient_c),
+                synthesize_megapack_block(i, soc, pack_power_kw, voltage_v, ambient_c),
             )
         })
         .collect()

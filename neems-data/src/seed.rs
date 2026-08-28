@@ -221,16 +221,16 @@ pub fn seed_soc_history(
 /// simulator, so a frontend built against seeded history and one built against
 /// the simulator see the same magnitudes.
 pub fn seeded_megapack_analogs(utc: DateTime<Utc>, level: f64, state: &str) -> serde_json::Value {
-    // Each pack carries a share of the site's power, and the sign is what
+    // Per pack, at a little over half its nameplate, and the sign is what
     // makes a charging demo read as charging rather than merely move.
-    let site_power_kw = match state {
+    let pack_power_kw = match state {
         "charging" => -(PACK_POWER_KW * 0.55),
         "discharging" => PACK_POWER_KW * 0.55,
         _ => 0.0,
     };
     let ambient_c = ambient_at(utc.timestamp());
 
-    let zones = synthesize_all_packs(level as f32, site_power_kw, 480.0, ambient_c)
+    let zones = synthesize_all_packs(level as f32, pack_power_kw, 480.0, ambient_c)
         .into_iter()
         .map(|(zone, regs)| {
             let decode = |offset: u16| {
