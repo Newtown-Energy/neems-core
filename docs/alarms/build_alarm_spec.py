@@ -20,6 +20,8 @@ Source-of-truth notes:
     keys (name, zone, sld.*_raw, threshold_raw, mouseover, ...).
   * Every value we computed is grouped/labeled and marked with "_derived": true
     (suggested_code_name, modbus, severity_signals, threshold parse).
+  * value_type and access are a third class: stated by the client, carried by
+    neither the cells nor a computation (see CATEGORY_VALUE_TYPE below).
 """
 
 import json
@@ -53,6 +55,22 @@ XLSX = _find_xlsx()
 # Neutral provenance label recorded in the output. We deliberately do NOT embed
 # the real filename, which carries vendor/site names that must not be committed.
 SOURCE_FILE = "client alarm & SLD source spreadsheet (kept outside the repo)"
+
+# Sheets read, in order; reported in metadata as the spec's provenance. Each
+# has its own builder below, so adding one is more than extending this list.
+SOURCE_SHEETS = ["Digitals", "Analogs"]
+
+# Value type and access mode per category, stated by the client on 2026-09-04.
+# The workbook carries neither — no column says a Digitals row is a bit or an
+# Analogs row a real number, and nothing marks a point writable — so these are
+# recorded here rather than read, and travel with the spec instead of living in
+# a conversation.
+#
+# Everything the workbook currently defines is read-only. Writable points are
+# to arrive on a sheet that does not exist yet, which is why access is per
+# entry rather than a single flag: when that sheet lands, rows will differ.
+CATEGORY_VALUE_TYPE = {"digital": "bool", "analog": "float"}
+CATEGORY_ACCESS = {"digital": "read_only", "analog": "read_only"}
 
 
 # --------------------------------------------------------------------------- #
@@ -405,6 +423,8 @@ def build_digital(row):
     entry = {
         "alarm_num": num,
         "category": "digital",
+        "value_type": CATEGORY_VALUE_TYPE["digital"],
+        "access": CATEGORY_ACCESS["digital"],
         "zone_raw": zone_raw,
         "zone": zone_code,
         "zone_inferred": zone_inferred,
@@ -452,6 +472,8 @@ def build_analog(row):
     entry = {
         "alarm_num": num,
         "category": "analog",
+        "value_type": CATEGORY_VALUE_TYPE["analog"],
+        "access": CATEGORY_ACCESS["analog"],
         "zone_raw": zone_raw,
         "zone": zone_code,
         "sld_component_id": sld_component,
@@ -608,6 +630,32 @@ def main():
                     ),
                 })
 
+    # The client calls every analog a float, but numbers analog points one
+    # apart. A 32-bit float occupies two Modbus registers, so both statements
+    # cannot describe the wire: either the values are 16-bit and scaled (and
+    # "float" describes the engineering value), or the numbers are point
+    # indexes and the address is base + 2*offset — which contradicts
+    # RegisterMap::POINT_NUMBER_BASE, where we take the numbers literally.
+    # The two readings put every point after the first of each block at a
+    # different address, so this is flagged on every run until the client
+    # settles it. It retires itself if the numbering ever changes.
+    if CATEGORY_VALUE_TYPE["analog"] == "float":
+        nums = sorted(e["alarm_num"] for e in analog_points)
+        adjacent = [b for a, b in zip(nums, nums[1:]) if b - a == 1]
+        if adjacent:
+            dq_issues.append({
+                "alarm_num": None, "category": "analog",
+                "issue": (
+                    f"analog points are declared float but {len(adjacent)} of them "
+                    f"are numbered 1 apart (e.g. {adjacent[0] - 1} and {adjacent[0]}); "
+                    "a 32-bit float needs 2 registers, so either the wire values are "
+                    "16-bit scaled integers or the numbers are point indexes rather "
+                    "than register addresses. Confirm float width and word order with "
+                    "the client before trusting any analog address past the first of "
+                    "each block"
+                ),
+            })
+
     # Megapack templates (canonical 30-point patterns; MP-1A is the clean copy).
     mp_digital_template = [
         {"offset": e["pt_number"] - 1 if e["pt_number"] else None,
@@ -631,7 +679,7 @@ def main():
     spec = {
         "metadata": {
             "source_file": SOURCE_FILE,
-            "source_sheets": ["Digitals", "Analogs"],
+            "source_sheets": list(SOURCE_SHEETS),
             "description": (
                 "Structured capture of the client alarm + SLD register spreadsheet "
                 "for the Newtown BESS. Intended as the single source of truth for "
@@ -660,6 +708,15 @@ def main():
                     "22-register holding block the simulator serves, which is the "
                     "backend's own framing and predates knowing the client's "
                     "addressing."
+                ),
+                "value_types": (
+                    "value_type and access come from the client, not from the "
+                    "workbook: every Digitals row is a boolean, every Analogs row "
+                    "is a float, and every point either sheet defines is read-only. "
+                    "Writable points are to arrive on a sheet that does not exist "
+                    "yet, so nothing here is writable by construction. Note that "
+                    "\"float\" describes the value, not settled wire encoding — see "
+                    "data_quality_issues for what it does not yet pin down."
                 ),
                 "severity": (
                     "The spreadsheet encodes severity indirectly via SLD color "

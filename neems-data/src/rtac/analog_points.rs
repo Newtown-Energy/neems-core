@@ -17,6 +17,16 @@
 //! and they do not collide because Modbus addresses registers and bits
 //! separately.
 //!
+//! ## Read-only floats, of unsettled width
+//!
+//! The client states every point on the `Analogs` sheet is a float and every
+//! one is read-only; nothing here is ever written. That does not settle the
+//! wire encoding: a 32-bit float needs two registers, but the sheet numbers
+//! points one apart, so either the values are 16-bit and scaled or these
+//! numbers are indexes rather than addresses. The spec flags the contradiction
+//! in `data_quality_issues`; until it is resolved, `point_number` is an
+//! address only under the first reading.
+//!
 //! ## No units, no scaling
 //!
 //! The spreadsheet gives neither for any row, so neither appears here. Only

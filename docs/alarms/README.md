@@ -82,12 +82,18 @@ they are cheap to correct:
 - **Numbering base.** We read the spreadsheet numbers literally — 601 is wire
   address 601 — rather than treating them as 1-based point numbers. Held in
   `RegisterMap::POINT_NUMBER_BASE`. If readings come back one point out, that
-  is the line to change.
+  is the line to change. **The client's "analogs are floats" now puts the
+  stronger form of this assumption in doubt** — see "Float width" below; a
+  32-bit float would make the numbers indexes rather than addresses, and the
+  correction is a stride, not an offset.
 - **Which register table.** Analogs are read as holding registers (FC 3) for
   now; input registers (FC 4) would be the more literal fit for read-only
-  measurements. Nothing else depends on the choice — the backend's own command
-  registers were moved to 1000-1004 so they clear the client's whole 101-102 /
-  601-780 range either way.
+  measurements, and the client has since confirmed both sheets are read-only.
+  That strengthens the case for FC 4 (and FC 2 for the digital bits) without
+  settling it: RTACs commonly expose the same data in both spaces. Nothing else
+  depends on the choice — the backend's own command registers were moved to
+  1000-1004 so they clear the client's whole 101-102 / 601-780 range either
+  way.
 
 ### Key convention: source vs. derived fields
 
@@ -97,6 +103,14 @@ they are cheap to correct:
   (`suggested_code_name`, `modbus`, `severity_signals`, `threshold`,
   `zone_inferred`). Treat derived fields as a starting point, not gospel —
   especially `suggested_code_name` (a mechanical slug) and `severity_signals`.
+- `value_type` and `access` are a third class: **stated by the client, carried
+  by neither the cells nor a computation.** No column says a Digitals row is a
+  bit or an Analogs row a real number, and nothing marks a point writable. They
+  are set from `CATEGORY_VALUE_TYPE` / `CATEGORY_ACCESS` in
+  `build_alarm_spec.py`, so the client's answer lives in the spec rather than in
+  a conversation. Every point either sheet defines is `read_only`; writable
+  points are to arrive on a sheet that does not exist yet, which is why
+  `access` is per entry rather than one flag.
 
 ## `digital_alarms[]` entry
 
@@ -104,6 +118,8 @@ they are cheap to correct:
 {
   "alarm_num": 3,
   "category": "digital",
+  "value_type": "bool",             // client-stated: every Digitals row is a bit
+  "access": "read_only",            // client-stated: writable points get a future sheet
   "zone_raw": "Newtown",            // spreadsheet "Alarm Zone"
   "zone": "Site",                   // canonical AlarmZone (matches Rust enum)
   "zone_inferred": false,           // true => zone backfilled from numbering block
@@ -156,6 +172,8 @@ numbers do — see issues). `discrete_address` is always present.
 {
   "alarm_num": 619,
   "category": "analog",
+  "value_type": "float",            // client-stated; see "Float width" below
+  "access": "read_only",
   "zone_raw": "MP-1A",
   "zone": "Mp1a",
   "sld_component_id": "megapack-1a",
@@ -190,6 +208,25 @@ at 101 and 102.
 > invented encoding. A right address with a wrong scale reports 8.25% where the
 > pack means 82.5%, silently and plausibly.
 
+> **Float width is unsettled, and it moves the addresses.** The client says
+> every Analogs row is a float, but the sheet numbers analog points one apart
+> and a 32-bit float needs two Modbus registers. Both cannot describe the wire,
+> so exactly one of these holds:
+>
+> - **16-bit scaled integers**, and "float" describes the engineering value.
+>   The current model is right in kind; `MP_ANALOG_ENCODING` in `protocol.rs`
+>   keeps its shape and only its divisors remain unconfirmed.
+> - **True 32-bit floats**, in which case the spreadsheet numbers are point
+>   *indexes*, not register addresses — the address becomes `base + 2*offset`,
+>   the block read grows from 30 registers to 60, `AnalogEncoding` loses
+>   `divisor`/`signed` for `f32::from_bits`, and **word order** becomes a new
+>   thing to confirm.
+>
+> The generator flags this in `data_quality_issues[]` on every run until the
+> client answers, and retires the flag by itself if the numbering ever changes.
+> Note that floats would remove the wrong-divisor risk but not the units
+> question: kW vs W and C vs F are still unspecified either way.
+
 ## `reference` section
 
 - **`zones`** — every spreadsheet zone label (digital `MP1A_digital` and analog
@@ -222,8 +259,13 @@ blindly overwritten.
 
 ## `data_quality_issues[]`
 
-Genuine anomalies detected during generation (8 at last run):
+Genuine anomalies detected during generation (9 at last run):
 
+- **Analog float width vs. numbering** — analogs are declared float but
+  numbered one apart, which a 32-bit float cannot fit. Not a spreadsheet
+  mistake but an unresolved question about the wire; see "Float width" above.
+  The only issue in the list with a null `alarm_num`, because it is about the
+  set rather than a row.
 - **Breaker 133–135** — reserved numbers that overflow the 2-register
   (32-bit) breaker allocation; no Modbus bit assigned (`modbus: null`).
 - **MP analog offset 14 (alarms 645/675/705/735/765)** — labeled

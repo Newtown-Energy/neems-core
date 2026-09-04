@@ -56,6 +56,16 @@ HEADER = '''\
 //! and they do not collide because Modbus addresses registers and bits
 //! separately.
 //!
+//! ## Read-only floats, of unsettled width
+//!
+//! The client states every point on the `Analogs` sheet is a float and every
+//! one is read-only; nothing here is ever written. That does not settle the
+//! wire encoding: a 32-bit float needs two registers, but the sheet numbers
+//! points one apart, so either the values are 16-bit and scaled or these
+//! numbers are indexes rather than addresses. The spec flags the contradiction
+//! in `data_quality_issues`; until it is resolved, `point_number` is an
+//! address only under the first reading.
+//!
 //! ## No units, no scaling
 //!
 //! The spreadsheet gives neither for any row, so neither appears here. Only
@@ -131,6 +141,18 @@ MP_BASE = {"Mp1a": 601, "Mp1b": 631, "Mp1c": 661, "Mp2a": 691, "Mp2b": 721, "Mp2
 def main():
     spec = json.loads(SPEC.read_text())
     points = sorted(spec["analog_points"], key=lambda e: e["alarm_num"])
+
+    # This registry describes read-only float measurements and nothing else:
+    # the Rust table carries no encoding and the read path never writes. When
+    # the client's writable sheet lands, its points must not fall silently into
+    # a read-only registry, so refuse rather than emit them.
+    for e in points:
+        if e.get("value_type") != "float" or e.get("access") != "read_only":
+            raise SystemExit(
+                f"point {e['alarm_num']} is {e.get('value_type')}/{e.get('access')}, "
+                "not float/read_only — this generator emits neither; decide where "
+                "the point belongs before regenerating"
+            )
 
     rows = []
     for e in points:
