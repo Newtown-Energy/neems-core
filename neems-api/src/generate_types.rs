@@ -160,6 +160,14 @@ mod tests {
         EstopRequestDto::export().expect("Failed to export EstopRequestDto type");
         EstopStatusResponse::export().expect("Failed to export EstopStatusResponse type");
 
+        // Site input (control request) API types
+        use crate::api::control::{ControlFailureBody, ControlRequestBody, SiteControlDto};
+        ControlRequestStatus::export().expect("Failed to export ControlRequestStatus type");
+        ControlRequestDto::export().expect("Failed to export ControlRequestDto type");
+        ControlRequestBody::export().expect("Failed to export ControlRequestBody type");
+        ControlFailureBody::export().expect("Failed to export ControlFailureBody type");
+        SiteControlDto::export().expect("Failed to export SiteControlDto type");
+
         // Demo API types
         use crate::api::demo::{
             DemoAlarmStateDto, DemoAlarmStateResponse, InjectHistoryRequest, InjectHistoryResponse,

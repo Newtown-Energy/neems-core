@@ -1,6 +1,7 @@
 pub mod alarm_acknowledgement;
 pub mod application_rule;
 pub mod company;
+pub mod control_request;
 mod db;
 pub mod device;
 pub mod entity_activity;

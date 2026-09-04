@@ -7,6 +7,7 @@
 pub mod alarm;
 pub mod application_rule;
 pub mod company;
+pub mod control;
 pub mod data;
 pub mod demo;
 pub mod device;
@@ -41,6 +42,7 @@ pub fn routes() -> Vec<Route> {
     routes.extend(alarm::routes());
     routes.extend(application_rule::routes());
     routes.extend(company::routes());
+    routes.extend(control::routes());
     routes.extend(data::routes());
     routes.extend(demo::routes());
     routes.extend(device::routes());
