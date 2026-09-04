@@ -110,7 +110,9 @@ they are cheap to correct:
   `build_alarm_spec.py`, so the client's answer lives in the spec rather than in
   a conversation. Every point either sheet defines is `read_only`; writable
   points are to arrive on a sheet that does not exist yet, which is why
-  `access` is per entry rather than one flag.
+  `access` is per entry rather than one flag. What those points will be, and
+  the request lifecycle an operator's click travels through to reach one, is
+  specified in [`../site-inputs.md`](../site-inputs.md).
 
 ## `digital_alarms[]` entry
 
@@ -280,7 +282,12 @@ eye during implementation):
 - The Analogs sheet has a duplicate, always-empty "MP or Site Availability"
   column (col 9); it is ignored.
 - The `Outputs` and `SLD reference image` sheets carry no tabular data (the
-  latter is just the reference diagram image).
+  latter is just the reference diagram image). `Outputs` is where the writable
+  points are expected to land — the nine controls waiting on it are enumerated
+  in [`../site-inputs.md`](../site-inputs.md), so a populated sheet can be
+  checked against what the SLD already offers. (The E-stop is not among them:
+  it goes out through our own command registers and needs nothing from this
+  sheet.)
 
 ## How to regenerate
 
