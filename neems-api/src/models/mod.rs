@@ -1,6 +1,7 @@
 pub mod alarm_acknowledgement;
 pub mod application_rule;
 pub mod company;
+pub mod control_request;
 pub mod deleted_company;
 pub mod deleted_user;
 pub mod device;
@@ -17,6 +18,7 @@ pub mod user_role;
 pub use alarm_acknowledgement::*;
 pub use application_rule::*;
 pub use company::*;
+pub use control_request::*;
 pub use deleted_company::*;
 pub use deleted_user::*;
 pub use device::*;

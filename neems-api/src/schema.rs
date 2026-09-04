@@ -30,6 +30,21 @@ diesel::table! {
 }
 
 diesel::table! {
+    control_requests (id) {
+        id -> Integer,
+        site_id -> Integer,
+        control_id -> Text,
+        action -> Text,
+        status -> Text,
+        requested_by -> Nullable<Integer>,
+        requested_at -> Timestamp,
+        sent_at -> Nullable<Timestamp>,
+        resolved_at -> Nullable<Timestamp>,
+        failure_reason -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     deleted_companies (id) {
         id -> Integer,
         name -> Text,
@@ -188,6 +203,8 @@ diesel::table! {
 
 diesel::joinable!(alarm_acknowledgements -> users (user_id));
 diesel::joinable!(application_rules -> schedule_templates (template_id));
+diesel::joinable!(control_requests -> sites (site_id));
+diesel::joinable!(control_requests -> users (requested_by));
 diesel::joinable!(devices -> companies (company_id));
 diesel::joinable!(devices -> sites (site_id));
 diesel::joinable!(estop_requests -> sites (site_id));
@@ -206,6 +223,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     alarm_acknowledgements,
     application_rules,
     companies,
+    control_requests,
     deleted_companies,
     deleted_users,
     devices,
