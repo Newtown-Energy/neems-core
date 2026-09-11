@@ -17,6 +17,9 @@ one per interactable element on the SLD.
 > workbook has an `Outputs` sheet, but it carries no tabular data yet. When it
 > arrives it settles the addressing, and probably the shape, of the write path
 > (neems-core#111); nothing above that layer should need to change.
+>
+> A demo deployment is the exception, and only in who resolves the request —
+> see [Demo mode](#demo-mode) below.
 
 ## The category
 
@@ -189,11 +192,44 @@ code that knows how to write it, not data an operator can edit, and serving it
 keeps the diagram from carrying its own copy of which elements are interactable.
 Requests live in `control_requests` (`neems-api/src/models/control_request.rs`).
 
-**Every request fails immediately**, because no entry in that table has a write
-register. The API checks before leaving a request pending and resolves it with a
+**Every request off demo mode fails immediately**, because no entry in that
+table has a write register. The API checks before leaving a request pending and resolves it with a
 reason an operator can read, rather than handing the collector work it cannot do
 and letting the operator watch a minute of nothing. That check disappears by
 itself when the `Outputs` sheet fills the column in.
+
+### Demo mode
+
+A demo deployment has no RTAC and runs no collector, so the paragraph above
+leaves it with a diagram on which every click fails — which is no demo of the
+controls at all. With `NEEMS_DEMO_MODE` on, the API stands in for the collector:
+it moves the control's **readback point**, through the same `alarm_state` and
+snapshot path `POST /1/Demo/AlarmState` writes, and then reports the request
+`sent`.
+
+Three things about that are deliberate:
+
+- **It writes the readback, not the position.** The two axes stay separate here
+  as everywhere else. A demo breaker moves because the site says it moved, and
+  the diagram reaches that conclusion by reading the same points it would read
+  against real hardware — which is what makes the demo worth showing.
+- **It writes before it reports.** Same order as the real collector, so a
+  failure to move the readback fails the request with a reason rather than
+  claiming a signal that went nowhere.
+- **It gives nothing a `write_register`.** Demo mode routes around the write
+  path; it does not pretend one exists. `writable` is still false on every
+  control, `/Controls/Pending` is still empty, and a deployment that has not set
+  `NEEMS_DEMO_MODE` still fails every request honestly.
+
+The readback's *sense* is what makes this possible, and it had to be added to
+`SITE_CONTROLS` to do it: 101/102 report open and the feeder points report
+closed, so the same action drives the two halves of the diagram in opposite
+directions. `SiteControl::readback` carries the point and its `active_means`
+together for that reason.
+
+What demo mode does not fix is the feed going stale between clicks — nothing
+writes readings on a cadence, so the positions it moves age out of the SLD's
+window about thirty seconds later (neems-core#115).
 
 One pending request per control is a database constraint, not merely something
 the ORM is careful about: two concurrent clicks that both landed would be two
@@ -258,7 +294,8 @@ rendered from read-only points only.
 1. **The `Outputs` sheet.** Write addresses, value encoding, and whether a
    control is a level (requested position) or a momentary pulse per direction.
    Nothing can be written to the site until this lands; until then every request
-   resolves as `failed` with "no RTAC point defined", which is the truth.
+   on a real deployment resolves as `failed` with "no RTAC point defined", which
+   is the truth.
 2. **Are all ten controls in scope?** The line switches and the lockout relay
    are the safety-significant ones; the client may want some of them read-only
    on the diagram regardless of what the RTAC accepts.

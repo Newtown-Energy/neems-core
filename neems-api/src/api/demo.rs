@@ -8,16 +8,29 @@
 //! Gated to the same roles as the Demo Controls drawer. Meant to be deleted
 //! once the real RTAC feed is the source of truth.
 
+use std::collections::HashSet;
+
+use diesel::prelude::*;
 use neems_data::{
     SeedOutcome, get_all_alarm_state, record_alarm_snapshot,
-    rtac::alarm_definitions::ALARM_DEFINITIONS, seed_alarm_history, seed_soc_history,
-    upsert_alarm_transition,
+    rtac::{
+        alarm_definitions::ALARM_DEFINITIONS,
+        site_controls::{SiteControl, SiteControlAction},
+        state::AlarmFlags,
+    },
+    seed_alarm_history, seed_soc_history, upsert_alarm_transition,
 };
 use rocket::{Route, State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{orm::neems_data::db::SiteDbConn, session_guards::AuthenticatedUser};
+use crate::{
+    api::alarm::parse_alarm_registers, orm::neems_data::db::SiteDbConn,
+    session_guards::AuthenticatedUser,
+};
+
+/// Anything that went wrong writing demo state to the site database.
+type SiteWriteResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 /// Roles allowed to drive demo controls — mirrors the frontend drawer's gate
 /// and the forced-alarm endpoints in [`crate::api::alarm`].
@@ -296,15 +309,74 @@ pub async fn set_alarm_state(
     let rows = site_db
         .run(move |conn| {
             let now = chrono::Utc::now().naive_utc();
-            upsert_alarm_transition(conn, alarm_num as i32, active, now)
-                .map_err(|_| Status::InternalServerError)?;
-            let rows = get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)?;
-            record_snapshot(conn, &rows, now)?;
-            Ok::<_, Status>(rows)
+            conn.immediate_transaction(|conn| {
+                upsert_alarm_transition(conn, alarm_num as i32, active, now)?;
+                record_snapshot(conn, now)
+            })
+            .map_err(|e| {
+                eprintln!("Demo alarm state write failed for {alarm_num}: {e}");
+                Status::InternalServerError
+            })?;
+            get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)
         })
         .await?;
 
     Ok(Json(build_state_response(&rows)))
+}
+
+/// Carry out a control request the way the site would, for a deployment that
+/// has no site.
+///
+/// Demo mode's premise is that there is no RTAC and no collector: `neems-data`
+/// is not running (see `.do/app.yaml`), and no control has a write register
+/// anyway while the client's `Outputs` sheet is empty. Left alone, every click
+/// on the diagram fails with "this control has no RTAC point configured yet" —
+/// the truth on a real deployment, and useless on a demo whose whole subject is
+/// the controls.
+///
+/// So stand in for the collector and move the control's readback point to the
+/// position the action implies, through the same `alarm_state` + snapshot path
+/// the RTAC collector writes and [`set_alarm_state`] already uses. The caller
+/// reports the request `sent` once this returns, which is what a collector does
+/// after a successful write.
+///
+/// Note what this writes: the **readback**, not the request. The two axes stay
+/// separate here as everywhere else — a demo breaker moves because the site
+/// says it moved, not because somebody clicked. That is also what makes the
+/// demo worth taking screenshots of: the diagram is reading the same points it
+/// would read against real hardware.
+///
+/// **Not site-scoped, because nothing here is.** `alarm_state` is keyed on
+/// `alarm_num` alone and the alarm read path never filters by site, so a
+/// request naming site 2 moves the same readback a request naming site 1 does.
+/// Carrying the site id through this write would look like a fix and not be
+/// one: the readers would go on ignoring it. Site-scoping alarms is #98, and it
+/// is the only thing that would change this. Demo mode does not produce a
+/// second site regardless — `demo_seed_fairing` creates one only when the
+/// deployment has none.
+pub(crate) fn apply_control_readback(
+    conn: &mut diesel::SqliteConnection,
+    control: &SiteControl,
+    action: SiteControlAction,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let Some(readback) = control.readback else {
+        // Nothing reports this control's position, so there is nothing to move
+        // and that is not a failure: the signal is what was asked for, and a
+        // control with no feedback point was never going to confirm it either.
+        return Ok(());
+    };
+
+    let active = readback.bit_for(action.resulting_position());
+    let now = chrono::Utc::now().naive_utc();
+
+    // One transaction, because half of this applied is worse than none of it:
+    // the readback would have moved while the caller, seeing the error, marks
+    // the request failed — leaving a diagram that draws the new position beside
+    // a badge saying the signal never got out.
+    conn.immediate_transaction(|conn| {
+        upsert_alarm_transition(conn, readback.alarm_num as i32, active, now)?;
+        record_snapshot(conn, now)
+    })
 }
 
 /// Append a reading for the full current alarm set, so the change lands in
@@ -315,20 +387,163 @@ pub async fn set_alarm_state(
 /// read as every other alarm clearing at once.
 fn record_snapshot(
     conn: &mut diesel::SqliteConnection,
-    rows: &[neems_data::models::AlarmStateRow],
     at: chrono::NaiveDateTime,
-) -> Result<(), Status> {
-    let active_nums: std::collections::HashSet<u16> = rows
-        .iter()
-        .filter(|r| r.data_active)
-        .filter_map(|r| u16::try_from(r.alarm_num).ok())
-        .collect();
-    record_alarm_snapshot(conn, DEMO_SITE_ID, &active_nums, at).map_err(|e| {
-        eprintln!("Demo alarm snapshot write failed: {e}");
-        Status::InternalServerError
-    })
+) -> SiteWriteResult {
+    // Onto the demo site's timeline like every other demo write — see
+    // [`DEMO_SITE_ID`] for why the demo keeps one.
+    let active = current_active_alarms(conn)?;
+    record_alarm_snapshot(conn, DEMO_SITE_ID, &active, at)
+}
+
+/// Every alarm the site is currently reporting.
+///
+/// The newest reading's bitfield, with `alarm_state` laid over it, and both
+/// halves are load-bearing because the demo has two writers that do not know
+/// about each other:
+///
+/// - `POST /1/Demo/InjectHistory` seeds *readings* and never touches
+///   `alarm_state`, so the alarms it raises exist only in a bitfield.
+/// - `POST /1/Demo/AlarmState` and [`apply_control_readback`] write
+///   `alarm_state`, and reach a bitfield only through a snapshot like this one.
+///
+/// Build a snapshot from either source alone and it silently drops the other's
+/// alarms. That is not a cosmetic loss: `/Alarms/History` is derived by diffing
+/// consecutive bitfields, so a snapshot missing the seeded alarms reads as the
+/// whole site returning to normal at the instant somebody clicked a breaker.
+///
+/// `alarm_state` wins where the two disagree, because it is the record of a
+/// deliberate demo action — an alarm explicitly cleared has to clear, even
+/// though the seeded reading underneath it still says otherwise.
+fn current_active_alarms(
+    conn: &mut diesel::SqliteConnection,
+) -> Result<HashSet<u16>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut active = latest_reading_alarms(conn)?;
+
+    for row in get_all_alarm_state(conn)? {
+        let Ok(num) = u16::try_from(row.alarm_num) else {
+            continue;
+        };
+        if row.data_active {
+            active.insert(num);
+        } else {
+            active.remove(&num);
+        }
+    }
+
+    Ok(active)
+}
+
+/// The alarm set carried by the most recent reading that has one.
+///
+/// Looks past the newest row because not every reading carries alarm registers
+/// — the SoC seeder writes to the same table — which is the same reason
+/// `/Alarms/Active` scans rather than taking the first.
+fn latest_reading_alarms(
+    conn: &mut diesel::SqliteConnection,
+) -> Result<HashSet<u16>, Box<dyn std::error::Error + Send + Sync>> {
+    use neems_data::schema::readings::dsl::*;
+
+    let recent: Vec<neems_data::models::Reading> =
+        readings.order(timestamp.desc()).limit(10).load(conn)?;
+
+    for reading in &recent {
+        if let Some(registers) = parse_alarm_registers(&reading.data) {
+            return Ok(AlarmFlags::from_registers(&registers)
+                .active_alarms()
+                .iter()
+                .map(|d| d.alarm_num)
+                .collect());
+        }
+    }
+
+    Ok(HashSet::new())
 }
 
 pub fn routes() -> Vec<Route> {
     routes![inject_history, get_alarm_state, set_alarm_state]
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+    use diesel_migrations::MigrationHarness;
+    use neems_data::rtac::site_controls::site_control_by_id;
+
+    use super::*;
+
+    fn site_conn() -> diesel::SqliteConnection {
+        let mut conn =
+            diesel::SqliteConnection::establish(":memory:").expect("in-memory site database");
+        conn.run_pending_migrations(neems_data::MIGRATIONS).expect("site migrations");
+        conn
+    }
+
+    /// The regression that matters: a control snapshot must not erase alarms
+    /// that live only in a reading.
+    ///
+    /// `/1/Demo/InjectHistory` writes readings and never touches `alarm_state`,
+    /// so a snapshot sourced from `alarm_state` alone drops every seeded alarm.
+    /// Because `/Alarms/History` diffs consecutive bitfields, that does not
+    /// read as "we forgot some" — it reads as the whole site returning to
+    /// normal at the moment somebody clicked a breaker, which is precisely
+    /// the timeline the demo exists to show.
+    ///
+    /// The seeded reading is written here the same way the seeder writes one:
+    /// a bitfield, and no `alarm_state` row behind it.
+    #[test]
+    fn a_control_snapshot_keeps_alarms_that_live_only_in_a_reading() {
+        let mut conn = site_conn();
+        let earlier = chrono::Utc::now().naive_utc() - Duration::seconds(60);
+        let seeded: HashSet<u16> = [1, 301].into_iter().collect();
+        record_alarm_snapshot(&mut conn, DEMO_SITE_ID, &seeded, earlier).expect("seed a reading");
+        assert!(
+            get_all_alarm_state(&mut conn).expect("state").is_empty(),
+            "seeding writes no state"
+        );
+
+        let feeder = site_control_by_id("feeder-1a").expect("feeder-1a is a control");
+        apply_control_readback(&mut conn, feeder, SiteControlAction::Close).expect("dispatch");
+
+        let after = latest_reading_alarms(&mut conn).expect("newest bitfield");
+        assert!(after.contains(&607), "the breaker's own readback moved");
+        assert!(after.contains(&1), "a seeded alarm must survive someone clicking a breaker");
+        assert!(after.contains(&301), "and so must the rest of them");
+    }
+
+    /// The other direction: a demo alarm explicitly cleared has to clear, even
+    /// though the seeded reading underneath it still carries the bit. This is
+    /// why `alarm_state` is laid over the reading rather than merged into it.
+    #[test]
+    fn an_explicitly_cleared_alarm_wins_over_the_reading_beneath_it() {
+        let mut conn = site_conn();
+        let earlier = chrono::Utc::now().naive_utc() - Duration::seconds(60);
+        let seeded: HashSet<u16> = [301].into_iter().collect();
+        record_alarm_snapshot(&mut conn, DEMO_SITE_ID, &seeded, earlier).expect("seed a reading");
+
+        // Raise then clear it, so `alarm_state` carries a false row rather than
+        // no row — the state an operator leaves behind after clearing an alarm.
+        let now = chrono::Utc::now().naive_utc();
+        upsert_alarm_transition(&mut conn, 301, true, now).expect("raise");
+        upsert_alarm_transition(&mut conn, 301, false, now).expect("clear");
+
+        let feeder = site_control_by_id("feeder-1a").expect("feeder-1a is a control");
+        apply_control_readback(&mut conn, feeder, SiteControlAction::Close).expect("dispatch");
+
+        let after = latest_reading_alarms(&mut conn).expect("newest bitfield");
+        assert!(!after.contains(&301), "an alarm cleared on purpose stays cleared");
+        assert!(after.contains(&607), "the readback still moved");
+    }
+
+    /// A control with no readback point has nothing to move, and that is not a
+    /// failure: the signal is what was asked for.
+    #[test]
+    fn a_control_with_no_readback_is_not_an_error() {
+        let mut conn = site_conn();
+        let no_readback = SiteControl {
+            readback: None,
+            ..*site_control_by_id("feeder-1a").expect("feeder-1a is a control")
+        };
+        apply_control_readback(&mut conn, &no_readback, SiteControlAction::Close)
+            .expect("dispatch");
+    }
 }
