@@ -5,12 +5,12 @@
 //! latched status change — plus the audit trail that acknowledgement leaves in
 //! `/Alarms/History`.
 //!
-//! Alarm 401 (`fire_alarm`, Emergency) is driven through the demo forced-alarm
+//! Alarm 401 (`fire_alarm`, Emergency) is driven through the demo alarm-state
 //! endpoint so these tests don't depend on a live RTAC feed. The fast test
-//! fixture has no readings carrying alarm registers, so a forced alarm is the
-//! only thing in the active set. The demo endpoints write real edges through
-//! `upsert_alarm_transition`, the same path the RTAC collector uses, so an
-//! alarm driven from here latches exactly like one driven by hardware.
+//! fixture has no readings carrying alarm registers, so a demo-driven alarm is
+//! the only thing in the active set. The demo endpoints write real edges
+//! through `upsert_alarm_transition`, the same path the RTAC collector uses, so
+//! an alarm driven from here latches exactly like one driven by hardware.
 
 use chrono::{Duration, SecondsFormat, Utc};
 use neems_api::orm::testing::fast_test_rocket;
@@ -27,20 +27,9 @@ async fn login_as(client: &Client, email: &str, password: &str) -> rocket::http:
     resp.cookies().get("session").expect("session cookie").clone().into_owned()
 }
 
-/// Force `alarm_nums` on via the demo endpoint (requires a demo-capable role).
-async fn force_alarms(client: &Client, session: &rocket::http::Cookie<'static>, nums: &[u16]) {
-    let resp = client
-        .put("/api/1/Alarms/Forced")
-        .cookie(session.clone())
-        .json(&json!({ "alarm_nums": nums }))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok, "forcing alarms {:?} failed", nums);
-}
-
 /// Set one alarm's data state directly, the way the RTAC collector reports it.
-/// Unlike [`force_alarms`] this does not diff against the current state, so it
-/// can assert a state the alarm is already in.
+/// It does not diff against the current state, so it can assert a state the
+/// alarm is already in.
 async fn set_alarm_state(
     client: &Client,
     session: &rocket::http::Cookie<'static>,
@@ -99,7 +88,7 @@ async fn acknowledging_an_active_alarm_latches_it_as_acknowledged() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
-    force_alarms(&client, &session, &[ALARM]).await;
+    set_alarm_state(&client, &session, ALARM, true).await;
 
     // Before acknowledgement: active and unacknowledged.
     let before = active_entry(&client, &session, ALARM)
@@ -147,9 +136,9 @@ async fn acknowledging_then_clearing_finishes_the_alarm() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
-    force_alarms(&client, &session, &[ALARM]).await;
+    set_alarm_state(&client, &session, ALARM, true).await;
     assert_eq!(acknowledge(&client, &session, ALARM, None).await.status(), Status::Ok);
-    force_alarms(&client, &session, &[]).await;
+    set_alarm_state(&client, &session, ALARM, false).await;
 
     assert!(
         active_entry(&client, &session, ALARM).await.is_none(),
@@ -164,13 +153,13 @@ async fn reactivation_after_an_ack_requires_a_new_ack() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
-    force_alarms(&client, &session, &[ALARM]).await;
+    set_alarm_state(&client, &session, ALARM, true).await;
     assert_eq!(acknowledge(&client, &session, ALARM, None).await.status(), Status::Ok);
-    force_alarms(&client, &session, &[]).await;
+    set_alarm_state(&client, &session, ALARM, false).await;
 
     // Second instance: fires again, then clears again on its own.
-    force_alarms(&client, &session, &[ALARM]).await;
-    force_alarms(&client, &session, &[]).await;
+    set_alarm_state(&client, &session, ALARM, true).await;
+    set_alarm_state(&client, &session, ALARM, false).await;
 
     let entry = active_entry(&client, &session, ALARM)
         .await
@@ -190,8 +179,8 @@ async fn an_unacknowledged_alarm_stays_visible_after_it_clears() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
-    force_alarms(&client, &session, &[ALARM]).await;
-    force_alarms(&client, &session, &[]).await;
+    set_alarm_state(&client, &session, ALARM, true).await;
+    set_alarm_state(&client, &session, ALARM, false).await;
 
     let entry = active_entry(&client, &session, ALARM)
         .await
@@ -236,7 +225,7 @@ async fn latest_acknowledgement_wins_attribution() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let first = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
-    force_alarms(&client, &first, &[ALARM]).await;
+    set_alarm_state(&client, &first, ALARM, true).await;
     assert_eq!(acknowledge(&client, &first, ALARM, None).await.status(), Status::Ok);
 
     let second = login_as(&client, "test_superadmin@example.com", "adminpass").await;
@@ -361,7 +350,7 @@ async fn acknowledge_requires_authentication() {
     assert_ne!(resp.status(), Status::Ok, "unauthenticated acknowledgement must not succeed");
 }
 
-/// Any authenticated user can acknowledge — unlike the demo-only forced-alarm
+/// Any authenticated user can acknowledge — unlike the demo-only alarm-state
 /// controls, acknowledgement is a normal operator action.
 #[tokio::test]
 async fn acknowledge_allows_non_admin_roles() {

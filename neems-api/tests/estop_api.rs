@@ -6,8 +6,8 @@
 //! then tripped is reported independently as alarm 104, and neither answer is
 //! allowed to stand in for the other.
 //!
-//! Alarm 104 is driven here through the demo forced-alarm set, which
-//! `/EmergencyStop` overlays exactly as `/Alarms/Active` does.
+//! Alarm 104 is driven here through the demo alarm-state endpoint, which writes
+//! the same `alarm_state` that `/EmergencyStop` and `/Alarms/Active` both read.
 //!
 //! Which resolution a request gets depends on the deployment, and the tests are
 //! split accordingly, as in `control_api.rs`:
@@ -18,7 +18,7 @@
 //! - **On demo mode** ([`fast_test_rocket`], which enables it) there is no
 //!   collector and no RTAC, so the API stands in for both: the request resolves
 //!   `dispatched` and alarm 104 is raised. Driving 104 directly also needs demo
-//!   mode, since the forced-alarm routes are demo-only.
+//!   mode, since the demo alarm routes are demo-only.
 
 use neems_api::orm::testing::{fast_test_rocket, fast_test_rocket_with_demo_mode};
 use rocket::{http::Status, local::asynchronous::Client, tokio};
@@ -33,20 +33,9 @@ async fn login_as(client: &Client, email: &str, password: &str) -> rocket::http:
     resp.cookies().get("session").expect("session cookie").clone().into_owned()
 }
 
-/// Drive alarm 104 through the demo forced-alarm set.
+/// Raise or lower alarm 104 — the site tripping, or being reset at the panel.
 async fn set_estop_alarm(client: &Client, session: &rocket::http::Cookie<'static>, active: bool) {
-    let nums = if active {
-        json!([ESTOP_ALARM_NUM])
-    } else {
-        json!([])
-    };
-    let resp = client
-        .put("/api/1/Alarms/Forced")
-        .cookie(session.clone())
-        .json(&json!({ "alarm_nums": nums }))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok, "failed to set forced alarms");
+    set_demo_alarm(client, session, ESTOP_ALARM_NUM, active).await;
 }
 
 /// Drive one alarm through `/1/Demo/AlarmState` — the Demo Controls drawer's

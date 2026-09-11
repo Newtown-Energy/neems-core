@@ -32,8 +32,7 @@ use crate::{
 /// Anything that went wrong writing demo state to the site database.
 type SiteWriteResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-/// Roles allowed to drive demo controls — mirrors the frontend drawer's gate
-/// and the forced-alarm endpoints in [`crate::api::alarm`].
+/// Roles allowed to drive demo controls — mirrors the frontend drawer's gate.
 const DEMO_CONTROL_ROLES: &[&str] = &["admin", "newtown-admin", "newtown-staff"];
 
 /// Whether demo-only endpoints are live, from `NEEMS_DEMO_MODE` at startup.
@@ -383,15 +382,16 @@ pub(crate) fn apply_estop_trip(conn: &mut diesel::SqliteConnection) -> SiteWrite
 /// Set one alarm's data state as the site would report it: the transition, and
 /// the reading that carries it, in one transaction.
 ///
-/// Every demo site-change the UI can make goes through here — alarms driven
-/// from the drawer (`POST /1/Demo/AlarmState`), control readbacks, E-stop trips
-/// — so they share one definition of what a site-side change is. The legacy
-/// `PUT /1/Alarms/Forced` predates this and does not: it replaces the whole
-/// set rather than changing one alarm, and nothing in the UI calls it any more
-/// (Newtown-Energy/neems-react#125). One transaction, because half of this
-/// applied is worse than none of it: the alarm would have moved while the
-/// caller, seeing the error, reports the request failed — leaving a diagram
-/// that shows the change beside a badge saying the signal never got out.
+/// Every live demo alarm change goes through here — alarms driven from the
+/// drawer (`POST /1/Demo/AlarmState`), control readbacks, E-stop trips — so
+/// they share one definition of what a site-side change is. Seeded history
+/// (`POST /1/Demo/InjectHistory`) is the one demo write that does not: it
+/// backfills a window of readings in bulk rather than changing one alarm now.
+///
+/// One transaction, because half of this applied is worse than none of it: the
+/// alarm would have moved while the caller, seeing the error, reports the
+/// request failed — leaving a diagram that shows the change beside a badge
+/// saying the signal never got out.
 fn write_site_alarm(
     conn: &mut diesel::SqliteConnection,
     alarm_num: u16,

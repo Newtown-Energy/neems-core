@@ -206,7 +206,7 @@ The npm package version comes from `neems-api/Cargo.toml`. When changing types:
 - **Bump the version in `neems-api/Cargo.toml`** in the same PR that changes types
 - **Patch** (0.1.4 → 0.1.5): compatible additions (new optional fields, new types)
 - **Minor** (0.1.x → 0.2.0): new types or endpoints that don't break existing consumers
-- **Major** (0.x → 1.0): breaking changes (renamed/removed fields, changed type shapes)
+- **Breaking** changes (renamed/removed fields or types, changed type shapes): while below 1.0, bump the **minor** (0.8.x → 0.9.0), the usual 0.x convention. 1.0 is reserved for deliberately declaring the API stable, not triggered by a removal.
 
 ### Local development workflow
 
