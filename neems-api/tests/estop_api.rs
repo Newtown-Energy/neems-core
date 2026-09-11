@@ -8,8 +8,19 @@
 //!
 //! Alarm 104 is driven here through the demo forced-alarm set, which
 //! `/EmergencyStop` overlays exactly as `/Alarms/Active` does.
+//!
+//! Which resolution a request gets depends on the deployment, and the tests are
+//! split accordingly, as in `control_api.rs`:
+//!
+//! - **Off demo mode** ([`fast_test_rocket_with_demo_mode`] with `false`) a
+//!   request waits `pending` for the collector, which reports it through
+//!   `/Dispatch`. These are the collector-path tests.
+//! - **On demo mode** ([`fast_test_rocket`], which enables it) there is no
+//!   collector and no RTAC, so the API stands in for both: the request resolves
+//!   `dispatched` and alarm 104 is raised. Driving 104 directly also needs demo
+//!   mode, since the forced-alarm routes are demo-only.
 
-use neems_api::orm::testing::fast_test_rocket;
+use neems_api::orm::testing::{fast_test_rocket, fast_test_rocket_with_demo_mode};
 use rocket::{http::Status, local::asynchronous::Client, tokio};
 use serde_json::{Value, json};
 
@@ -36,6 +47,23 @@ async fn set_estop_alarm(client: &Client, session: &rocket::http::Cookie<'static
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok, "failed to set forced alarms");
+}
+
+/// Drive one alarm through `/1/Demo/AlarmState` — the Demo Controls drawer's
+/// path, and so the demo's stand-in for the panel on site.
+async fn set_demo_alarm(
+    client: &Client,
+    session: &rocket::http::Cookie<'static>,
+    alarm_num: u16,
+    active: bool,
+) {
+    let resp = client
+        .post("/api/1/Demo/AlarmState")
+        .cookie(session.clone())
+        .json(&json!({ "alarm_num": alarm_num, "active": active }))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok, "failed to set demo alarm {alarm_num}");
 }
 
 async fn get_status(client: &Client, session: &rocket::http::Cookie<'static>) -> Value {
@@ -74,7 +102,7 @@ async fn status_reports_no_request_and_no_trip_initially() {
 
 #[tokio::test]
 async fn requesting_an_estop_records_a_pending_request() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     let body = request_estop(&client, &session).await;
@@ -95,7 +123,7 @@ async fn requesting_an_estop_records_a_pending_request() {
 
 #[tokio::test]
 async fn repeated_requests_coalesce_onto_the_one_in_flight() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     let first = request_estop(&client, &session).await;
@@ -109,7 +137,7 @@ async fn repeated_requests_coalesce_onto_the_one_in_flight() {
 
 #[tokio::test]
 async fn dispatch_resolves_the_request_and_is_idempotent() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     let requested = request_estop(&client, &session).await;
@@ -150,7 +178,7 @@ async fn dispatch_rejects_an_unknown_request() {
 
 #[tokio::test]
 async fn the_pending_endpoint_holds_a_request_only_until_it_is_sent() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     // Nothing outstanding to begin with.
@@ -197,9 +225,13 @@ async fn the_pending_endpoint_holds_a_request_only_until_it_is_sent() {
 /// The request records that the signal was sent. It is not a claim about the
 /// plant, and it does not wait on one: an RTAC that never trips leaves the
 /// request sent and `observed_active` false, which is the honest answer.
+///
+/// The other direction — the plant moving after the request has resolved — is
+/// `a_demo_trip_is_reset_from_the_site_side_and_the_request_stands`, since 104
+/// can only be driven where demo mode is on.
 #[tokio::test]
-async fn a_sent_request_stands_whether_or_not_the_rtac_trips() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+async fn a_sent_request_is_not_a_claim_that_the_site_tripped() {
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     let requested = request_estop(&client, &session).await;
@@ -212,20 +244,11 @@ async fn a_sent_request_stands_whether_or_not_the_rtac_trips() {
 
     // Signal sent, RTAC has not tripped. The request is done; the site is not
     // stopped; neither statement is allowed to contaminate the other.
-    let mid = get_status(&client, &session).await;
-    assert_eq!(mid["request"]["status"], json!("dispatched"));
-    assert!(mid["request"]["resolved_at"].is_string());
-    assert_eq!(mid["request"]["failure_reason"], json!(null));
-    assert_eq!(mid["observed_active"], json!(false));
-
-    // The RTAC then raises alarm 104. Only the observed state changes.
-    set_estop_alarm(&client, &session, true).await;
-
-    let done = get_status(&client, &session).await;
-    assert_eq!(done["observed_active"], json!(true));
-    assert_eq!(done["request"]["id"], json!(id));
-    assert_eq!(done["request"]["status"], json!("dispatched"));
-    assert_eq!(done["request"]["resolved_at"], mid["request"]["resolved_at"]);
+    let status = get_status(&client, &session).await;
+    assert_eq!(status["request"]["status"], json!("dispatched"));
+    assert!(status["request"]["resolved_at"].is_string());
+    assert_eq!(status["request"]["failure_reason"], json!(null));
+    assert_eq!(status["observed_active"], json!(false));
 }
 
 /// An already-tripped site is still asked. Whether the RTAC needs the signal is
@@ -236,29 +259,23 @@ async fn requesting_while_already_tripped_still_records_a_request_to_send() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
-    // Someone already hit the physical button.
+    // Someone already hit the physical button. Driving 104 needs demo mode, so
+    // the API is the collector here: "still asked" means the request is carried
+    // out rather than refused or swallowed, which is the same decision
+    // `request_estop` makes on either path.
     set_estop_alarm(&client, &session, true).await;
 
     let body = request_estop(&client, &session).await;
     assert_eq!(body["observed_active"], json!(true));
-    assert_eq!(body["request"]["status"], json!("pending"));
-
-    let pending: Value = client
-        .get("/api/1/Sites/1/EmergencyStop/Pending")
-        .cookie(session.clone())
-        .dispatch()
-        .await
-        .into_json()
-        .await
-        .expect("json");
-    assert_eq!(pending["id"], body["request"]["id"], "the collector still has a signal to send");
+    assert_eq!(body["request"]["status"], json!("dispatched"), "the ask still went out");
+    assert!(body["request"]["dispatched_at"].is_string());
 }
 
 /// A fresh ask after the last signal went out is a new request, and gets its
 /// own signal.
 #[tokio::test]
 async fn a_request_after_dispatch_starts_a_new_one() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     let first = request_estop(&client, &session).await;
@@ -297,4 +314,82 @@ async fn estop_endpoints_require_authentication() {
 
     let post = client.post("/api/1/Sites/1/EmergencyStop").dispatch().await;
     assert_ne!(post.status(), Status::Ok, "unauthenticated trip must not succeed");
+}
+
+/// The demo's reason for existing, for the E-stop: pressing it trips the site,
+/// with no RTAC anywhere.
+///
+/// Both halves, asserted separately. `dispatched` says the signal got out —
+/// which on a demo means the API stood in for the collector — and
+/// `observed_active` says the site is tripped because alarm 104 is really set.
+/// The trip is reported by the same response that carried it out, so the page
+/// never shows "sent, not tripped" for the instant between the two.
+#[tokio::test]
+async fn a_demo_estop_request_is_dispatched_and_trips_the_site() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let body = request_estop(&client, &session).await;
+
+    assert_eq!(body["request"]["status"], json!("dispatched"), "the demo is the collector");
+    assert!(body["request"]["dispatched_at"].is_string());
+    assert_eq!(body["request"]["failure_reason"], json!(null));
+    assert_eq!(body["observed_active"], json!(true), "and the site reports the trip");
+
+    // Read back through the alarm feed, as the diagram does.
+    let resp = client.get("/api/1/Alarms/Active").cookie(session.clone()).dispatch().await;
+    let alarms: Value = resp.into_json().await.expect("json");
+    let estop = alarms["alarms"]
+        .as_array()
+        .expect("alarms")
+        .iter()
+        .find(|a| a["alarm_num"] == json!(ESTOP_ALARM_NUM))
+        .cloned()
+        .expect("alarm 104 is listed");
+    assert_eq!(estop["data_active"], json!(true));
+
+    // Nothing is left for a collector the demo does not run.
+    let pending: Value = client
+        .get("/api/1/Sites/1/EmergencyStop/Pending")
+        .cookie(session.clone())
+        .dispatch()
+        .await
+        .into_json()
+        .await
+        .expect("json");
+    assert_eq!(pending, json!(null));
+}
+
+/// Engage-only survives demo mode. A demo trip is lowered from the site side —
+/// the drawer, standing in for the panel — and the request that caused it is
+/// left exactly as it was. The plant moving is news about the plant, never a
+/// rewrite of whether the operator's signal got out.
+#[tokio::test]
+async fn a_demo_trip_is_reset_from_the_site_side_and_the_request_stands() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let tripped = request_estop(&client, &session).await;
+    assert_eq!(tripped["observed_active"], json!(true));
+
+    set_demo_alarm(&client, &session, ESTOP_ALARM_NUM, false).await;
+
+    let after = get_status(&client, &session).await;
+    assert_eq!(after["observed_active"], json!(false), "the site is running again");
+    assert_eq!(after["request"]["id"], tripped["request"]["id"]);
+    assert_eq!(after["request"]["status"], json!("dispatched"));
+    assert_eq!(after["request"]["resolved_at"], tripped["request"]["resolved_at"]);
+}
+
+/// Off demo mode, pressing E-STOP never raises 104 on its own. The API only
+/// carries requests; a real trip is the RTAC's to report. This is the guard
+/// that the demo path cannot leak into a real deployment.
+#[tokio::test]
+async fn off_demo_mode_a_request_does_not_trip_the_site() {
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let body = request_estop(&client, &session).await;
+    assert_eq!(body["request"]["status"], json!("pending"));
+    assert_eq!(body["observed_active"], json!(false), "only the RTAC decides that");
 }
