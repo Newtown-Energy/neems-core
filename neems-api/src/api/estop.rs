@@ -13,15 +13,23 @@
 //! Engage-only: there is no endpoint to clear an E-stop. A latched E-stop is
 //! cleared on site, after which alarm 104 drops and the observed state follows
 //! on its own.
+//!
+//! A demo deployment has no collector and no RTAC, so there the API stands in
+//! for both: a request raises alarm 104 and is reported dispatched, and the
+//! observed state follows from the alarm exactly as above. Still engage-only —
+//! the demo's "panel on site" is `POST /1/Demo/AlarmState` lowering 104.
 
 use chrono::Utc;
 use neems_data::rtac::{alarm_definitions::ESTOP_ALARM_NUM, state::AlarmFlags};
-use rocket::{Route, http::Status, response::status, serde::json::Json};
+use rocket::{Route, State, http::Status, response::status, serde::json::Json};
 
-use super::application_rule::ErrorResponse;
+use super::{
+    application_rule::ErrorResponse,
+    demo::{DemoMode, apply_estop_trip},
+};
 use crate::{
     api::alarm::parse_alarm_registers,
-    models::{EstopRequestDto, EstopRequestStatus, EstopStatusResponse},
+    models::{EstopRequest, EstopRequestDto, EstopRequestStatus, EstopStatusResponse},
     orm::{
         DbConn,
         estop::{
@@ -43,6 +51,15 @@ use crate::{
 /// (`RTAC_ENABLED` unset), it has no credentials, or the RTAC is unreachable.
 /// An operator has to be told that, rather than watching a spinner.
 const DISPATCH_TIMEOUT_SECONDS: i64 = 60;
+
+/// Why a demo E-stop request failed, where the only thing that can go wrong is
+/// this system writing to its own database.
+///
+/// Its own wording rather than a real failure reason, and still unambiguous
+/// that the site is not stopped: this text is rendered beside "escalate", and a
+/// demo that says "RTAC unreachable" would send someone looking for hardware
+/// that was never in the room.
+const DEMO_TRIP_FAILED: &str = "the demo could not record the trip";
 
 /// Whether the user may see or act on this site.
 ///
@@ -196,9 +213,16 @@ fn fail_if_undelivered(
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
 /// Records the request and returns the site's E-stop status. The response's
-/// `observed_active` reflects the RTAC, not the request — a fresh request
-/// returns `observed_active: false` until the RTAC reports a trip, which it may
-/// never do.
+/// `observed_active` reflects alarm 104, not the request.
+///
+/// - **Collector path (demo mode off):** the request comes back `pending`, and
+///   `observed_active` stays false until the RTAC reports a trip — which it may
+///   never do. The collector reports the write through `/Dispatch`.
+/// - **Demo mode:** there is no collector or RTAC, so the API carries the
+///   request out itself — raising alarm 104, then marking the request
+///   `dispatched` — and the response already reports `observed_active: true`.
+///   It is still the alarm that says so, read after the trip was written, not
+///   the request standing in for it.
 ///
 /// Requesting while a signal is still waiting to go out returns that request
 /// rather than creating a second one.
@@ -206,35 +230,93 @@ fn fail_if_undelivered(
 pub async fn request_site_estop(
     db: DbConn,
     site_db: SiteDbConn,
+    demo: &State<DemoMode>,
     site_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<EstopStatusResponse>, status::Custom<Json<ErrorResponse>>> {
+    let requested = db
+        .run(move |conn| {
+            if !can_access_site(&auth_user, site_id, conn) {
+                return Err(forbidden());
+            }
+            request_estop(conn, site_id, Some(auth_user.user.id))
+                .map_err(|e| internal_error("Error recording E-stop request", e))
+        })
+        .await?;
+
+    // A demo deployment has no collector and no RTAC, so nothing else is coming
+    // for this request. Carry it out here instead of letting it time out.
+    let resolved = if demo.enabled() && requested.status().is_unresolved() {
+        demo_dispatch_estop(&db, &site_db, requested).await?
+    } else {
+        // A coalesced-onto request may already have been waiting too long, in
+        // which case say so rather than handing back a stale "pending".
+        db.run(move |conn| {
+            fail_if_undelivered(conn, requested)
+                .map_err(|e| internal_error("Error resolving E-stop request", e))
+        })
+        .await?
+    };
+
+    // Read after resolving rather than before, so a demo trip is reported by
+    // the same response that carried it out.
     let observed = read_observed_estop(&site_db)
         .await
         .map_err(|e| internal_error("Error reading observed E-stop state", e))?;
 
-    db.run(move |conn| {
-        if !can_access_site(&auth_user, site_id, conn) {
-            return Err(forbidden());
+    Ok(Json(EstopStatusResponse {
+        site_id,
+        observed_active: observed.active,
+        observed_at: observed.observed_at,
+        observed_age_seconds: observed.age_seconds,
+        request: Some(EstopRequestDto::from(resolved)),
+    }))
+}
+
+/// Demo mode's stand-in for the collector's E-stop path.
+///
+/// The same two steps, in the same order, as the collector against a real RTAC
+/// and as the control path's `demo_dispatch`: trip the site, then report the
+/// request dispatched. Tripping first keeps the failure path honest — if alarm
+/// 104 cannot be raised, the request fails rather than claiming a trip that
+/// never happened.
+///
+/// Dispatches the request it is given, which after coalescing is the one
+/// already recorded rather than necessarily the press that prompted this call.
+/// For an engage-only control those are the same ask, but it keeps the contract
+/// identical to the controls'.
+async fn demo_dispatch_estop(
+    db: &DbConn,
+    site_db: &SiteDbConn,
+    requested: EstopRequest,
+) -> Result<EstopRequest, status::Custom<Json<ErrorResponse>>> {
+    let tripped = site_db.run(apply_estop_trip).await;
+
+    let request_id = requested.id;
+    let updated = match tripped {
+        Ok(()) => {
+            db.run(move |conn| {
+                mark_estop_dispatched(conn, request_id)
+                    .map_err(|e| internal_error("Error marking E-stop request dispatched", e))
+            })
+            .await?
         }
+        Err(e) => {
+            eprintln!("Demo E-stop: could not raise alarm {ESTOP_ALARM_NUM}: {e:?}");
+            db.run(move |conn| {
+                resolve_estop_request(
+                    conn,
+                    request_id,
+                    EstopRequestStatus::Failed,
+                    Some(DEMO_TRIP_FAILED.to_string()),
+                )
+                .map_err(|e| internal_error("Error failing E-stop request", e))
+            })
+            .await?
+        }
+    };
 
-        let requested = request_estop(conn, site_id, Some(auth_user.user.id))
-            .map_err(|e| internal_error("Error recording E-stop request", e))?;
-
-        // A coalesced-onto request may already have been waiting too long, in
-        // which case say so rather than handing back a stale "pending".
-        let resolved = fail_if_undelivered(conn, requested)
-            .map_err(|e| internal_error("Error resolving E-stop request", e))?;
-
-        Ok(Json(EstopStatusResponse {
-            site_id,
-            observed_active: observed.active,
-            observed_at: observed.observed_at,
-            observed_age_seconds: observed.age_seconds,
-            request: Some(EstopRequestDto::from(resolved)),
-        }))
-    })
-    .await
+    Ok(updated.unwrap_or(requested))
 }
 
 /// Get a site's E-stop status.

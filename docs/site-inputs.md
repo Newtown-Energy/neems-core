@@ -227,9 +227,23 @@ closed, so the same action drives the two halves of the diagram in opposite
 directions. `SiteControl::readback` carries the point and its `active_means`
 together for that reason.
 
-What demo mode does not fix is the feed going stale between clicks — nothing
-writes readings on a cadence, so the positions it moves age out of the SLD's
-window about thirty seconds later (neems-core#115).
+**The E-stop takes the same route, through its own path.** A demo E-STOP press
+raises alarm 104 and reports the request `dispatched`, so `observed_active` and
+the diagram's lockout follow from the alarm feed as they would against hardware.
+It stays engage-only: there is still no request that clears a trip. On a demo
+the "panel on site" is the Demo Controls drawer, which lowers 104 through
+`POST /1/Demo/AlarmState`.
+
+Every one of these writes — drawer alarms, control readbacks, E-stop trips —
+goes through one helper that sets the alarm and appends a reading in a single
+transaction. The reading is built from the newest bitfield with `alarm_state`
+laid over it, because seeded history (`/1/Demo/InjectHistory`) lives only in
+readings: a snapshot from `alarm_state` alone would read, in `/Alarms/History`,
+as every seeded alarm clearing the moment anyone clicked.
+
+Demo mode does not keep the feed fresh between clicks — nothing writes readings
+on a cadence, by decision. The frontend treats stale data as an emergency
+(neems-react#120), and a demo bypasses that from the drawer (neems-react#119).
 
 One pending request per control is a database constraint, not merely something
 the ORM is careful about: two concurrent clicks that both landed would be two

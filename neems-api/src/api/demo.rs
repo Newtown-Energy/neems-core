@@ -14,7 +14,7 @@ use diesel::prelude::*;
 use neems_data::{
     SeedOutcome, get_all_alarm_state, record_alarm_snapshot,
     rtac::{
-        alarm_definitions::ALARM_DEFINITIONS,
+        alarm_definitions::{ALARM_DEFINITIONS, ESTOP_ALARM_NUM},
         site_controls::{SiteControl, SiteControlAction},
         state::AlarmFlags,
     },
@@ -308,12 +308,7 @@ pub async fn set_alarm_state(
 
     let rows = site_db
         .run(move |conn| {
-            let now = chrono::Utc::now().naive_utc();
-            conn.immediate_transaction(|conn| {
-                upsert_alarm_transition(conn, alarm_num as i32, active, now)?;
-                record_snapshot(conn, now)
-            })
-            .map_err(|e| {
+            write_site_alarm(conn, alarm_num, active).map_err(|e| {
                 eprintln!("Demo alarm state write failed for {alarm_num}: {e}");
                 Status::InternalServerError
             })?;
@@ -366,15 +361,45 @@ pub(crate) fn apply_control_readback(
         return Ok(());
     };
 
-    let active = readback.bit_for(action.resulting_position());
-    let now = chrono::Utc::now().naive_utc();
+    write_site_alarm(conn, readback.alarm_num, readback.bit_for(action.resulting_position()))
+}
 
-    // One transaction, because half of this applied is worse than none of it:
-    // the readback would have moved while the caller, seeing the error, marks
-    // the request failed — leaving a diagram that draws the new position beside
-    // a badge saying the signal never got out.
+/// Carry out an E-stop request the way the site would: raise alarm 104.
+///
+/// The E-stop's counterpart to [`apply_control_readback`], for the same reason
+/// — a demo has no collector, so a trip request otherwise waits for one and
+/// fails after a minute, telling the audience the site was never asked. Raising
+/// 104 is what a real RTAC does when it trips, so `/EmergencyStop`'s
+/// `observed_active` and the diagram's lockout follow from the alarm feed
+/// exactly as they would against hardware.
+///
+/// Engage-only, like the real thing. There is still no way to clear a trip
+/// through a request; on a demo, the "panel on site" is `POST
+/// /1/Demo/AlarmState` lowering 104.
+pub(crate) fn apply_estop_trip(conn: &mut diesel::SqliteConnection) -> SiteWriteResult {
+    write_site_alarm(conn, ESTOP_ALARM_NUM, true)
+}
+
+/// Set one alarm's data state as the site would report it: the transition, and
+/// the reading that carries it, in one transaction.
+///
+/// Every demo site-change the UI can make goes through here — alarms driven
+/// from the drawer (`POST /1/Demo/AlarmState`), control readbacks, E-stop trips
+/// — so they share one definition of what a site-side change is. The legacy
+/// `PUT /1/Alarms/Forced` predates this and does not: it replaces the whole
+/// set rather than changing one alarm, and nothing in the UI calls it any more
+/// (Newtown-Energy/neems-react#125). One transaction, because half of this
+/// applied is worse than none of it: the alarm would have moved while the
+/// caller, seeing the error, reports the request failed — leaving a diagram
+/// that shows the change beside a badge saying the signal never got out.
+fn write_site_alarm(
+    conn: &mut diesel::SqliteConnection,
+    alarm_num: u16,
+    active: bool,
+) -> SiteWriteResult {
+    let now = chrono::Utc::now().naive_utc();
     conn.immediate_transaction(|conn| {
-        upsert_alarm_transition(conn, readback.alarm_num as i32, active, now)?;
+        upsert_alarm_transition(conn, alarm_num as i32, active, now)?;
         record_snapshot(conn, now)
     })
 }
@@ -532,6 +557,28 @@ mod tests {
         let after = latest_reading_alarms(&mut conn).expect("newest bitfield");
         assert!(!after.contains(&301), "an alarm cleared on purpose stays cleared");
         assert!(after.contains(&607), "the readback still moved");
+    }
+
+    /// A demo E-stop goes through the same site-write path as a control, so it
+    /// inherits the same guarantee: raising 104 must not erase alarms that live
+    /// only in a seeded reading.
+    #[test]
+    fn a_demo_trip_raises_104_and_keeps_the_seeded_alarms() {
+        let mut conn = site_conn();
+        let earlier = chrono::Utc::now().naive_utc() - Duration::seconds(60);
+        let seeded: HashSet<u16> = [1, 301].into_iter().collect();
+        record_alarm_snapshot(&mut conn, DEMO_SITE_ID, &seeded, earlier).expect("seed a reading");
+
+        apply_estop_trip(&mut conn).expect("trip");
+
+        let after = latest_reading_alarms(&mut conn).expect("newest bitfield");
+        assert!(after.contains(&ESTOP_ALARM_NUM), "the trip is in the reading");
+        assert!(after.contains(&1) && after.contains(&301), "and nothing seeded was dropped");
+        let state = get_all_alarm_state(&mut conn).expect("state");
+        assert!(
+            state.iter().any(|r| r.alarm_num == ESTOP_ALARM_NUM as i32 && r.data_active),
+            "and in alarm_state, which `/EmergencyStop` reads"
+        );
     }
 
     /// A control with no readback point has nothing to move, and that is not a

@@ -158,6 +158,14 @@ pub fn mark_estop_dispatched(
 /// In practice this is how a request reaches [`EstopRequestStatus::Failed`];
 /// success goes through [`mark_estop_dispatched`], which has its own timestamps
 /// to set.
+///
+/// Only a `pending` request moves, as with [`mark_estop_dispatched`] and the
+/// controls' `fail_control_request`. A caller deciding to fail a request is
+/// usually acting on a copy it read earlier, and the collector may have
+/// dispatched the row since; an unconditional update would then rewrite a
+/// signal that did go out as one that never did, and tell an operator the site
+/// was never asked. The guard is here rather than at each call site so no copy,
+/// however stale, can get past it. The row is returned as it actually stands.
 pub fn resolve_estop_request(
     conn: &mut SqliteConnection,
     request_id: i32,
@@ -167,13 +175,17 @@ pub fn resolve_estop_request(
     use crate::schema::estop_requests::dsl::*;
 
     conn.transaction(|conn| {
-        diesel::update(estop_requests.find(request_id))
-            .set((
-                status.eq(outcome.as_str()),
-                resolved_at.eq(Some(chrono::Utc::now().naive_utc())),
-                failure_reason.eq(reason),
-            ))
-            .execute(conn)?;
+        diesel::update(
+            estop_requests
+                .find(request_id)
+                .filter(status.eq(EstopRequestStatus::Pending.as_str())),
+        )
+        .set((
+            status.eq(outcome.as_str()),
+            resolved_at.eq(Some(chrono::Utc::now().naive_utc())),
+            failure_reason.eq(reason),
+        ))
+        .execute(conn)?;
 
         estop_requests
             .find(request_id)
@@ -187,6 +199,50 @@ pub fn resolve_estop_request(
 mod tests {
     use super::*;
     use crate::orm::{company::insert_company, site::insert_site, testing::setup_test_db};
+
+    /// The race this guards: a caller holding an old copy of a pending request
+    /// decides to fail it — the timeout, or a demo trip that could not be
+    /// written — after the collector has dispatched it. The dispatch must
+    /// stand; the E-stop went out, and saying otherwise tells an operator the
+    /// site was never asked.
+    #[test]
+    fn failing_a_request_cannot_overwrite_a_dispatch() {
+        let mut conn = setup_test_db();
+        let site = site_fixture(&mut conn, "Race Site");
+        let requested = request_estop(&mut conn, site, None).expect("request");
+
+        mark_estop_dispatched(&mut conn, requested.id).expect("dispatch");
+
+        let after = resolve_estop_request(
+            &mut conn,
+            requested.id,
+            EstopRequestStatus::Failed,
+            Some("the E-stop signal did not reach the RTAC within 60s".to_string()),
+        )
+        .expect("resolve")
+        .expect("row");
+        assert_eq!(after.status(), EstopRequestStatus::Dispatched);
+        assert_eq!(after.failure_reason, None);
+        assert!(after.dispatched_at.is_some());
+    }
+
+    #[test]
+    fn a_pending_request_can_still_be_failed() {
+        let mut conn = setup_test_db();
+        let site = site_fixture(&mut conn, "Timeout Site");
+        let requested = request_estop(&mut conn, site, None).expect("request");
+
+        let after = resolve_estop_request(
+            &mut conn,
+            requested.id,
+            EstopRequestStatus::Failed,
+            Some("timed out".to_string()),
+        )
+        .expect("resolve")
+        .expect("row");
+        assert_eq!(after.status(), EstopRequestStatus::Failed);
+        assert_eq!(after.failure_reason.as_deref(), Some("timed out"));
+    }
 
     fn site_fixture(conn: &mut SqliteConnection, name: &str) -> i32 {
         let company = insert_company(conn, format!("{name} Co"), None).unwrap();
