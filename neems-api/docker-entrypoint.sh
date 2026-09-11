@@ -55,6 +55,8 @@ sweep_target() {
   if command -v cargo-sweep >/dev/null 2>&1; then
     cargo sweep --maxsize "$CARGO_TARGET_MAXSIZE" /usr/src/app \
       || echo "cargo sweep failed, continuing"
+  else
+    echo "cargo-sweep is not installed; ${CARGO_TARGET_MAXSIZE} ceiling not enforced (see the startup warning)"
   fi
 
   # Test database copies from runs that died before their own sweep could run.
@@ -68,6 +70,17 @@ sweep_target() {
   find /usr/src/app/target -maxdepth 1 -name 'test_db_*.db' -mmin +60 -delete \
     2>/dev/null || true
 }
+
+# Say so, loudly, when there is no cargo-sweep to hold the ceiling. Its absence
+# means an image built before cargo-sweep was added to the Dockerfile, and the
+# guard in sweep_target would otherwise make that a silent no-op — which is how
+# one developer's target volume reached 83 GB with nobody noticing (#120). Not
+# fatal: a missing sweeper is no reason to keep the API from starting.
+if ! command -v cargo-sweep >/dev/null 2>&1; then
+  echo "WARNING: cargo-sweep is not installed, so the ${CARGO_TARGET_MAXSIZE} ceiling on"
+  echo "WARNING: target/ is NOT being enforced. This image predates the Dockerfile"
+  echo "WARNING: change that installs it. Rebuild: docker compose build neems-api"
+fi
 
 echo "Sweeping build artifacts down to ${CARGO_TARGET_MAXSIZE}..."
 sweep_target
