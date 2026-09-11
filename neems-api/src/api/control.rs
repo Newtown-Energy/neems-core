@@ -14,22 +14,34 @@
 //! is recorded and immediately failed with a reason an operator can read. That
 //! is the honest answer, and it exercises the same path a real dispatch failure
 //! takes — see `docs/site-inputs.md`.
+//!
+//! A demo deployment answers differently, because the question is different:
+//! there is no RTAC to fail to reach and no collector to wait for, so the
+//! request is carried out here and the control's readback point is moved to
+//! match. See [`demo_dispatch`].
 
 use chrono::Utc;
-use neems_data::rtac::site_controls::{SITE_CONTROLS, SiteControlAction, site_control_by_id};
-use rocket::{Route, http::Status, response::status, serde::json::Json};
+use neems_data::rtac::site_controls::{
+    SITE_CONTROLS, SiteControl, SiteControlAction, site_control_by_id,
+};
+use rocket::{Route, State, http::Status, response::status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{application_rule::ErrorResponse, estop::can_access_site};
+use super::{
+    application_rule::ErrorResponse,
+    demo::{DemoMode, apply_control_readback},
+    estop::can_access_site,
+};
 use crate::{
-    models::ControlRequestDto,
+    models::{ControlRequest, ControlRequestDto},
     orm::{
         DbConn,
         control_request::{
             fail_control_request, get_control_request, get_latest_control_requests,
             get_pending_control_requests, mark_control_request_sent, request_control,
         },
+        neems_data::db::SiteDbConn,
     },
     session_guards::AuthenticatedUser,
 };
@@ -51,6 +63,15 @@ const DISPATCH_TIMEOUT_SECONDS: i64 = 60;
 /// site, and that the reason is a missing configuration rather than a fault.
 const NO_WRITE_REGISTER: &str =
     "This control has no RTAC point configured yet, so nothing was sent to the site.";
+
+/// Why a request failed on a demo deployment, where the only thing that can go
+/// wrong is this system writing to its own database.
+///
+/// Worth distinguishing from the real failure reasons rather than reusing one:
+/// a demo that says "unreachable RTAC" would send someone looking for hardware
+/// that was never in the room.
+const DEMO_READBACK_FAILED: &str =
+    "The demo could not record the new position, so the diagram still shows the old one.";
 
 /// One control, as served to clients.
 ///
@@ -187,7 +208,7 @@ pub async fn list_site_controls(
                     id: input.id.to_string(),
                     label: input.label.to_string(),
                     actions: input.actions.iter().map(|a| a.to_string()).collect(),
-                    readback_alarm_num: input.readback_alarm_num,
+                    readback_alarm_num: input.readback_alarm_num(),
                     writable: input.is_writable(),
                     latest_request: resolved
                         .iter()
@@ -217,52 +238,126 @@ pub async fn list_site_controls(
 #[post("/1/Sites/<site_id>/Controls/<control_id>/Requests", data = "<body>")]
 pub async fn request_site_control(
     db: DbConn,
+    site_db: SiteDbConn,
+    demo: &State<DemoMode>,
     site_id: i32,
     control_id: String,
     body: Json<ControlRequestBody>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ControlRequestDto>, status::Custom<Json<ErrorResponse>>> {
-    db.run(move |conn| {
-        if !can_access_site(&auth_user, site_id, conn) {
-            return Err(forbidden());
+    // Validate and record. Recorded whatever happens next: the ask happened,
+    // and the audit trail is the point of the row.
+    let (input, requested) = db
+        .run(move |conn| {
+            if !can_access_site(&auth_user, site_id, conn) {
+                return Err(forbidden());
+            }
+
+            let Some(input) = site_control_by_id(&control_id) else {
+                return Err(not_found("Unknown control"));
+            };
+
+            let action: SiteControlAction = body
+                .action
+                .parse()
+                .map_err(|_| bad_request(format!("Unknown action: {}", body.action)))?;
+
+            if !input.accepts(action) {
+                return Err(bad_request(format!(
+                    "{} does not accept the action {action}",
+                    input.label
+                )));
+            }
+
+            let requested =
+                request_control(conn, site_id, input.id, action.as_str(), Some(auth_user.user.id))
+                    .map_err(|e| internal_error("Error recording control request", e))?;
+
+            Ok((input, requested))
+        })
+        .await?;
+
+    // A demo deployment has no collector and no RTAC, so nothing else is coming
+    // for this request. Carry it out here instead of failing it.
+    if demo.enabled() && requested.status().is_unresolved() {
+        return demo_dispatch(&db, site_db, input, requested).await.map(Json);
+    }
+
+    let resolved = db
+        .run(move |conn| {
+            // Nothing can carry this to the site while the control has no write
+            // register, and an operator should be told that now rather than
+            // after a minute of waiting.
+            if !input.is_writable() && requested.status().is_unresolved() {
+                fail_control_request(conn, requested.id, NO_WRITE_REGISTER.to_string())
+                    .map_err(|e| internal_error("Error failing control request", e))
+                    .map(|updated| updated.unwrap_or(requested))
+            } else {
+                fail_if_undelivered(conn, requested)
+                    .map_err(|e| internal_error("Error resolving control request", e))
+            }
+        })
+        .await?;
+
+    Ok(Json(ControlRequestDto::from(resolved)))
+}
+
+/// Demo mode's stand-in for the collector.
+///
+/// Takes the same two steps, in the same order, that `neems-data` takes against
+/// a real RTAC: write the site, then report the request sent. Writing first is
+/// what keeps the failure path honest — if the readback cannot be moved, the
+/// request fails with a reason instead of claiming a signal that went nowhere.
+///
+/// The two connections are separate pools and there is no transaction spanning
+/// them, so the readback can land while the status update does not. That is the
+/// same window the real collector has between a successful Modbus write and its
+/// report back, and it resolves the same way: the readback is the authority on
+/// where the equipment is, and a request stuck pending times out on its own.
+///
+/// Takes the action from the recorded request rather than from the body that
+/// prompted this call, and takes no `action` argument at all so the two cannot
+/// be confused. A second click while a signal is in flight coalesces onto the
+/// request already there and does not redirect it, so the action just parsed is
+/// not necessarily the one being carried out — dispatching it would move the
+/// breaker whichever way the later click went while the audit row recorded the
+/// earlier one.
+async fn demo_dispatch(
+    db: &DbConn,
+    site_db: SiteDbConn,
+    input: &'static SiteControl,
+    requested: ControlRequest,
+) -> Result<ControlRequestDto, status::Custom<Json<ErrorResponse>>> {
+    // Only this endpoint writes the column, and only from a parsed action, so
+    // an unreadable value means the row is corrupt rather than that a caller
+    // sent something odd.
+    let action: SiteControlAction = requested
+        .action
+        .parse()
+        .map_err(|_| internal_error("Unreadable action on control request", &requested.action))?;
+
+    let applied = site_db.run(move |conn| apply_control_readback(conn, input, action)).await;
+
+    let request_id = requested.id;
+    let updated = match applied {
+        Ok(()) => {
+            db.run(move |conn| {
+                mark_control_request_sent(conn, request_id)
+                    .map_err(|e| internal_error("Error marking control request sent", e))
+            })
+            .await?
         }
-
-        let Some(input) = site_control_by_id(&control_id) else {
-            return Err(not_found("Unknown control"));
-        };
-
-        let action: SiteControlAction = body
-            .action
-            .parse()
-            .map_err(|_| bad_request(format!("Unknown action: {}", body.action)))?;
-
-        if !input.accepts(action) {
-            return Err(bad_request(format!(
-                "{} does not accept the action {action}",
-                input.label
-            )));
+        Err(e) => {
+            eprintln!("Demo control: could not move {}'s readback: {e:?}", input.id);
+            db.run(move |conn| {
+                fail_control_request(conn, request_id, DEMO_READBACK_FAILED.to_string())
+                    .map_err(|e| internal_error("Error failing control request", e))
+            })
+            .await?
         }
+    };
 
-        let requested =
-            request_control(conn, site_id, input.id, action.as_str(), Some(auth_user.user.id))
-                .map_err(|e| internal_error("Error recording control request", e))?;
-
-        // Nothing can carry this to the site while the control has no write
-        // register, and an operator should be told that now rather than after a
-        // minute of waiting. Recorded first regardless: the ask happened, and
-        // the audit trail is the point of the row.
-        let resolved = if !input.is_writable() && requested.status().is_unresolved() {
-            fail_control_request(conn, requested.id, NO_WRITE_REGISTER.to_string())
-                .map_err(|e| internal_error("Error failing control request", e))?
-                .unwrap_or(requested)
-        } else {
-            fail_if_undelivered(conn, requested)
-                .map_err(|e| internal_error("Error resolving control request", e))?
-        };
-
-        Ok(Json(ControlRequestDto::from(resolved)))
-    })
-    .await
+    Ok(ControlRequestDto::from(updated.unwrap_or(requested)))
 }
 
 /// Get the requests the collector should act on.
