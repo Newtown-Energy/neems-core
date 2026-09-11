@@ -167,4 +167,12 @@ pub struct EstopStatusResponse {
     /// The most recent request for this site, resolved as far as the RTAC feed
     /// allows.
     pub request: Option<EstopRequestDto>,
+    /// Whether the site has been tripped at any moment since `request` was made
+    /// — tripped now, or tripped and since reset. `false` with no request.
+    ///
+    /// `observed_active` alone cannot answer this: once a trip is reset it is
+    /// false, which reads exactly like a signal the site ignored. This is what
+    /// tells "sent, and the site never tripped" (worth escalating) apart from
+    /// "sent, tripped, reset at the panel since" (nothing to escalate).
+    pub tripped_since_request: bool,
 }

@@ -393,3 +393,57 @@ async fn off_demo_mode_a_request_does_not_trip_the_site() {
     assert_eq!(body["request"]["status"], json!("pending"));
     assert_eq!(body["observed_active"], json!(false), "only the RTAC decides that");
 }
+
+/// The reason `tripped_since_request` exists. A demo trip reset from the drawer
+/// leaves the request `dispatched` and the site not tripped — which, from those
+/// two fields alone, reads exactly like a signal the site ignored, and the page
+/// told the operator to escalate. It did trip; it has been reset since.
+#[tokio::test]
+async fn a_trip_that_has_since_been_reset_still_counts_as_tripped_since_the_request() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let tripped = request_estop(&client, &session).await;
+    assert_eq!(tripped["tripped_since_request"], json!(true), "tripped by this request");
+
+    set_demo_alarm(&client, &session, ESTOP_ALARM_NUM, false).await;
+
+    let after = get_status(&client, &session).await;
+    assert_eq!(after["observed_active"], json!(false), "reset at the panel");
+    assert_eq!(after["request"]["status"], json!("dispatched"));
+    assert_eq!(
+        after["tripped_since_request"],
+        json!(true),
+        "and it did trip — this is not a signal the site ignored"
+    );
+}
+
+/// The case the escalation warning is for: the signal went out and the site
+/// never tripped. That must stay distinguishable.
+#[tokio::test]
+async fn a_signal_the_site_never_acted_on_is_not_tripped_since_the_request() {
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let requested = request_estop(&client, &session).await;
+    let id = requested["request"]["id"].as_i64().expect("request id");
+    client
+        .post(format!("/api/1/Sites/1/EmergencyStop/{id}/Dispatch"))
+        .cookie(session.clone())
+        .dispatch()
+        .await;
+
+    let status = get_status(&client, &session).await;
+    assert_eq!(status["request"]["status"], json!("dispatched"));
+    assert_eq!(status["tripped_since_request"], json!(false));
+}
+
+#[tokio::test]
+async fn with_no_request_nothing_has_tripped_since_one() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let status = get_status(&client, &session).await;
+    assert_eq!(status["request"], json!(null));
+    assert_eq!(status["tripped_since_request"], json!(false));
+}

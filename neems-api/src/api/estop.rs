@@ -103,6 +103,31 @@ struct ObservedEstop {
     active: bool,
     observed_at: Option<chrono::NaiveDateTime>,
     age_seconds: Option<i64>,
+    /// Alarm 104's most recent rising edge (a trip), from `alarm_state`.
+    last_trip_at: Option<chrono::NaiveDateTime>,
+    /// Alarm 104's most recent falling edge (a reset), from `alarm_state`.
+    last_reset_at: Option<chrono::NaiveDateTime>,
+}
+
+/// Whether the site has been tripped at any moment since `requested_at`.
+///
+/// True if it is tripped now, or alarm 104 rose at or after the request, or
+/// fell at or after it *having risen before that fall* — the site was already
+/// tripped when the signal arrived, and was reset afterwards.
+///
+/// The rise is required because a falling edge alone proves nothing:
+/// `upsert_alarm_transition` stamps `last_falling_at` on the first `false` it
+/// sees for an alarm with no row yet — a demo clear with no trip behind it, or
+/// a collector's first reading after startup. Counting that as a trip would
+/// hide the one warning this exists to keep: a signal the site never acted on.
+fn tripped_since(requested_at: chrono::NaiveDateTime, observed: &ObservedEstop) -> bool {
+    let reset_after_a_trip = match (observed.last_trip_at, observed.last_reset_at) {
+        (Some(rise), Some(fall)) => rise <= fall && fall >= requested_at,
+        _ => false,
+    };
+    observed.active
+        || observed.last_trip_at.is_some_and(|t| t >= requested_at)
+        || reset_after_a_trip
 }
 
 /// Read alarm 104 from the most recent reading that carries alarm registers.
@@ -126,12 +151,19 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
 
             // The demo path drives alarm 104 through `alarm_state`, the same
             // table the collector writes, so both readers agree about whether
-            // the site is tripped.
-            let state_estop = neems_data::get_all_alarm_state(conn)
-                .map(|rows| {
-                    rows.iter().any(|r| r.alarm_num == ESTOP_ALARM_NUM as i32 && r.data_active)
-                })
-                .unwrap_or(false);
+            // the site is tripped. Its edges say whether it tripped since a
+            // request, which the current state alone cannot.
+            // Propagated, not swallowed: treating a failed read as "no row"
+            // would report `tripped_since_request: false` on no evidence —
+            // the exact false negative the field exists to prevent — where
+            // `/Alarms/Active` answers the same failure with a 500.
+            let estop_row = neems_data::get_all_alarm_state(conn)
+                .map_err(diesel::result::Error::QueryBuilderError)?
+                .into_iter()
+                .find(|r| r.alarm_num == ESTOP_ALARM_NUM as i32);
+            let state_estop = estop_row.as_ref().is_some_and(|r| r.data_active);
+            let (last_trip_at, last_reset_at) =
+                estop_row.map(|r| (r.last_rising_at, r.last_falling_at)).unwrap_or((None, None));
 
             let recent: Vec<neems_data::models::Reading> =
                 readings.order(timestamp.desc()).limit(10).load(conn)?;
@@ -145,6 +177,8 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
                             active: flags.is_estop_active(),
                             observed_at: Some(reading.timestamp),
                             age_seconds: Some((now - reading.timestamp).num_seconds()),
+                            last_trip_at,
+                            last_reset_at,
                         },
                         state_estop,
                     ));
@@ -156,6 +190,8 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
                     active: false,
                     observed_at: None,
                     age_seconds: None,
+                    last_trip_at,
+                    last_reset_at,
                 },
                 state_estop,
             ))
@@ -269,6 +305,7 @@ pub async fn request_site_estop(
         observed_active: observed.active,
         observed_at: observed.observed_at,
         observed_age_seconds: observed.age_seconds,
+        tripped_since_request: tripped_since(resolved.requested_at, &observed),
         request: Some(EstopRequestDto::from(resolved)),
     }))
 }
@@ -329,8 +366,10 @@ async fn demo_dispatch_estop(
 /// site is tripped. `request` describes the latest operator request and says
 /// only whether their signal reached the RTAC. Read them together: a
 /// `dispatched` request with `observed_active: false` means the RTAC was asked
-/// and has not tripped — worth an operator's attention, but not a failure of
-/// this system to do its job.
+/// and is not tripped now — and `tripped_since_request` says which way that
+/// came about. False: the site never acted on the signal, worth an operator's
+/// attention though not a failure of this system. True: it tripped and has been
+/// reset since, and there is nothing to escalate.
 #[get("/1/Sites/<site_id>/EmergencyStop")]
 pub async fn get_site_estop(
     db: DbConn,
@@ -363,6 +402,9 @@ pub async fn get_site_estop(
             observed_active: observed.active,
             observed_at: observed.observed_at,
             observed_age_seconds: observed.age_seconds,
+            tripped_since_request: request
+                .as_ref()
+                .is_some_and(|r| tripped_since(r.requested_at, &observed)),
             request,
         }))
     })
@@ -475,6 +517,87 @@ mod tests {
 
     use super::*;
     use crate::orm::{company::insert_company, site::insert_site, testing::setup_test_db};
+
+    /// The rule behind `tripped_since_request`, edge by edge. Times are minutes
+    /// relative to the request, so each case reads as a timeline.
+    mod tripped_since_request {
+        use chrono::{Duration, NaiveDateTime, Utc};
+
+        use super::super::{ObservedEstop, tripped_since};
+
+        fn at(requested: NaiveDateTime, minutes: i64) -> Option<NaiveDateTime> {
+            Some(requested + Duration::minutes(minutes))
+        }
+
+        fn observed(
+            active: bool,
+            last_trip_at: Option<NaiveDateTime>,
+            last_reset_at: Option<NaiveDateTime>,
+        ) -> ObservedEstop {
+            ObservedEstop {
+                active,
+                observed_at: None,
+                age_seconds: None,
+                last_trip_at,
+                last_reset_at,
+            }
+        }
+
+        #[test]
+        fn never_tripped_is_false() {
+            let req = Utc::now().naive_utc();
+            assert!(!tripped_since(req, &observed(false, None, None)));
+        }
+
+        #[test]
+        fn tripped_now_is_true() {
+            let req = Utc::now().naive_utc();
+            assert!(tripped_since(req, &observed(true, at(req, 1), None)));
+        }
+
+        /// The case this field exists for: the request tripped the site, and it
+        /// has since been reset. The current state says "not tripped".
+        #[test]
+        fn tripped_after_the_request_and_since_reset_is_true() {
+            let req = Utc::now().naive_utc();
+            assert!(tripped_since(req, &observed(false, at(req, 1), at(req, 5))));
+        }
+
+        /// Already tripped when the signal arrived, reset afterwards: the site
+        /// was stopped during the window, so there is nothing to escalate.
+        #[test]
+        fn tripped_before_and_reset_after_the_request_is_true() {
+            let req = Utc::now().naive_utc();
+            assert!(tripped_since(req, &observed(false, at(req, -10), at(req, 5))));
+        }
+
+        /// A trip that came and went before this request says nothing about it.
+        #[test]
+        fn a_trip_entirely_before_the_request_is_false() {
+            let req = Utc::now().naive_utc();
+            assert!(!tripped_since(req, &observed(false, at(req, -10), at(req, -5))));
+        }
+
+        /// A falling edge with no rise behind it is not a trip. It is what
+        /// `upsert_alarm_transition` records for the first `false` it sees —
+        /// a demo clear with nothing tripped, or a collector's first reading —
+        /// and counting it would hide the warning for a signal the site
+        /// ignored.
+        #[test]
+        fn a_fall_with_no_rise_is_not_a_trip() {
+            let req = Utc::now().naive_utc();
+            assert!(!tripped_since(req, &observed(false, None, at(req, 5))));
+        }
+
+        /// The latest rise came after the latest fall — the alarm is back up —
+        /// so an old fall after the request is not what this rests on; the
+        /// rise is, and it too postdates the request.
+        #[test]
+        fn a_rise_after_the_last_fall_still_counts_on_the_rise() {
+            let req = Utc::now().naive_utc();
+            assert!(tripped_since(req, &observed(false, at(req, 8), at(req, 3))));
+        }
+    }
 
     fn site_fixture(conn: &mut diesel::SqliteConnection) -> i32 {
         let company = insert_company(conn, "Timeout Co".to_string(), None).unwrap();
