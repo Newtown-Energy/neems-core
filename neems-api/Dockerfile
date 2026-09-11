@@ -6,10 +6,13 @@ RUN rustup component add clippy rustfmt rust-src
 
 # Install sqlite3, cargo-watch for live reload, diesel_cli for migrations, and
 # cargo-sweep to keep the shared target volume from growing without bound
-# (see issue #94 and the entrypoint).
+# (see issue #94 and the entrypoint). iputils-ping because `dosh test` runs every
+# crate's tests in this container, and neems-data's ping collector tests shell
+# out to `ping` — neems-data's own image has it, this one has to as well.
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/* \
     && cargo install cargo-watch \
     && cargo install cargo-sweep \
