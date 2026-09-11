@@ -204,36 +204,6 @@ async fn demo_alarm_changes_appear_in_history() {
     );
 }
 
-/// The set-replace view over the same table stays in agreement with the
-/// per-alarm endpoint.
-#[tokio::test]
-async fn forced_set_view_agrees_with_per_alarm_writes() {
-    let client = Client::tracked(fast_test_rocket()).await.unwrap();
-    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
-
-    set_alarm_state(&client, &session, ALARM, true).await;
-
-    let resp = client.get("/api/1/Alarms/Forced").cookie(session.clone()).dispatch().await;
-    assert_eq!(resp.status(), Status::Ok);
-    let body: Value = resp.into_json().await.expect("json");
-    assert_eq!(body["alarm_nums"], json!([ALARM]));
-
-    // Clearing through the set endpoint must leave the alarm latched, not gone.
-    let resp = client
-        .put("/api/1/Alarms/Forced")
-        .cookie(session.clone())
-        .json(&json!({ "alarm_nums": [] }))
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::Ok);
-
-    let entry = active_entry(&client, &session, ALARM)
-        .await
-        .expect("cleared alarm should latch as returned");
-    assert_eq!(entry["data_active"], json!(false));
-    assert_eq!(entry["acknowledged"], json!(false));
-}
-
 /// Demo-only means demo-only: with demo mode off the routes are not there at
 /// all. 404 rather than 403 so a production deployment does not advertise them.
 #[tokio::test]
@@ -245,9 +215,6 @@ async fn demo_routes_are_hidden_when_demo_mode_is_off() {
     assert_eq!(resp.status(), Status::NotFound);
 
     let resp = client.get("/api/1/Demo/AlarmState").cookie(session.clone()).dispatch().await;
-    assert_eq!(resp.status(), Status::NotFound);
-
-    let resp = client.get("/api/1/Alarms/Forced").cookie(session.clone()).dispatch().await;
     assert_eq!(resp.status(), Status::NotFound);
 }
 
@@ -280,4 +247,25 @@ async fn setting_alarm_state_rejects_unknown_alarm_num() {
 
     let resp = set_alarm_state(&client, &session, 65000, true).await;
     assert_eq!(resp.status(), Status::BadRequest);
+}
+
+/// `/1/Alarms/Forced` is retired (#122). It replaced the whole demo alarm set,
+/// which since control readbacks moved into `alarm_state` would open every
+/// closed breaker and clear a demo trip. `/1/Demo/AlarmState` is the only way
+/// to drive demo alarms now.
+#[tokio::test]
+async fn the_retired_forced_alarm_routes_are_gone() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let resp = client.get("/api/1/Alarms/Forced").cookie(session.clone()).dispatch().await;
+    assert_eq!(resp.status(), Status::NotFound);
+
+    let resp = client
+        .put("/api/1/Alarms/Forced")
+        .cookie(session.clone())
+        .json(&json!({ "alarm_nums": [ALARM] }))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NotFound);
 }

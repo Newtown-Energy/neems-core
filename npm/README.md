@@ -22,7 +22,11 @@ The package version mirrors the `neems-api` crate version in the backend reposit
 
 - **Patch**: compatible additions (new optional fields, new types)
 - **Minor**: new types or endpoints that don't break existing consumers
-- **Major**: breaking changes (renamed/removed fields, changed type shapes)
+- **Breaking** changes (renamed/removed fields or types, changed type shapes):
+  while below 1.0, a **minor** bump (e.g. 0.8.x → 0.9.0). npm's caret ranges
+  already treat a 0.x minor as breaking — `^0.8.0` will not pick up 0.9.0 — so
+  consumers are not moved onto one by accident. 1.0 is reserved for deliberately
+  declaring the API stable.
 
 ## Source
 

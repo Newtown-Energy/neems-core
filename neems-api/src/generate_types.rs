@@ -137,7 +137,7 @@ mod tests {
             AcknowledgeAlarmRequest, AcknowledgeAlarmResponse, ActiveAlarmDto,
             ActiveAlarmsResponse, AlarmDefinitionDto, AlarmDefinitionsResponse, AlarmHistoryEntry,
             AlarmHistoryEventDto, AlarmHistoryQuery, AlarmHistoryResponse, AlarmSeverityDto,
-            AlarmZoneDto, ForcedAlarmsRequest, ForcedAlarmsResponse,
+            AlarmZoneDto,
         };
         AlarmSeverityDto::export().expect("Failed to export AlarmSeverityDto type");
         AlarmZoneDto::export().expect("Failed to export AlarmZoneDto type");
@@ -149,8 +149,6 @@ mod tests {
         AlarmHistoryEntry::export().expect("Failed to export AlarmHistoryEntry type");
         AlarmHistoryResponse::export().expect("Failed to export AlarmHistoryResponse type");
         AlarmHistoryQuery::export().expect("Failed to export AlarmHistoryQuery type");
-        ForcedAlarmsRequest::export().expect("Failed to export ForcedAlarmsRequest type");
-        ForcedAlarmsResponse::export().expect("Failed to export ForcedAlarmsResponse type");
         AcknowledgeAlarmRequest::export().expect("Failed to export AcknowledgeAlarmRequest type");
         AcknowledgeAlarmResponse::export().expect("Failed to export AcknowledgeAlarmResponse type");
         AlarmAcknowledgement::export().expect("Failed to export AlarmAcknowledgement type");

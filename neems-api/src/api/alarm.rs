@@ -9,20 +9,17 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use neems_data::{
     get_all_alarm_state,
     models::AlarmStateRow,
-    record_alarm_snapshot,
     rtac::{
         alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
         alarm_sld_meta::sld_meta_for,
         state::AlarmFlags,
     },
-    upsert_alarm_transition,
 };
-use rocket::{FromForm, Route, State, http::Status, serde::json::Json};
+use rocket::{FromForm, Route, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    api::demo::{DEMO_SITE_ID, DemoMode, forbid_unless_demo_mode},
     models::AlarmAcknowledgement,
     orm::{
         DbConn,
@@ -31,10 +28,6 @@ use crate::{
     },
     session_guards::AuthenticatedUser,
 };
-
-/// Roles allowed to control the demo forced-alarm set — mirrors the
-/// frontend Demo Controls drawer's gate.
-const DEMO_CONTROL_ROLES: &[&str] = &["admin", "newtown-admin", "newtown-staff"];
 
 /// Alarm severity level for API responses
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -501,132 +494,6 @@ pub async fn acknowledge_alarm(
     }))
 }
 
-/// Body for `PUT /1/Alarms/Forced`.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ForcedAlarmsRequest {
-    pub alarm_nums: Vec<u16>,
-}
-
-/// Response payload for the demo forced-alarm endpoints.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ForcedAlarmsResponse {
-    pub alarm_nums: Vec<u16>,
-}
-
-fn forbid_unless_demo_role(user: &AuthenticatedUser) -> Result<(), Status> {
-    if user.has_any_role(DEMO_CONTROL_ROLES) {
-        Ok(())
-    } else {
-        Err(Status::Forbidden)
-    }
-}
-
-/// Read the set of alarms currently active by demo data-state.
-///
-/// - **URL:** `/api/1/Alarms/Forced`
-/// - **Method:** `GET`
-/// - **Authentication:** Required; one of `admin`, `newtown-admin`,
-///   `newtown-staff`. Demo mode must be enabled.
-///
-/// Retained as a set-oriented view over the same `alarm_state` table that
-/// `/1/Demo/AlarmState` writes; see that endpoint for per-alarm control.
-#[get("/1/Alarms/Forced")]
-pub async fn get_forced_alarms(
-    user: AuthenticatedUser,
-    demo: &State<DemoMode>,
-    site_db: SiteDbConn,
-) -> Result<Json<ForcedAlarmsResponse>, Status> {
-    forbid_unless_demo_mode(demo)?;
-    forbid_unless_demo_role(&user)?;
-
-    let rows = site_db
-        .run(move |conn| get_all_alarm_state(conn).map_err(|_| Status::InternalServerError))
-        .await?;
-
-    let mut nums: Vec<u16> = rows
-        .iter()
-        .filter(|r| r.data_active)
-        .filter_map(|r| u16::try_from(r.alarm_num).ok())
-        .collect();
-    nums.sort_unstable();
-    Ok(Json(ForcedAlarmsResponse { alarm_nums: nums }))
-}
-
-/// Replace the set of demo-active alarms.
-///
-/// - **URL:** `/api/1/Alarms/Forced`
-/// - **Method:** `PUT`
-/// - **Body:** `{ "alarm_nums": [u16, ...] }`
-/// - **Authentication:** Required; one of `admin`, `newtown-admin`,
-///   `newtown-staff`. Demo mode must be enabled.
-///
-/// The supplied list replaces the active set (it is not additive). Pass an
-/// empty list to return every alarm to normal. Unknown alarm numbers are
-/// silently filtered against [`ALARM_DEFINITIONS`].
-///
-/// Writes real edges: alarms entering the set get a rising edge, alarms
-/// leaving it get a falling edge (and so latch as `ReturnedUnacknowledged`
-/// until acknowledged). Alarms whose state is unchanged are left alone, so
-/// re-sending the same set does not re-stamp their timestamps.
-#[put("/1/Alarms/Forced", data = "<body>")]
-pub async fn put_forced_alarms(
-    user: AuthenticatedUser,
-    demo: &State<DemoMode>,
-    site_db: SiteDbConn,
-    body: Json<ForcedAlarmsRequest>,
-) -> Result<Json<ForcedAlarmsResponse>, Status> {
-    forbid_unless_demo_mode(demo)?;
-    forbid_unless_demo_role(&user)?;
-
-    let valid: HashSet<u16> = ALARM_DEFINITIONS.iter().map(|d| d.alarm_num).collect();
-    let next: HashSet<u16> =
-        body.alarm_nums.iter().copied().filter(|n| valid.contains(n)).collect();
-
-    let rows = site_db
-        .run(move |conn| {
-            let now = chrono::Utc::now().naive_utc();
-            let current = get_all_alarm_state(conn).map_err(|_| Status::InternalServerError)?;
-            let active_now: HashSet<u16> = current
-                .iter()
-                .filter(|r| r.data_active)
-                .filter_map(|r| u16::try_from(r.alarm_num).ok())
-                .collect();
-
-            // Only write the alarms that actually change state.
-            let mut changed = false;
-            for num in next.difference(&active_now) {
-                upsert_alarm_transition(conn, *num as i32, true, now)
-                    .map_err(|_| Status::InternalServerError)?;
-                changed = true;
-            }
-            for num in active_now.difference(&next) {
-                upsert_alarm_transition(conn, *num as i32, false, now)
-                    .map_err(|_| Status::InternalServerError)?;
-                changed = true;
-            }
-
-            // Snapshot the new bitfield so the change appears in
-            // `/Alarms/History`, matching `POST /1/Demo/AlarmState`. Skipped
-            // when nothing moved, so re-sending the same set doesn't pile up
-            // identical readings.
-            if changed {
-                record_alarm_snapshot(conn, DEMO_SITE_ID, &next, now).map_err(|e| {
-                    eprintln!("Demo alarm snapshot write failed: {e}");
-                    Status::InternalServerError
-                })?;
-            }
-
-            let mut nums: Vec<u16> = next.into_iter().collect();
-            nums.sort_unstable();
-            Ok::<Vec<u16>, Status>(nums)
-        })
-        .await?;
-
-    Ok(Json(ForcedAlarmsResponse { alarm_nums: rows }))
-}
-
 /// Get all alarm definitions.
 ///
 /// - **URL:** `/api/1/Alarms/Definitions`
@@ -917,14 +784,7 @@ pub async fn get_alarm_history(
 
 /// Returns all routes defined in this module.
 pub fn routes() -> Vec<Route> {
-    routes![
-        get_active_alarms,
-        acknowledge_alarm,
-        get_alarm_definitions,
-        get_alarm_history,
-        get_forced_alarms,
-        put_forced_alarms
-    ]
+    routes![get_active_alarms, acknowledge_alarm, get_alarm_definitions, get_alarm_history]
 }
 
 #[cfg(test)]
