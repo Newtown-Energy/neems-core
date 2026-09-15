@@ -86,6 +86,12 @@ pub struct UpdateSiteRequest {
     pub charge_rate_percent: Option<f64>,
     pub discharge_rate_percent: Option<f64>,
     pub trickle_charge_power_kw: Option<f64>,
+    /// Set to `true` by the site configuration wizard when it finishes
+    /// applying. The server stamps the clock, not the client, and only on
+    /// a site that has never been stamped — see
+    /// `SiteUpdate::site_configuration_wizard_completed_at`. Any other
+    /// value leaves the stamp alone.
+    pub site_configuration_wizard_completed: Option<bool>,
 }
 
 /// Helper function to check if user can perform CRUD operations on a site
@@ -451,6 +457,10 @@ pub async fn update_site_endpoint(
                         charge_rate_percent: update_data.charge_rate_percent,
                         discharge_rate_percent: update_data.discharge_rate_percent,
                         trickle_charge_power_kw: update_data.trickle_charge_power_kw,
+                        site_configuration_wizard_completed_at: update_data
+                            .site_configuration_wizard_completed
+                            .unwrap_or(false)
+                            .then(|| chrono::Utc::now().naive_utc()),
                     },
                     Some(auth_user.user.id),
                 )

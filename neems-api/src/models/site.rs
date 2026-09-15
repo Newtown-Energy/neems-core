@@ -80,6 +80,11 @@ pub struct Site {
     /// Nullable so existing rows are interpreted as "unset" and the
     /// consumer falls back to a default.
     pub trickle_charge_power_kw: Option<f64>,
+    /// When the site configuration wizard was first applied to this site,
+    /// or `None` if it never has been. The React client hides the wizard
+    /// once this is set — onboarding a site twice overwrites its settings
+    /// and then fails on the duplicate schedule name.
+    pub site_configuration_wizard_completed_at: Option<chrono::NaiveDateTime>,
 }
 
 #[derive(Insertable)]
@@ -140,6 +145,7 @@ pub struct SiteWithTimestamps {
     pub charge_rate_percent: f64,
     pub discharge_rate_percent: f64,
     pub trickle_charge_power_kw: Option<f64>,
+    pub site_configuration_wizard_completed_at: Option<chrono::NaiveDateTime>,
     #[ts(type = "string")]
     pub created_at: chrono::NaiveDateTime,
     #[ts(type = "string")]

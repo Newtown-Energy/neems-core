@@ -384,3 +384,59 @@ async fn test_update_site_persists_demo_defaults() {
     assert_eq!(after.site_variant, "no_grid_charge");
     assert!(!after.closed_loop_enabled);
 }
+
+#[rocket::async_test]
+async fn test_site_configuration_wizard_stamp_is_set_once() {
+    let client = Client::tracked(fast_test_rocket()).await.expect("valid rocket instance");
+    let admin_cookie = login_admin(&client).await;
+
+    let response = client.get("/api/1/Sites").cookie(admin_cookie.clone()).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    let odata_response: serde_json::Value = response.into_json().await.expect("valid OData JSON");
+    let sites: Vec<Site> =
+        serde_json::from_value(odata_response["value"].clone()).expect("valid sites array");
+    let site = sites.first().expect("at least one site in golden DB").clone();
+    let url = format!("/api/1/Sites/{}", site.id);
+    assert!(
+        site.site_configuration_wizard_completed_at.is_none(),
+        "a golden-DB site has never been through the wizard"
+    );
+
+    // The wizard reports completion; the server supplies the clock.
+    let response = client
+        .put(&url)
+        .cookie(admin_cookie.clone())
+        .json(&json!({ "site_configuration_wizard_completed": true }))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let stamped: Site = response.into_json().await.expect("valid site JSON");
+    let first_stamp = stamped
+        .site_configuration_wizard_completed_at
+        .expect("wizard completion recorded");
+    let age = (chrono::Utc::now().naive_utc() - first_stamp).num_seconds().abs();
+    assert!(age <= 5, "stamp should be the server's own clock, was {}s off", age);
+
+    // Reporting completion again keeps the original moment: what matters is
+    // when the site was onboarded, not when the button was last pressed.
+    let response = client
+        .put(&url)
+        .cookie(admin_cookie.clone())
+        .json(&json!({ "site_configuration_wizard_completed": true }))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let restamped: Site = response.into_json().await.expect("valid site JSON");
+    assert_eq!(restamped.site_configuration_wizard_completed_at, Some(first_stamp));
+
+    // And an unrelated edit leaves it alone.
+    let response = client
+        .put(&url)
+        .cookie(admin_cookie)
+        .json(&json!({ "name": format!("{} Onboarded", site.name) }))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let after: Site = response.into_json().await.expect("valid site JSON");
+    assert_eq!(after.site_configuration_wizard_completed_at, Some(first_stamp));
+}

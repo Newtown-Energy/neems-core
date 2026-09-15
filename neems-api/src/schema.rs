@@ -181,6 +181,7 @@ diesel::table! {
         charge_rate_percent -> Double,
         discharge_rate_percent -> Double,
         trickle_charge_power_kw -> Nullable<Double>,
+        site_configuration_wizard_completed_at -> Nullable<Timestamp>,
     }
 }
 
