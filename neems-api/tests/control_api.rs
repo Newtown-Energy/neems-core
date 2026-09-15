@@ -407,3 +407,69 @@ async fn a_demo_deployment_still_advertises_no_writable_control() {
         "nothing left pending"
     );
 }
+
+/// A demo request moves its readback before it is reported sent, so it has
+/// registered by the time the response comes back, and the next poll agrees.
+#[tokio::test]
+async fn a_demo_request_has_registered_once_its_readback_moves() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let (_, request) = request_control(&client, &session, "feeder-1a", "close").await;
+    assert_eq!(request["status"], json!("sent"));
+    assert_eq!(request["registered"], json!(true), "the response already says so");
+
+    let controls = list_controls(&client, &session).await;
+    let feeder = controls
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == json!("feeder-1a"))
+        .unwrap();
+    assert_eq!(feeder["latest_request"]["registered"], json!(true), "and so does the next poll");
+}
+
+/// Registered means the equipment got there, not that it is still there. A
+/// breaker closed on request and opened again on site must not read as a
+/// request still waiting — which is all its current position would say.
+#[tokio::test]
+async fn a_request_stays_registered_after_the_equipment_moves_back() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    request_control(&client, &session, "feeder-1a", "close").await;
+
+    // Someone on site opens it again. On a demo, that is the drawer.
+    let resp = client
+        .post("/api/1/Demo/AlarmState")
+        .cookie(session.clone())
+        .json(&json!({ "alarm_num": 607, "active": false }))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    assert_eq!(
+        readback_state(&client, &session, 607).await,
+        Some(false),
+        "52-MP-1A is open again"
+    );
+
+    let controls = list_controls(&client, &session).await;
+    let feeder = controls
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == json!("feeder-1a"))
+        .unwrap();
+    assert_eq!(feeder["latest_request"]["registered"], json!(true));
+}
+
+/// A request that never reached the site has nothing to have registered.
+#[tokio::test]
+async fn a_failed_request_has_not_registered() {
+    let client = Client::tracked(fast_test_rocket_with_demo_mode(false)).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let (_, request) = request_control(&client, &session, "feeder-1a", "open").await;
+    assert_eq!(request["status"], json!("failed"));
+    assert_eq!(request["registered"], json!(false));
+}
