@@ -230,6 +230,13 @@ fn observe_readbacks(
 /// A failed read is an error, not "nothing reported": serving every request as
 /// unregistered on no evidence would leave a client waiting on requests that
 /// have long since landed.
+///
+/// Not scoped to a site, because the site database is not: it holds one site's
+/// alarms, and `/Alarms/Active`, the E-stop status and the demo's readback
+/// writes all read and write it the same way. A second site would share these
+/// readbacks with the first. Site-scoping alarms is #98, and this endpoint is
+/// part of it: both queries here — the newest reading and `alarm_state` — would
+/// need filtering by site, with `site_id` passed in to do it.
 async fn read_readbacks(
     site_db: &SiteDbConn,
 ) -> Result<ObservedReadbacks, status::Custom<Json<ErrorResponse>>> {
