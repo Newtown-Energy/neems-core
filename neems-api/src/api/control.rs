@@ -8,6 +8,11 @@
 //! whose breaker has not moved is information about the site, not a failure of
 //! the request.
 //!
+//! What it does report is whether a request has *registered* — whether the
+//! readback reached the position asked for at any moment since the request was
+//! made. That is a statement about the request, read off the readback's edges,
+//! and deliberately not about where the equipment is now. See [`registered`].
+//!
 //! Nothing can be written to the RTAC yet. Every control in
 //! [`SITE_CONTROLS`](neems_data::rtac::site_controls::SITE_CONTROLS) has no
 //! write register, because the client's `Outputs` sheet is empty, so a request
@@ -20,21 +25,29 @@
 //! request is carried out here and the control's readback point is moved to
 //! match. See [`demo_dispatch`].
 
-use chrono::Utc;
-use neems_data::rtac::site_controls::{
-    SITE_CONTROLS, SiteControl, SiteControlAction, site_control_by_id,
+use std::collections::HashMap;
+
+use chrono::{NaiveDateTime, Utc};
+use neems_data::{
+    get_all_alarm_state,
+    models::AlarmStateRow,
+    rtac::{
+        site_controls::{SITE_CONTROLS, SiteControl, SiteControlAction, site_control_by_id},
+        state::AlarmFlags,
+    },
 };
 use rocket::{Route, State, http::Status, response::status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::{
+    alarm::parse_alarm_registers,
     application_rule::ErrorResponse,
     demo::{DemoMode, apply_control_readback},
     estop::can_access_site,
 };
 use crate::{
-    models::{ControlRequest, ControlRequestDto},
+    models::{ControlRequest, ControlRequestDto, ControlRequestStatus},
     orm::{
         DbConn,
         control_request::{
@@ -169,6 +182,133 @@ fn fail_if_undelivered(
     .unwrap_or(request))
 }
 
+/// What the site is reporting about its readback points.
+///
+/// Read the way `/Alarms/Active` reads them — the newest reading that carries
+/// alarm registers, unioned with `alarm_state` — so a request cannot register
+/// against a position the diagram is not drawing.
+struct ObservedReadbacks {
+    /// The newest reading's alarm bits, or `None` if no reading carries any.
+    flags: Option<AlarmFlags>,
+    /// Each point's materialised data state and most recent edges.
+    state: HashMap<i32, AlarmStateRow>,
+}
+
+impl ObservedReadbacks {
+    /// Whether a point is set now, or `None` when nothing has ever reported it:
+    /// no reading, and no transition on record.
+    fn is_set(&self, alarm_num: u16) -> Option<bool> {
+        let row = self.state.get(&i32::from(alarm_num));
+        if self.flags.is_none() && row.is_none() {
+            return None;
+        }
+        let in_reading = self.flags.is_some_and(|f| f.is_alarm_num_active(alarm_num));
+        Some(in_reading || row.is_some_and(|r| r.data_active))
+    }
+}
+
+fn observe_readbacks(
+    conn: &mut diesel::SqliteConnection,
+) -> Result<ObservedReadbacks, Box<dyn std::error::Error + Send + Sync>> {
+    use diesel::prelude::*;
+    use neems_data::schema::readings::dsl::{readings, timestamp};
+
+    let recent: Vec<neems_data::models::Reading> =
+        readings.order(timestamp.desc()).limit(10).load(conn)?;
+    let flags = recent
+        .iter()
+        .find_map(|reading| parse_alarm_registers(&reading.data))
+        .map(|registers| AlarmFlags::from_registers(&registers));
+
+    let state = get_all_alarm_state(conn)?.into_iter().map(|row| (row.alarm_num, row)).collect();
+
+    Ok(ObservedReadbacks { flags, state })
+}
+
+/// Read the readback points from the site database.
+///
+/// A failed read is an error, not "nothing reported": serving every request as
+/// unregistered on no evidence would leave a client waiting on requests that
+/// have long since landed.
+async fn read_readbacks(
+    site_db: &SiteDbConn,
+) -> Result<ObservedReadbacks, status::Custom<Json<ErrorResponse>>> {
+    site_db
+        .run(observe_readbacks)
+        .await
+        .map_err(|e| internal_error("Error reading control readbacks", e))
+}
+
+/// Whether the site has reported the position `request` asked for since it was
+/// made.
+///
+/// Only a `Sent` request can have registered: a pending one has not reached the
+/// site, and a failed one never will. Neither can a control with no readback or
+/// a row whose action does not parse — there is nothing to confirm them
+/// against, and leaving a client waiting is better than clearing on no
+/// evidence.
+fn registered(request: &ControlRequest, observed: &ObservedReadbacks) -> bool {
+    if request.status() != ControlRequestStatus::Sent {
+        return false;
+    }
+    let Some(readback) = site_control_by_id(&request.control_id).and_then(|c| c.readback) else {
+        return false;
+    };
+    let Ok(action) = request.action.parse::<SiteControlAction>() else {
+        return false;
+    };
+
+    let row = observed.state.get(&i32::from(readback.alarm_num));
+    reached_since(
+        request.requested_at,
+        readback.bit_for(action.resulting_position()),
+        observed.is_set(readback.alarm_num),
+        row.and_then(|r| r.last_rising_at),
+        row.and_then(|r| r.last_falling_at),
+    )
+}
+
+/// Whether a point has been in the `target` state at any moment since
+/// `requested_at`, given its current state and its most recent edges.
+///
+/// True if it is in the target now, or entered it at or after the request, or
+/// left it at or after the request *having entered it before leaving* — it was
+/// already there when asked, and has moved since. The E-stop's `tripped_since`
+/// is the same rule for a point whose target is always "set".
+///
+/// Leaving needs an entry behind it because `upsert_alarm_transition` stamps
+/// the first state it sees for a point with no row, so a lone edge can be where
+/// the record starts rather than a movement away from anywhere.
+fn reached_since(
+    requested_at: NaiveDateTime,
+    target: bool,
+    is_set: Option<bool>,
+    last_rising_at: Option<NaiveDateTime>,
+    last_falling_at: Option<NaiveDateTime>,
+) -> bool {
+    if is_set == Some(target) {
+        return true;
+    }
+    let (entered, left) = if target {
+        (last_rising_at, last_falling_at)
+    } else {
+        (last_falling_at, last_rising_at)
+    };
+
+    let entered_since = entered.is_some_and(|t| t >= requested_at);
+    let left_since_being_there = match (entered, left) {
+        (Some(entered), Some(left)) => entered <= left && left >= requested_at,
+        _ => false,
+    };
+    entered_since || left_since_being_there
+}
+
+/// Serve a request with `registered` worked out against what the site reports.
+fn serve(request: ControlRequest, observed: &ObservedReadbacks) -> ControlRequestDto {
+    let registered = registered(&request, observed);
+    ControlRequestDto::new(request, registered)
+}
+
 /// List a site's controls and the latest request against each.
 ///
 /// - **URL:** `/api/1/Sites/<site_id>/Controls`
@@ -179,12 +319,18 @@ fn fail_if_undelivered(
 /// equipment and the code that knows how to write it, not data an operator can
 /// edit. Serving it keeps the diagram from carrying its own copy of which
 /// elements are interactable.
+///
+/// Each request carries `registered`, worked out against the site's readback
+/// points on every read — see [`registered`].
 #[get("/1/Sites/<site_id>/Controls")]
 pub async fn list_site_controls(
     db: DbConn,
+    site_db: SiteDbConn,
     site_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<SiteControlDto>>, status::Custom<Json<ErrorResponse>>> {
+    let observed = read_readbacks(&site_db).await?;
+
     db.run(move |conn| {
         if !can_access_site(&auth_user, site_id, conn) {
             return Err(forbidden());
@@ -214,7 +360,7 @@ pub async fn list_site_controls(
                         .iter()
                         .find(|r| r.control_id == input.id)
                         .cloned()
-                        .map(ControlRequestDto::from),
+                        .map(|request| serve(request, &observed)),
                 })
                 .collect(),
         ))
@@ -280,7 +426,9 @@ pub async fn request_site_control(
     // A demo deployment has no collector and no RTAC, so nothing else is coming
     // for this request. Carry it out here instead of failing it.
     if demo.enabled() && requested.status().is_unresolved() {
-        return demo_dispatch(&db, site_db, input, requested).await.map(Json);
+        let dispatched = demo_dispatch(&db, &site_db, input, requested).await?;
+        let observed = read_readbacks(&site_db).await?;
+        return Ok(Json(serve(dispatched, &observed)));
     }
 
     let resolved = db
@@ -299,7 +447,9 @@ pub async fn request_site_control(
         })
         .await?;
 
-    Ok(Json(ControlRequestDto::from(resolved)))
+    // Only the collector sends a request, so one resolved here is pending or
+    // failed and has nothing to have registered.
+    Ok(Json(ControlRequestDto::new(resolved, false)))
 }
 
 /// Demo mode's stand-in for the collector.
@@ -324,10 +474,10 @@ pub async fn request_site_control(
 /// earlier one.
 async fn demo_dispatch(
     db: &DbConn,
-    site_db: SiteDbConn,
+    site_db: &SiteDbConn,
     input: &'static SiteControl,
     requested: ControlRequest,
-) -> Result<ControlRequestDto, status::Custom<Json<ErrorResponse>>> {
+) -> Result<ControlRequest, status::Custom<Json<ErrorResponse>>> {
     // Only this endpoint writes the column, and only from a parsed action, so
     // an unreadable value means the row is corrupt rather than that a caller
     // sent something odd.
@@ -357,7 +507,7 @@ async fn demo_dispatch(
         }
     };
 
-    Ok(ControlRequestDto::from(updated.unwrap_or(requested)))
+    Ok(updated.unwrap_or(requested))
 }
 
 /// Get the requests the collector should act on.
@@ -389,7 +539,7 @@ pub async fn get_pending_site_controls(
                 .map_err(|e| internal_error("Error resolving control request", e))?;
             // A request that just timed out is no longer outstanding work.
             if resolved.status().is_unresolved() {
-                out.push(ControlRequestDto::from(resolved));
+                out.push(ControlRequestDto::new(resolved, false));
             }
         }
 
@@ -413,10 +563,13 @@ pub async fn get_pending_site_controls(
 #[post("/1/Sites/<site_id>/Controls/Requests/<request_id>/Sent")]
 pub async fn mark_site_control_sent(
     db: DbConn,
+    site_db: SiteDbConn,
     site_id: i32,
     request_id: i32,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ControlRequestDto>, status::Custom<Json<ErrorResponse>>> {
+    let observed = read_readbacks(&site_db).await?;
+
     db.run(move |conn| {
         if !can_access_site(&auth_user, site_id, conn) {
             return Err(forbidden());
@@ -435,7 +588,7 @@ pub async fn mark_site_control_sent(
             .map_err(|e| internal_error("Error marking control request sent", e))?
             .ok_or_else(|| not_found("Control request not found"))?;
 
-        Ok(Json(ControlRequestDto::from(updated)))
+        Ok(Json(serve(updated, &observed)))
     })
     .await
 }
@@ -458,9 +611,14 @@ pub async fn mark_site_control_failed(
     db: DbConn,
     site_id: i32,
     request_id: i32,
+    site_db: SiteDbConn,
     body: Json<ControlFailureBody>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ControlRequestDto>, status::Custom<Json<ErrorResponse>>> {
+    // A late report on a request that already went out leaves it sent, and it
+    // may well have registered.
+    let observed = read_readbacks(&site_db).await?;
+
     db.run(move |conn| {
         if !can_access_site(&auth_user, site_id, conn) {
             return Err(forbidden());
@@ -477,7 +635,7 @@ pub async fn mark_site_control_failed(
             .map_err(|e| internal_error("Error failing control request", e))?
             .ok_or_else(|| not_found("Control request not found"))?;
 
-        Ok(Json(ControlRequestDto::from(updated)))
+        Ok(Json(serve(updated, &observed)))
     })
     .await
 }
@@ -490,4 +648,119 @@ pub fn routes() -> Vec<Route> {
         mark_site_control_sent,
         mark_site_control_failed
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+
+    use super::*;
+
+    fn at(requested: NaiveDateTime, minutes: i64) -> Option<NaiveDateTime> {
+        Some(requested + Duration::minutes(minutes))
+    }
+
+    // `reached_since`, edge by edge. Times are minutes relative to the request,
+    // so each case reads as a timeline.
+
+    #[test]
+    fn nothing_reported_has_not_registered() {
+        let req = Utc::now().naive_utc();
+        assert!(!reached_since(req, true, None, None, None));
+    }
+
+    #[test]
+    fn in_the_target_now_has_registered() {
+        let req = Utc::now().naive_utc();
+        assert!(reached_since(req, true, Some(true), at(req, 1), None));
+    }
+
+    /// Still where it was when asked, with nothing moving since.
+    #[test]
+    fn not_yet_moved_has_not_registered() {
+        let req = Utc::now().naive_utc();
+        assert!(!reached_since(req, true, Some(false), at(req, -10), at(req, -5)));
+    }
+
+    /// The case the flag exists for: it got there and has been moved back
+    /// since, so the current state alone says it never arrived.
+    #[test]
+    fn moved_there_and_back_since_the_request_has_registered() {
+        let req = Utc::now().naive_utc();
+        assert!(reached_since(req, true, Some(false), at(req, 1), at(req, 5)));
+    }
+
+    /// Already there when asked, and moved away afterwards.
+    #[test]
+    fn there_before_and_moved_away_after_has_registered() {
+        let req = Utc::now().naive_utc();
+        assert!(reached_since(req, true, Some(false), at(req, -10), at(req, 5)));
+    }
+
+    /// A departure with no arrival on record is where the record starts, not a
+    /// movement away from the target.
+    #[test]
+    fn leaving_with_no_entry_on_record_has_not_registered() {
+        let req = Utc::now().naive_utc();
+        assert!(!reached_since(req, true, Some(false), None, at(req, 5)));
+    }
+
+    /// A target of "clear" is reached by a falling edge, and a rise is not one.
+    #[test]
+    fn a_clear_target_is_reached_by_falling_not_rising() {
+        let req = Utc::now().naive_utc();
+        assert!(reached_since(req, false, Some(true), at(req, 5), at(req, 1)));
+        assert!(!reached_since(req, false, Some(true), at(req, 1), None));
+    }
+
+    fn request(control_id: &str, action: &str, status: ControlRequestStatus) -> ControlRequest {
+        ControlRequest {
+            id: 1,
+            site_id: 1,
+            control_id: control_id.to_string(),
+            action: action.to_string(),
+            status: status.as_str().to_string(),
+            requested_by: None,
+            requested_at: Utc::now().naive_utc() - Duration::minutes(1),
+            sent_at: None,
+            resolved_at: None,
+            failure_reason: None,
+        }
+    }
+
+    /// A reading with exactly `set` raised, and no transitions on record.
+    fn reading_with(set: &[u16]) -> ObservedReadbacks {
+        let mut flags = AlarmFlags::default();
+        for &alarm_num in set {
+            flags.set_alarm_num(alarm_num, true);
+        }
+        ObservedReadbacks {
+            flags: Some(flags),
+            state: HashMap::new(),
+        }
+    }
+
+    /// The line switches report *open* and the feeders report *closed*, so the
+    /// same action registers against opposite bits. A sense read backwards
+    /// would clear every badge on the wrong half of the diagram.
+    #[test]
+    fn registration_follows_the_readback_sense() {
+        let open_switch = request("switch-89l-1", "open", ControlRequestStatus::Sent);
+        assert!(registered(&open_switch, &reading_with(&[101])));
+        assert!(!registered(&open_switch, &reading_with(&[])));
+
+        let open_feeder = request("feeder-1a", "open", ControlRequestStatus::Sent);
+        assert!(registered(&open_feeder, &reading_with(&[])));
+        assert!(!registered(&open_feeder, &reading_with(&[607])));
+    }
+
+    /// Only a request that reached the site can have registered, even with the
+    /// equipment already where it asked.
+    #[test]
+    fn only_a_sent_request_registers() {
+        for status in [ControlRequestStatus::Pending, ControlRequestStatus::Failed] {
+            let req = request("feeder-1a", "close", status);
+            assert!(!registered(&req, &reading_with(&[607])), "a {status} request registered");
+        }
+    }
 }

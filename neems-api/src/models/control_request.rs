@@ -147,10 +147,22 @@ pub struct ControlRequestDto {
     /// operator to read: this is the text the diagram shows when a click goes
     /// nowhere.
     pub failure_reason: Option<String>,
+    /// Whether the site has reported the position this request asked for at any
+    /// moment since it was made. Only ever true on `Sent`.
+    ///
+    /// Not a lifecycle state: `Sent` stays terminal, and this is worked out
+    /// from the control's readback point each time the request is read,
+    /// never stored. It says the equipment *got* there, not that it is
+    /// still there — a breaker opened on request and closed again on site
+    /// has registered — so it tells a client when to stop waiting on a
+    /// request, and the readback alone still says where the equipment is.
+    pub registered: bool,
 }
 
-impl From<ControlRequest> for ControlRequestDto {
-    fn from(row: ControlRequest) -> Self {
+impl ControlRequestDto {
+    /// Serve a request. `registered` is an argument rather than a default so no
+    /// endpoint can serve a request without having looked at the site.
+    pub fn new(row: ControlRequest, registered: bool) -> Self {
         Self {
             status: row.status(),
             id: row.id,
@@ -162,6 +174,7 @@ impl From<ControlRequest> for ControlRequestDto {
             sent_at: row.sent_at,
             resolved_at: row.resolved_at,
             failure_reason: row.failure_reason,
+            registered,
         }
     }
 }
