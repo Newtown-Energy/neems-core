@@ -473,3 +473,40 @@ async fn a_failed_request_has_not_registered() {
     assert_eq!(request["status"], json!("failed"));
     assert_eq!(request["registered"], json!(false));
 }
+
+/// The collector's reports return the request too, and must carry the flag the
+/// list does. A demo request is already sent, so `/Sent` is the idempotent
+/// repeat and a late `/Failed` leaves it sent — both still registered.
+#[tokio::test]
+async fn collector_reports_carry_the_registered_flag() {
+    let client = Client::tracked(fast_test_rocket()).await.unwrap();
+    let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
+
+    let (_, request) = request_control(&client, &session, "feeder-1a", "close").await;
+    let id = request["id"].as_i64().expect("request id");
+
+    let resp = client
+        .post(format!("/api/1/Sites/1/Controls/Requests/{id}/Sent"))
+        .cookie(session.clone())
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let sent: Value = resp.into_json().await.expect("json");
+    assert_eq!(sent["status"], json!("sent"));
+    assert_eq!(sent["registered"], json!(true), "a repeated /Sent");
+
+    let resp = client
+        .post(format!("/api/1/Sites/1/Controls/Requests/{id}/Failed"))
+        .cookie(session.clone())
+        .json(&json!({ "reason": "a report that arrived too late" }))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let late: Value = resp.into_json().await.expect("json");
+    assert_eq!(
+        late["status"],
+        json!("sent"),
+        "a late failure cannot undo a signal that got out"
+    );
+    assert_eq!(late["registered"], json!(true), "a late /Failed");
+}
