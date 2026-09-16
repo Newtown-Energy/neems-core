@@ -4,7 +4,8 @@ use diesel::{prelude::*, sql_types::BigInt};
 
 use crate::models::{
     ApplicationRule, ApplicationRuleDb, CalendarDaySchedule, CalendarDayScheduleMatches,
-    CreateApplicationRuleRequest, EffectiveScheduleResponse, NewApplicationRule, RuleType,
+    ChangeDetails, CreateApplicationRuleRequest, EffectiveScheduleResponse, FieldChange,
+    NewApplicationRule, RuleType,
 };
 
 #[derive(QueryableByName)]
@@ -70,7 +71,8 @@ pub fn create_application_rule(
         // change_reason lands even when the caller is anonymous (no
         // acting_user_id) — the activity row still exists.
         use crate::orm::entity_activity::{
-            update_latest_activity_reason, update_latest_activity_user,
+            update_latest_activity_details, update_latest_activity_reason,
+            update_latest_activity_user,
         };
         if let Some(user_id) = acting_user_id {
             let _ =
@@ -87,6 +89,18 @@ pub fn create_application_rule(
         // Return created rule
         let rule_db = application_rules::table.find(rule_id).first::<ApplicationRuleDb>(conn)?;
 
+        // Record which dates or days this rule covers. The calendar
+        // knows them from context, but the site-wide activity feed has
+        // no such context — without this it can only say "Applied".
+        let details = rule_change_details(&rule_db, ChangeSide::After);
+        let _ = update_latest_activity_details(
+            conn,
+            "application_rules",
+            rule_id,
+            "create",
+            Some(&details),
+        );
+
         rule_db.to_api_model().map_err(|e| {
             diesel::result::Error::DeserializationError(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -94,6 +108,64 @@ pub fn create_application_rule(
             )))
         })
     })
+}
+
+/// Which side of a change a rule's values describe.
+enum ChangeSide {
+    /// The rule as it was — a deletion.
+    Before,
+    /// The rule as it now is — a creation.
+    After,
+}
+
+/// Flatten a JSON array of scalars (`["2026-07-04"]`, `[1,2,3]`) to a
+/// comma-joined string for [`FieldChange`], which carries rendered
+/// values rather than typed ones. Unparseable input passes through so
+/// a malformed row still says something rather than nothing.
+fn flatten_json_list(raw: &str) -> String {
+    match serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+        Ok(values) => values
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Err(_) => raw.to_string(),
+    }
+}
+
+/// Describe an application rule as field changes for its audit row.
+/// A created rule's values are what it became; a deleted rule's are
+/// what it was.
+fn rule_change_details(rule: &ApplicationRuleDb, side: ChangeSide) -> ChangeDetails {
+    let mut values: Vec<(&str, String)> = vec![("rule_type", rule.rule_type.clone())];
+    if let Some(ref dates) = rule.specific_dates {
+        values.push(("specific_dates", flatten_json_list(dates)));
+    }
+    if let Some(ref days) = rule.days_of_week {
+        values.push(("days_of_week", flatten_json_list(days)));
+    }
+
+    ChangeDetails {
+        fields: values
+            .into_iter()
+            .map(|(field, value)| match side {
+                ChangeSide::Before => FieldChange {
+                    field: field.to_string(),
+                    from: Some(value),
+                    to: None,
+                },
+                ChangeSide::After => FieldChange {
+                    field: field.to_string(),
+                    from: None,
+                    to: Some(value),
+                },
+            })
+            .collect(),
+        commands: Vec::new(),
+    }
 }
 
 /// Gets all application rules for a template
@@ -273,27 +345,56 @@ pub fn delete_application_rule(
 ) -> Result<usize, diesel::result::Error> {
     use crate::schema::application_rules;
 
-    let result = diesel::delete(application_rules::table.filter(application_rules::id.eq(rule_id)))
-        .execute(conn)?;
+    // One transaction: the snapshot below describes the row this
+    // statement deletes, and nothing else may change it in between, or
+    // the audit row would claim a rule that never existed.
+    conn.transaction(|conn| {
+        // Read the rule before it goes, so the audit row can say which
+        // override was removed rather than just that one was.
+        let doomed = application_rules::table
+            .find(rule_id)
+            .first::<ApplicationRuleDb>(conn)
+            .optional()?;
 
-    if result > 0 {
-        use crate::orm::entity_activity::{
-            update_latest_activity_reason, update_latest_activity_user,
-        };
-        if let Some(user_id) = acting_user_id {
-            let _ =
-                update_latest_activity_user(conn, "application_rules", rule_id, "delete", user_id);
+        let result =
+            diesel::delete(application_rules::table.filter(application_rules::id.eq(rule_id)))
+                .execute(conn)?;
+
+        if result > 0 {
+            use crate::orm::entity_activity::{
+                update_latest_activity_details, update_latest_activity_reason,
+                update_latest_activity_user,
+            };
+            if let Some(user_id) = acting_user_id {
+                let _ = update_latest_activity_user(
+                    conn,
+                    "application_rules",
+                    rule_id,
+                    "delete",
+                    user_id,
+                );
+            }
+            let _ = update_latest_activity_reason(
+                conn,
+                "application_rules",
+                rule_id,
+                "delete",
+                change_reason,
+            );
+            if let Some(rule_db) = doomed {
+                let details = rule_change_details(&rule_db, ChangeSide::Before);
+                let _ = update_latest_activity_details(
+                    conn,
+                    "application_rules",
+                    rule_id,
+                    "delete",
+                    Some(&details),
+                );
+            }
         }
-        let _ = update_latest_activity_reason(
-            conn,
-            "application_rules",
-            rule_id,
-            "delete",
-            change_reason,
-        );
-    }
 
-    Ok(result)
+        Ok(result)
+    })
 }
 
 /// Gets the effective schedule for a specific date
