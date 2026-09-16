@@ -1,4 +1,7 @@
-use diesel::prelude::*;
+use diesel::{
+    prelude::*,
+    sql_types::{Nullable, Timestamp},
+};
 
 use crate::models::{NewSite, Site, SiteWithTimestamps};
 
@@ -39,6 +42,12 @@ pub struct SiteUpdate {
     pub charge_rate_percent: Option<f64>,
     pub discharge_rate_percent: Option<f64>,
     pub trickle_charge_power_kw: Option<f64>,
+    /// Stamp for the site configuration wizard. Set-once rather than
+    /// merely un-clearable: a site is onboarded once, and the value
+    /// worth keeping is when that happened, not when someone last
+    /// pressed the button. [`update_site`] ignores this on a site that
+    /// already carries a stamp.
+    pub site_configuration_wizard_completed_at: Option<chrono::NaiveDateTime>,
 }
 
 /// Gets all sites for a specific company ID.
@@ -120,7 +129,8 @@ pub fn get_site_by_company_and_name(
          power_kw, capacity_kwh, closed_loop_enabled, off_peak_start_minutes, \
          off_peak_end_minutes, peak_revenue_start_minutes, peak_revenue_end_minutes, \
          interconnection_max_output_kw, rebound_protection_soc_floor_percent, site_variant, \
-         charge_rate_percent, discharge_rate_percent, trickle_charge_power_kw \
+         charge_rate_percent, discharge_rate_percent, trickle_charge_power_kw, \
+         site_configuration_wizard_completed_at \
          FROM sites WHERE company_id = ? AND LOWER(name) = LOWER(?)",
     )
     .bind::<diesel::sql_types::Integer, _>(site_company_id)
@@ -182,6 +192,18 @@ pub fn update_site(
                 .eq(update.discharge_rate_percent.unwrap_or(current_site.discharge_rate_percent)),
             trickle_charge_power_kw
                 .eq(update.trickle_charge_power_kw.or(current_site.trickle_charge_power_kw)),
+            // Set once, and decided in SQL rather than against
+            // `current_site`. Every other column above is written from a
+            // value read at the top of this function, which is a race:
+            // two wizards finishing together would both read null, and
+            // the later write would displace the first stamp. COALESCE
+            // resolves it inside the UPDATE, so the row's own value wins
+            // whatever else is in flight.
+            site_configuration_wizard_completed_at.eq(diesel::dsl::sql::<Nullable<Timestamp>>(
+                "COALESCE(site_configuration_wizard_completed_at, ",
+            )
+            .bind::<Nullable<Timestamp>, _>(update.site_configuration_wizard_completed_at)
+            .sql(")")),
         ))
         .execute(conn)?;
 
@@ -253,6 +275,7 @@ pub fn get_site_with_timestamps(
         charge_rate_percent: site.charge_rate_percent,
         discharge_rate_percent: site.discharge_rate_percent,
         trickle_charge_power_kw: site.trickle_charge_power_kw,
+        site_configuration_wizard_completed_at: site.site_configuration_wizard_completed_at,
         created_at,
         updated_at,
     }))
@@ -548,6 +571,71 @@ mod tests {
         .expect("Failed to update name");
         assert_eq!(after_name_change.power_kw, Some(5000.0));
         assert_eq!(after_name_change.site_variant, "no_grid_charge");
+    }
+
+    #[test]
+    fn test_wizard_completion_stamp_is_set_once() {
+        let mut conn = setup_test_db();
+
+        let company = crate::company::insert_company(&mut conn, "Test Company".to_string(), None)
+            .expect("Failed to insert company");
+
+        let site = insert_site(
+            &mut conn,
+            "Unconfigured Site".to_string(),
+            "123 Test St".to_string(),
+            40.0,
+            -74.0,
+            company.id,
+            120,
+            None,
+        )
+        .expect("Failed to insert site");
+        assert_eq!(site.site_configuration_wizard_completed_at, None);
+
+        let first = chrono::NaiveDate::from_ymd_opt(2026, 6, 1)
+            .unwrap()
+            .and_hms_opt(9, 0, 0)
+            .unwrap();
+        let stamped = update_site(
+            &mut conn,
+            site.id,
+            SiteUpdate {
+                site_configuration_wizard_completed_at: Some(first),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("Failed to record wizard completion");
+        assert_eq!(stamped.site_configuration_wizard_completed_at, Some(first));
+
+        // A second completion does not move the stamp: onboarding happened
+        // when it happened.
+        let second = first + chrono::Duration::days(30);
+        let restamped = update_site(
+            &mut conn,
+            site.id,
+            SiteUpdate {
+                site_configuration_wizard_completed_at: Some(second),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("Failed to re-record wizard completion");
+        assert_eq!(restamped.site_configuration_wizard_completed_at, Some(first));
+
+        // Nor does an unrelated edit clear it.
+        let renamed = update_site(
+            &mut conn,
+            site.id,
+            SiteUpdate {
+                name: Some("Configured Site".to_string()),
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("Failed to rename site");
+        assert_eq!(renamed.site_configuration_wizard_completed_at, Some(first));
     }
 
     #[test]

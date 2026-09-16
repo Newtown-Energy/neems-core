@@ -1,0 +1,1 @@
+ALTER TABLE sites DROP COLUMN site_configuration_wizard_completed_at;
