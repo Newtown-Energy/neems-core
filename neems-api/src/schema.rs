@@ -90,6 +90,7 @@ diesel::table! {
         timestamp -> Timestamp,
         user_id -> Nullable<Integer>,
         change_reason -> Nullable<Text>,
+        change_details -> Nullable<Text>,
     }
 }
 
