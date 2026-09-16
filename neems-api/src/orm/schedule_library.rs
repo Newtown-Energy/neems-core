@@ -3,7 +3,8 @@ use std::str::FromStr;
 use diesel::{prelude::*, sql_types::BigInt};
 
 use crate::models::{
-    CommandType, CreateCommandRequest, CreateLibraryItemRequest, NewScheduleCommand,
+    ChangeDetails, CommandChange, CommandChangeKind, CommandSnapshot, CommandType,
+    CreateCommandRequest, CreateLibraryItemRequest, FieldChange, NewScheduleCommand,
     NewScheduleTemplate, NewScheduleTemplateEntry, ScheduleCommandDto, ScheduleLibraryItem,
     ScheduleTemplate, ScheduleTemplateEntry, UpdateLibraryItemRequest,
 };
@@ -50,7 +51,8 @@ pub fn create_library_item(
         // Update activity log with user info and the creation reason.
         {
             use crate::orm::entity_activity::{
-                update_latest_activity_reason, update_latest_activity_user,
+                update_latest_activity_details, update_latest_activity_reason,
+                update_latest_activity_user,
             };
             if let Some(user_id) = acting_user_id {
                 let _ = update_latest_activity_user(
@@ -67,6 +69,28 @@ pub fn create_library_item(
                 template_id,
                 "create",
                 request.change_reason.as_deref(),
+            );
+            // Record the commands the schedule started life with. Once
+            // it has been edited a few times this is the only place
+            // that original shape survives.
+            let details = ChangeDetails {
+                fields: Vec::new(),
+                commands: request
+                    .commands
+                    .iter()
+                    .map(|cmd| CommandChange {
+                        kind: CommandChangeKind::Added,
+                        command: snapshot_of_request(cmd),
+                        previous: None,
+                    })
+                    .collect(),
+            };
+            let _ = update_latest_activity_details(
+                conn,
+                "schedule_templates",
+                template_id,
+                "create",
+                Some(&details),
             );
         }
 
@@ -318,16 +342,60 @@ pub fn update_library_item(
         let description_changed = request.description.is_some();
         let commands_changed = request.commands.is_some();
 
-        if let Some(name_val) = request.name {
-            diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
-                .set(schedule_templates::name.eq(name_val))
-                .execute(conn)?;
+        // Diff before anything is mutated — afterwards the "before"
+        // side is gone. Note this asks what actually *differs*, not
+        // what the caller supplied: a PUT that echoes back the current
+        // name shouldn't read as a rename.
+        let mut details = ChangeDetails::default();
+        if let Some(ref new_name) = request.name {
+            if *new_name != current.name {
+                details.fields.push(FieldChange {
+                    field: "name".to_string(),
+                    from: Some(current.name.clone()),
+                    to: Some(new_name.clone()),
+                });
+            }
+        }
+        if let Some(ref new_description) = request.description {
+            if Some(new_description.as_str()) != current.description.as_deref() {
+                details.fields.push(FieldChange {
+                    field: "description".to_string(),
+                    from: current.description.clone(),
+                    to: Some(new_description.clone()),
+                });
+            }
+        }
+        if let Some(ref new_commands) = request.commands {
+            let before = get_library_item(conn, item_id)?.commands;
+            details.commands = diff_commands(&before, new_commands);
         }
 
-        if let Some(description_val) = request.description {
-            diesel::update(schedule_templates::table.filter(schedule_templates::id.eq(item_id)))
-                .set(schedule_templates::description.eq(description_val))
-                .execute(conn)?;
+        // One statement, not one per column: the update trigger writes
+        // an activity row per UPDATE, and a save that touched both the
+        // name and the description used to produce two of them — each
+        // backfill helper then landed on only one, leaving the other
+        // row blank. One save is one row.
+        let target = schedule_templates::table.filter(schedule_templates::id.eq(item_id));
+        match (request.name, request.description) {
+            (Some(name_val), Some(description_val)) => {
+                diesel::update(target)
+                    .set((
+                        schedule_templates::name.eq(name_val),
+                        schedule_templates::description.eq(description_val),
+                    ))
+                    .execute(conn)?;
+            }
+            (Some(name_val), None) => {
+                diesel::update(target)
+                    .set(schedule_templates::name.eq(name_val))
+                    .execute(conn)?;
+            }
+            (None, Some(description_val)) => {
+                diesel::update(target)
+                    .set(schedule_templates::description.eq(description_val))
+                    .execute(conn)?;
+            }
+            (None, None) => {}
         }
 
         // Replace commands if provided
@@ -414,7 +482,8 @@ pub fn update_library_item(
         let any_change = name_changed || description_changed || commands_changed;
         if any_change {
             use crate::orm::entity_activity::{
-                update_latest_activity_reason, update_latest_activity_user,
+                update_latest_activity_details, update_latest_activity_reason,
+                update_latest_activity_user,
             };
             if let Some(user_id) = acting_user_id {
                 let _ = update_latest_activity_user(
@@ -431,6 +500,13 @@ pub fn update_library_item(
                 item_id,
                 "update",
                 request.change_reason.as_deref(),
+            );
+            let _ = update_latest_activity_details(
+                conn,
+                "schedule_templates",
+                item_id,
+                "update",
+                Some(&details),
             );
         }
 
@@ -584,6 +660,85 @@ pub fn ensure_default_schedule_exists(
 }
 
 // ============================================================================
+// Change-detail helpers
+// ============================================================================
+
+/// A command as it arrived on the wire, as a snapshot for the audit
+/// row.
+fn snapshot_of_request(cmd: &CreateCommandRequest) -> CommandSnapshot {
+    CommandSnapshot {
+        execution_offset_seconds: cmd.execution_offset_seconds,
+        command_type: cmd.command_type.clone(),
+        duration_seconds: cmd.duration_seconds,
+        target_soc_percent: cmd.target_soc_percent,
+    }
+}
+
+/// A stored command as a snapshot for the audit row.
+fn snapshot_of_stored(cmd: &ScheduleCommandDto) -> CommandSnapshot {
+    CommandSnapshot {
+        execution_offset_seconds: cmd.execution_offset_seconds,
+        command_type: cmd.command_type.clone(),
+        duration_seconds: cmd.duration_seconds,
+        target_soc_percent: cmd.target_soc_percent,
+    }
+}
+
+/// Describe the difference between a schedule's commands before and
+/// after an edit, ordered by time of day so the result reads like the
+/// schedule does.
+///
+/// Commands are matched by `execution_offset_seconds`, which
+/// `validate_execution_offsets` guarantees is unique within a
+/// schedule. A command whose time moved therefore reports as a removal
+/// plus an addition — accurate, and it beats guessing which of two
+/// same-shaped commands an operator "meant" to move.
+fn diff_commands(
+    before: &[ScheduleCommandDto],
+    after: &[CreateCommandRequest],
+) -> Vec<CommandChange> {
+    use std::collections::BTreeMap;
+
+    let before_by_offset: BTreeMap<i32, CommandSnapshot> = before
+        .iter()
+        .map(|c| (c.execution_offset_seconds, snapshot_of_stored(c)))
+        .collect();
+    let after_by_offset: BTreeMap<i32, CommandSnapshot> = after
+        .iter()
+        .map(|c| (c.execution_offset_seconds, snapshot_of_request(c)))
+        .collect();
+
+    let mut changes = Vec::new();
+    for (offset, old) in &before_by_offset {
+        match after_by_offset.get(offset) {
+            None => changes.push(CommandChange {
+                kind: CommandChangeKind::Removed,
+                command: old.clone(),
+                previous: None,
+            }),
+            Some(new) if new != old => changes.push(CommandChange {
+                kind: CommandChangeKind::Modified,
+                command: new.clone(),
+                previous: Some(old.clone()),
+            }),
+            Some(_) => {}
+        }
+    }
+    for (offset, new) in &after_by_offset {
+        if !before_by_offset.contains_key(offset) {
+            changes.push(CommandChange {
+                kind: CommandChangeKind::Added,
+                command: new.clone(),
+                previous: None,
+            });
+        }
+    }
+
+    changes.sort_by_key(|c| c.command.execution_offset_seconds);
+    changes
+}
+
+// ============================================================================
 // Validation helpers
 // ============================================================================
 
@@ -676,4 +831,108 @@ fn validate_command(cmd: &CreateCommandRequest) -> Result<(), diesel::result::Er
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored(offset: i32, kind: CommandType, duration: Option<i32>) -> ScheduleCommandDto {
+        ScheduleCommandDto {
+            id: offset, // ids are irrelevant to the diff; keep them distinct
+            execution_offset_seconds: offset,
+            command_type: kind,
+            duration_seconds: duration,
+            target_soc_percent: None,
+        }
+    }
+
+    fn requested(offset: i32, kind: CommandType, duration: Option<i32>) -> CreateCommandRequest {
+        CreateCommandRequest {
+            execution_offset_seconds: offset,
+            command_type: kind,
+            duration_seconds: duration,
+            target_soc_percent: None,
+        }
+    }
+
+    #[test]
+    fn diff_reports_nothing_when_commands_are_unchanged() {
+        let before = vec![stored(3600, CommandType::Charge, Some(7200))];
+        let after = vec![requested(3600, CommandType::Charge, Some(7200))];
+        assert!(diff_commands(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn diff_reports_an_added_command() {
+        let before = vec![];
+        let after = vec![requested(3600, CommandType::Discharge, Some(7200))];
+
+        let changes = diff_commands(&before, &after);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, CommandChangeKind::Added);
+        assert_eq!(changes[0].command.execution_offset_seconds, 3600);
+        assert!(changes[0].previous.is_none());
+    }
+
+    #[test]
+    fn diff_reports_a_removed_command_with_the_values_it_had() {
+        let before = vec![stored(75600, CommandType::Charge, Some(3600))];
+        let after = vec![];
+
+        let changes = diff_commands(&before, &after);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, CommandChangeKind::Removed);
+        // `command` carries the pre-removal values, so the UI can say
+        // *which* command went, not just that one did.
+        assert_eq!(changes[0].command.command_type, CommandType::Charge);
+        assert_eq!(changes[0].command.duration_seconds, Some(3600));
+    }
+
+    #[test]
+    fn diff_reports_a_shortened_command_with_both_sides() {
+        let before = vec![stored(57600, CommandType::Discharge, Some(14400))];
+        let after = vec![requested(57600, CommandType::Discharge, Some(7200))];
+
+        let changes = diff_commands(&before, &after);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, CommandChangeKind::Modified);
+        assert_eq!(changes[0].command.duration_seconds, Some(7200));
+        assert_eq!(
+            changes[0].previous.as_ref().and_then(|p| p.duration_seconds),
+            Some(14400),
+            "the previous duration is what makes 'shortened from 4 h' sayable"
+        );
+    }
+
+    #[test]
+    fn diff_reports_a_retimed_command_as_a_removal_and_an_addition() {
+        // Commands are matched on their time of day, so moving one
+        // reads as dropping it and adding another. Documented rather
+        // than desirable — it beats guessing which command moved.
+        let before = vec![stored(57600, CommandType::Discharge, Some(7200))];
+        let after = vec![requested(61200, CommandType::Discharge, Some(7200))];
+
+        let changes = diff_commands(&before, &after);
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].kind, CommandChangeKind::Removed);
+        assert_eq!(changes[0].command.execution_offset_seconds, 57600);
+        assert_eq!(changes[1].kind, CommandChangeKind::Added);
+        assert_eq!(changes[1].command.execution_offset_seconds, 61200);
+    }
+
+    #[test]
+    fn diff_orders_changes_by_time_of_day() {
+        let before = vec![stored(75600, CommandType::Charge, None)];
+        let after = vec![
+            requested(3600, CommandType::Discharge, None),
+            requested(43200, CommandType::Charge, None),
+        ];
+
+        let offsets: Vec<i32> = diff_commands(&before, &after)
+            .iter()
+            .map(|c| c.command.execution_offset_seconds)
+            .collect();
+        assert_eq!(offsets, vec![3600, 43200, 75600]);
+    }
 }

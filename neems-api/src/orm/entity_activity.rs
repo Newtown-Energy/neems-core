@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 
-use crate::models::{EntityActivity, NewEntityActivity};
+use crate::models::{ChangeDetails, EntityActivity, NewEntityActivity};
 
 /// Log an activity for an entity
 pub fn log_activity(
@@ -20,6 +20,7 @@ pub fn log_activity(
         timestamp: None, // Use database default (CURRENT_TIMESTAMP)
         user_id: user_id_val,
         change_reason: None,
+        change_details: None,
     };
 
     diesel::insert_into(entity_activity).values(&new_activity).execute(conn)?;
@@ -96,6 +97,12 @@ pub fn get_activities_by_operation(
 /// table, entity, and operation type, and updates its user_id if it's currently
 /// NULL. We only look at entries created within the last 2 seconds to ensure
 /// we're updating the entry that was just created by the database trigger.
+///
+/// `id` breaks ties on `timestamp`: the trigger stamps rows with
+/// SQLite's `CURRENT_TIMESTAMP`, which resolves to the second, so two
+/// rows from the same save are routinely indistinguishable by time
+/// alone. All three backfill helpers order the same way, so they always
+/// land on the same row as each other.
 pub fn update_latest_activity_user(
     conn: &mut SqliteConnection,
     table_name_val: &str,
@@ -118,7 +125,7 @@ pub fn update_latest_activity_user(
         .filter(operation_type.eq(operation_type_val))
         .filter(timestamp.gt(recent_cutoff))
         .filter(user_id.is_null()) // Only get entries where user_id is not already set
-        .order(timestamp.desc())
+        .order((timestamp.desc(), id.desc()))
         .limit(1)
         .first::<EntityActivity>(conn)
         .optional()?;
@@ -163,7 +170,7 @@ pub fn update_latest_activity_reason(
         .filter(operation_type.eq(operation_type_val))
         .filter(timestamp.gt(recent_cutoff))
         .filter(change_reason.is_null())
-        .order(timestamp.desc())
+        .order((timestamp.desc(), id.desc()))
         .limit(1)
         .first::<EntityActivity>(conn)
         .optional()?;
@@ -171,6 +178,57 @@ pub fn update_latest_activity_reason(
     if let Some(activity) = activity_to_update {
         diesel::update(entity_activity.filter(id.eq(activity.id)))
             .set(change_reason.eq(reason_str.to_string()))
+            .execute(conn)?;
+    }
+
+    Ok(())
+}
+
+/// Backfill the structured `change_details` on the most-recent
+/// activity row for the given (table, entity, op). Same shape and same
+/// reasoning as [`update_latest_activity_reason`] — the diff is
+/// computed where the before and after are both in hand, then attached
+/// to the row the trigger already wrote.
+///
+/// Pass `None`, or details with nothing in them, to skip: a row that
+/// records no change is worse than no row at all, because the UI would
+/// render an empty "what changed" line as if the change were empty.
+pub fn update_latest_activity_details(
+    conn: &mut SqliteConnection,
+    table_name_val: &str,
+    entity_id_val: i32,
+    operation_type_val: &str,
+    details: Option<&ChangeDetails>,
+) -> Result<(), diesel::result::Error> {
+    use chrono::{Duration, Utc};
+
+    use crate::schema::entity_activity::dsl::*;
+
+    let Some(details) = details.filter(|d| !d.is_empty()) else {
+        return Ok(());
+    };
+    let encoded = serde_json::to_string(details).map_err(|e| {
+        diesel::result::Error::SerializationError(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            e,
+        )))
+    })?;
+
+    let recent_cutoff = Utc::now().naive_utc() - Duration::seconds(2);
+    let activity_to_update = entity_activity
+        .filter(table_name.eq(table_name_val))
+        .filter(entity_id.eq(entity_id_val))
+        .filter(operation_type.eq(operation_type_val))
+        .filter(timestamp.gt(recent_cutoff))
+        .filter(change_details.is_null())
+        .order((timestamp.desc(), id.desc()))
+        .limit(1)
+        .first::<EntityActivity>(conn)
+        .optional()?;
+
+    if let Some(activity) = activity_to_update {
+        diesel::update(entity_activity.filter(id.eq(activity.id)))
+            .set(change_details.eq(encoded))
             .execute(conn)?;
     }
 

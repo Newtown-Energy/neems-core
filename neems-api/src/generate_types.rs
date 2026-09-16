@@ -224,6 +224,11 @@ mod tests {
             .expect("Failed to export entity_activity::ErrorResponse type");
         EntityActivity::export().expect("Failed to export EntityActivity type");
         ActivityLogEntry::export().expect("Failed to export ActivityLogEntry type");
+        ChangeDetails::export().expect("Failed to export ChangeDetails type");
+        FieldChange::export().expect("Failed to export FieldChange type");
+        CommandChange::export().expect("Failed to export CommandChange type");
+        CommandChangeKind::export().expect("Failed to export CommandChangeKind type");
+        CommandSnapshot::export().expect("Failed to export CommandSnapshot type");
         RecentScheduleActivityEntry::export()
             .expect("Failed to export RecentScheduleActivityEntry type");
         RecentScheduleActivityResponse::export()
