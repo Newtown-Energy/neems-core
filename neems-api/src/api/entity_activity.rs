@@ -11,9 +11,17 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
+    models::ChangeDetails,
     orm::{DbConn, entity_activity::get_activity_history, user::get_user},
     session_guards::AuthenticatedUser,
 };
+
+/// Decode the stored `change_details` JSON, dropping anything that no
+/// longer parses. A row whose payload predates a shape change is worth
+/// less than the rest of the row, never worth a 500.
+fn decode_change_details(raw: Option<&str>) -> Option<ChangeDetails> {
+    raw.and_then(|json| serde_json::from_str::<ChangeDetails>(json).ok())
+}
 
 #[derive(Serialize, TS)]
 #[ts(export)]
@@ -39,6 +47,10 @@ pub struct EntityActivityWithUser {
     /// after the trigger writes the activity row; NULL for
     /// non-update operations or callers that didn't provide one.
     pub change_reason: Option<String>,
+    /// Structured description of *what* changed (#136), decoded from
+    /// the row's JSON payload. `None` on rows written before this
+    /// existed, so every consumer must still render without it.
+    pub change_details: Option<ChangeDetails>,
 }
 
 /// Query parameters for [get_entity_activity].
@@ -95,6 +107,7 @@ pub async fn get_entity_activity(
                 user_id: row.user_id,
                 user_email: email,
                 change_reason: row.change_reason,
+                change_details: decode_change_details(row.change_details.as_deref()),
             });
         }
         Ok(Json(out))
@@ -117,6 +130,7 @@ pub struct RecentScheduleActivityEntry {
     pub user_id: Option<i32>,
     pub user_email: Option<String>,
     pub change_reason: Option<String>,
+    pub change_details: Option<ChangeDetails>,
     /// Library item this activity belongs to. For
     /// `schedule_templates` rows this is the item itself; for
     /// `application_rules` rows it's the rule's parent template.
@@ -240,6 +254,7 @@ pub async fn get_site_recent_schedule_activity(
                 user_id: row.user_id,
                 user_email,
                 change_reason: row.change_reason,
+                change_details: decode_change_details(row.change_details.as_deref()),
                 library_item_id,
                 library_item_name,
             });
