@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde_json::{Value as JsonValue, json};
 
 pub mod data_sources {
@@ -196,9 +196,11 @@ pub mod data_sources {
             return ("discharging", level);
         }
 
-        // Charging: Sat-Thurs, 12 AM to 8 AM (00:00 - 07:59)
-        // Note: This includes Saturday, Sunday, Monday, Tuesday, Wednesday, Thursday
-        if weekday != Weekday::Fri && hour < 8 {
+        // Charging: Tue-Sat, 12 AM to 8 AM (00:00 - 07:59) — the morning after
+        // each discharge day, so the level picks up where the discharge left
+        // off.
+        let discharged_yesterday = (2..=6).contains(&weekday.number_from_monday());
+        if discharged_yesterday && hour < 8 {
             // Linear charge from 12% to 85% over 8 hours (480 minutes)
             let charge_duration = 8 * 60; // 8 hours in minutes
             let progress = total_minutes as f64 / charge_duration as f64;
@@ -206,13 +208,14 @@ pub mod data_sources {
             return ("charging", level);
         }
 
-        // Hold: All other times
-        // During hold after charging (non-Friday early morning to 4 PM): 85%
-        // During hold after discharging (Friday 8 PM to Saturday midnight): 12%
-        let level = if weekday == Weekday::Fri && hour >= 20 {
-            12.0 // Hold at low level after discharge
+        // Hold: All other times, at whatever level the last ramp ended on, so
+        // the level never jumps.
+        // After discharging (Mon-Fri 8 PM to midnight): 12%
+        // After charging, and across the weekend: 85%
+        let level = if weekday.number_from_monday() <= 5 && hour >= 20 {
+            12.0
         } else {
-            85.0 // Hold at high level after charge
+            85.0
         };
 
         ("hold", level)

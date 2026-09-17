@@ -51,7 +51,7 @@ fn test_charging_state() {
         "discharging"
     );
 
-    // Test cases for the "charging" state: Sat-Thurs, 12 AM - 8 AM
+    // Test cases for the "charging" state: Tue-Sat, 12 AM - 8 AM
     let saturday_morning = NaiveDate::from_ymd_opt(2025, 8, 9) // A Saturday
         .unwrap()
         .and_hms_opt(0, 0, 0)
@@ -70,6 +70,12 @@ fn test_charging_state() {
         "charging"
     );
 
+    let friday_morning = friday_evening.with_hour(4).unwrap();
+    assert_eq!(
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&friday_morning), "test").0,
+        "charging" // Recharges after Thursday's discharge
+    );
+
     // Test cases for the "hold" state (outside of other windows)
     let monday_morning = monday_afternoon.with_hour(9).unwrap();
     assert_eq!(
@@ -83,11 +89,28 @@ fn test_charging_state() {
         "hold"
     );
 
-    let friday_morning = friday_evening.with_hour(4).unwrap();
+    let monday_early = monday_afternoon.with_hour(4).unwrap();
     assert_eq!(
-        data_sources::charging_state_with_level(Utc.from_utc_datetime(&friday_morning), "test").0,
-        "hold" // Friday is not in the "charging" day set
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&monday_early), "test").0,
+        "hold" // Nothing discharged on Sunday, so there is nothing to recharge
     );
+}
+
+#[test]
+fn test_charging_level_never_jumps() {
+    // Walk a full week minute by minute: the level should only ramp, never
+    // snap between the 12% and 85% plateaus.
+    let start = NaiveDate::from_ymd_opt(2025, 8, 4).unwrap().and_hms_opt(0, 0, 0).unwrap();
+    let level_at = |minutes: i64| {
+        let t = start + chrono::Duration::minutes(minutes);
+        data_sources::charging_state_with_level(Utc.from_utc_datetime(&t), "test").1
+    };
+    let mut prev = level_at(-1);
+    for m in 0..=7 * 24 * 60 {
+        let level = level_at(m);
+        assert!((level - prev).abs() < 1.0, "level jumped {prev} -> {level} at minute {m}");
+        prev = level;
+    }
 }
 
 #[tokio::test]
