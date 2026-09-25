@@ -369,7 +369,7 @@ impl SimState {
 #[cfg(test)]
 mod tests {
     use neems_data::rtac::{
-        alarm_definitions::ESTOP_ALARM_NUM,
+        design::newtown::alarm_definitions::ESTOP_ALARM_NUM,
         protocol::{MEGAPACK_ZONES, mp_analog_offset},
     };
 

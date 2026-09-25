@@ -7,9 +7,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    alarm_definitions::{
-        ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone, ESTOP_ALARM_NUM,
-    },
+    alarm_definitions::{ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone, alarm_definitions},
+    design,
     protocol::{CommandType, MegapackAnalogs, OperatingMode},
 };
 
@@ -56,7 +55,7 @@ impl AlarmFlags {
 
     /// Check whether a specific alarm number is active
     pub fn is_alarm_num_active(&self, alarm_num: u16) -> bool {
-        ALARM_DEFINITIONS
+        alarm_definitions()
             .iter()
             .find(|d| d.alarm_num == alarm_num)
             .is_some_and(|d| self.is_alarm_active(d))
@@ -64,7 +63,7 @@ impl AlarmFlags {
 
     /// Set an alarm by alarm number (for testing)
     pub fn set_alarm_num(&mut self, alarm_num: u16, active: bool) {
-        if let Some(def) = ALARM_DEFINITIONS.iter().find(|d| d.alarm_num == alarm_num) {
+        if let Some(def) = alarm_definitions().iter().find(|d| d.alarm_num == alarm_num) {
             if active {
                 self.registers[def.register_index] |= 1 << def.bit;
             } else {
@@ -73,9 +72,10 @@ impl AlarmFlags {
         }
     }
 
-    /// Returns true if the emergency stop alarm (104) is active
+    /// Returns true if the active design's E-stop alarm (104 for Newtown) is
+    /// active
     pub fn is_estop_active(&self) -> bool {
-        self.is_alarm_num_active(ESTOP_ALARM_NUM)
+        self.is_alarm_num_active(design::active().estop_alarm_num)
     }
 
     /// Returns true if any alarm is active
@@ -85,7 +85,7 @@ impl AlarmFlags {
 
     /// Returns true if any alarm at level 1 or 2 is active (emergency or high)
     pub fn has_critical_alarm(&self) -> bool {
-        ALARM_DEFINITIONS
+        alarm_definitions()
             .iter()
             .filter(|d| d.level <= 2)
             .any(|d| self.is_alarm_active(d))
@@ -93,7 +93,7 @@ impl AlarmFlags {
 
     /// Returns true if any level-1 alarm (emergency / fire) is active
     pub fn has_emergency_alarm(&self) -> bool {
-        ALARM_DEFINITIONS
+        alarm_definitions()
             .iter()
             .filter(|d| d.level == 1)
             .any(|d| self.is_alarm_active(d))
@@ -101,12 +101,12 @@ impl AlarmFlags {
 
     /// Returns a list of active alarm definitions
     pub fn active_alarms(&self) -> Vec<&'static AlarmDefinition> {
-        ALARM_DEFINITIONS.iter().filter(|d| self.is_alarm_active(d)).collect()
+        alarm_definitions().iter().filter(|d| self.is_alarm_active(d)).collect()
     }
 
     /// Returns active alarm definitions filtered by zone
     pub fn active_alarms_in_zone(&self, zone: AlarmZone) -> Vec<&'static AlarmDefinition> {
-        ALARM_DEFINITIONS
+        alarm_definitions()
             .iter()
             .filter(|d| d.zone == zone && self.is_alarm_active(d))
             .collect()
@@ -345,7 +345,7 @@ impl PendingCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rtac::alarm_definitions::{ESTOP_ALARM_NUM, FIRE_ALARM_NUM};
+    use crate::rtac::design::newtown::alarm_definitions::{ESTOP_ALARM_NUM, FIRE_ALARM_NUM};
 
     #[test]
     fn test_alarm_flags_default_empty() {

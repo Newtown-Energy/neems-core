@@ -378,7 +378,10 @@ impl AlarmHandler for DatabaseAlarmStateHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rtac::alarm_definitions::{ESTOP_ALARM_NUM, FIRE_ALARM_NUM, find_by_alarm_num};
+    use crate::rtac::{
+        alarm_definitions::find_by_alarm_num,
+        design::newtown::alarm_definitions::{ESTOP_ALARM_NUM, FIRE_ALARM_NUM},
+    };
 
     #[test]
     fn test_alarm_severity_from_level() {

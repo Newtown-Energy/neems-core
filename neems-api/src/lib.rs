@@ -4,6 +4,7 @@ extern crate rocket;
 use diesel_migrations::{EmbeddedMigrations, embed_migrations};
 use rocket::{
     Build, Rocket,
+    fairing::AdHoc,
     figment::{
         Figment,
         providers::{Env, Format, Toml},
@@ -87,7 +88,23 @@ fn default_catcher(status: rocket::http::Status, req: &Request) -> Json<Value> {
 
 pub fn mount_api_routes(rocket: Rocket<Build>) -> Rocket<Build> {
     let demo_mode = api::demo::DemoMode::resolve(rocket.figment());
-    rocket.manage(demo_mode).mount("/api", api::routes())
+    rocket
+        .manage(demo_mode)
+        .attach(AdHoc::try_on_ignite("Site design", |rocket| async {
+            // Fix the design before anything reads a table, so a mistyped
+            // NEEMS_SITE_DESIGN fails the launch rather than the first request.
+            match neems_data::rtac::design::select_from_env() {
+                Ok(design) => {
+                    info!("Site design: {}", design.id);
+                    Ok(rocket)
+                }
+                Err(e) => {
+                    error!("{e}");
+                    Err(rocket)
+                }
+            }
+        }))
+        .mount("/api", api::routes())
 }
 
 fn log_rocket_info(rocket: &Rocket<Build>) {
