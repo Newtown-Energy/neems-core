@@ -142,30 +142,30 @@ impl ScheduleProvider for InMemoryScheduleProvider {
     }
 }
 
-/// An operator's E-stop request as the control logic sees it.
+/// An operator's emergency shutdown request as the control logic sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EstopRequestHandle {
+pub struct EmergencyShutdownRequestHandle {
     /// Identifier of the request, used to report dispatch back.
     pub id: i64,
     /// True while the request has not yet been written to the RTAC.
     pub awaiting_dispatch: bool,
 }
 
-/// Source of operator-requested emergency stops.
+/// Source of operator emergency shutdown requests.
 ///
 /// Implemented over the neems-api polling client in
-/// [`estop_http`](super::estop_http); the in-memory implementation in this
-/// module's tests stands in for it.
-pub trait EstopRequestSource: Send + Sync {
+/// [`emergency_shutdown_http`](super::emergency_shutdown_http); the in-memory
+/// implementation in this module's tests stands in for it.
+pub trait EmergencyShutdownRequestSource: Send + Sync {
     /// The site's unresolved request, if any. `None` once the request has been
     /// signalled to the RTAC or has failed to reach it.
-    fn unresolved(&self) -> Option<EstopRequestHandle>;
+    fn unresolved(&self) -> Option<EmergencyShutdownRequestHandle>;
 
-    /// Record that the E-stop signal reached the RTAC.
+    /// Record that the emergency shutdown signal reached the RTAC.
     ///
     /// Called once the Modbus write has actually succeeded, not when the
     /// request was handed to the worker — "we sent it" is the one claim this
-    /// system makes about an E-stop, so it must be true.
+    /// system makes about an emergency shutdown, so it must be true.
     fn mark_dispatched(&self, request_id: i64);
 }
 
@@ -177,10 +177,11 @@ pub struct ControlLogicTask<S: ScheduleProvider> {
     command_tx: watch::Sender<Option<PendingCommand>>,
     last_command_id: Option<i64>,
     last_reactive_command: Option<CommandType>,
-    /// Set together with `estop_tx`: a source with nowhere to send is useless.
-    estop_source: Option<Arc<dyn EstopRequestSource>>,
-    estop_tx: Option<mpsc::UnboundedSender<i64>>,
-    last_estop_request: Option<i64>,
+    /// Set together with `emergency_shutdown_tx`: a source with nowhere to send
+    /// is useless.
+    emergency_shutdown_source: Option<Arc<dyn EmergencyShutdownRequestSource>>,
+    emergency_shutdown_tx: Option<mpsc::UnboundedSender<i64>>,
+    last_emergency_shutdown_request: Option<i64>,
 }
 
 impl<S: ScheduleProvider> ControlLogicTask<S> {
@@ -198,24 +199,24 @@ impl<S: ScheduleProvider> ControlLogicTask<S> {
             command_tx,
             last_command_id: None,
             last_reactive_command: None,
-            estop_source: None,
-            estop_tx: None,
-            last_estop_request: None,
+            emergency_shutdown_source: None,
+            emergency_shutdown_tx: None,
+            last_emergency_shutdown_request: None,
         }
     }
 
-    /// Attach the source of operator-requested emergency stops, and the channel
-    /// on which the worker is asked to signal them.
+    /// Attach the source of operator emergency shutdown requests, and the
+    /// channel on which the worker is asked to signal them.
     ///
     /// Without these the task behaves exactly as before: schedules and reactive
     /// safety overrides only.
-    pub fn with_estop_source(
+    pub fn with_emergency_shutdown_source(
         mut self,
-        source: Arc<dyn EstopRequestSource>,
-        estop_tx: mpsc::UnboundedSender<i64>,
+        source: Arc<dyn EmergencyShutdownRequestSource>,
+        emergency_shutdown_tx: mpsc::UnboundedSender<i64>,
     ) -> Self {
-        self.estop_source = Some(source);
-        self.estop_tx = Some(estop_tx);
+        self.emergency_shutdown_source = Some(source);
+        self.emergency_shutdown_tx = Some(emergency_shutdown_tx);
         self
     }
 
@@ -239,15 +240,15 @@ impl<S: ScheduleProvider> ControlLogicTask<S> {
         let now = Utc::now();
         let current_state = self.state.read().await.clone();
 
-        // Hand any operator E-stop to the worker first, and *before* the
+        // Hand any operator emergency shutdown to the worker first, and *before* the
         // availability guard below: that guard goes false the moment a trip
         // lands, so a request checked after it could never be signalled.
         //
         // This does not short-circuit the rest of evaluation. Requesting an
-        // E-stop asks the RTAC to trip; it does not ask this system to stop
-        // running. Schedules and reactive control carry on, and what the RTAC
-        // makes of the signal is its own business.
-        self.dispatch_estop_request();
+        // emergency shutdown asks the RTAC to shut the site down; it does not ask this
+        // system to stop running. Schedules and reactive control carry on, and
+        // what the RTAC makes of the signal is its own business.
+        self.dispatch_emergency_shutdown_request();
 
         // Check if system is available for commands
         if !current_state.is_available_for_commands() {
@@ -320,43 +321,49 @@ impl<S: ScheduleProvider> ControlLogicTask<S> {
         Ok(())
     }
 
-    /// Hand an outstanding operator E-stop to the worker to be signalled.
+    /// Hand an outstanding operator emergency shutdown to the worker to be
+    /// signalled.
     ///
-    /// The system's responsibility for an E-stop begins and ends with getting
-    /// the signal to the RTAC. It is therefore handed to the worker — which
-    /// retries until a write lands and only then reports it sent — rather than
-    /// placed in the schedule command channel, where the next scheduled command
-    /// would overwrite it.
+    /// The system's responsibility for an emergency shutdown begins and ends
+    /// with getting the signal to the RTAC. It is therefore handed to the
+    /// worker — which retries until a write lands and only then reports it
+    /// sent — rather than placed in the schedule command channel, where the
+    /// next scheduled command would overwrite it.
     ///
     /// Nothing else about control changes while a request is in flight. An
-    /// E-stop is a request *of the RTAC*; whether the plant then stops, and
-    /// what this system may command afterwards, follows from what the RTAC
-    /// reports (alarm 104), not from the fact that someone asked.
+    /// emergency shutdown is a request *of the RTAC*; whether the plant then
+    /// stops, and what this system may command afterwards, follows from
+    /// what the RTAC reports, not from the fact that someone asked.
     ///
-    /// Handing the same request over twice is avoided by `last_estop_request`
-    /// and by the source clearing `awaiting_dispatch` once the write lands.
-    fn dispatch_estop_request(&mut self) {
-        let (Some(source), Some(estop_tx)) = (self.estop_source.clone(), self.estop_tx.clone())
+    /// Handing the same request over twice is avoided by
+    /// `last_emergency_shutdown_request` and by the source clearing
+    /// `awaiting_dispatch` once the write lands.
+    fn dispatch_emergency_shutdown_request(&mut self) {
+        let (Some(source), Some(emergency_shutdown_tx)) =
+            (self.emergency_shutdown_source.clone(), self.emergency_shutdown_tx.clone())
         else {
             return;
         };
         let Some(request) = source.unresolved() else {
             // Nothing outstanding; forget the last id so a later request with a
             // recycled id would still be signalled.
-            self.last_estop_request = None;
+            self.last_emergency_shutdown_request = None;
             return;
         };
 
-        if request.awaiting_dispatch && self.last_estop_request != Some(request.id) {
-            warn!(request_id = request.id, "Operator E-stop requested, signalling RTAC");
-            if estop_tx.send(request.id).is_err() {
+        if request.awaiting_dispatch && self.last_emergency_shutdown_request != Some(request.id) {
+            warn!(
+                request_id = request.id,
+                "Operator emergency shutdown requested, signalling RTAC"
+            );
+            if emergency_shutdown_tx.send(request.id).is_err() {
                 error!(
                     request_id = request.id,
-                    "Worker is gone; operator E-stop cannot be signalled"
+                    "Worker is gone; operator emergency shutdown cannot be signalled"
                 );
                 return;
             }
-            self.last_estop_request = Some(request.id);
+            self.last_emergency_shutdown_request = Some(request.id);
         }
     }
 
@@ -714,16 +721,17 @@ mod tests {
         assert!(cmd.is_none());
     }
 
-    /// In-memory [`EstopRequestSource`] standing in for the neems-api poller.
-    struct TestEstopSource {
-        handle: std::sync::Mutex<Option<EstopRequestHandle>>,
+    /// In-memory [`EmergencyShutdownRequestSource`] standing in for the
+    /// neems-api poller.
+    struct TestEmergencyShutdownSource {
+        handle: std::sync::Mutex<Option<EmergencyShutdownRequestHandle>>,
         dispatched: std::sync::Mutex<Vec<i64>>,
     }
 
-    impl TestEstopSource {
+    impl TestEmergencyShutdownSource {
         fn with_pending(id: i64) -> Self {
             Self {
-                handle: std::sync::Mutex::new(Some(EstopRequestHandle {
+                handle: std::sync::Mutex::new(Some(EmergencyShutdownRequestHandle {
                     id,
                     awaiting_dispatch: true,
                 })),
@@ -747,12 +755,13 @@ mod tests {
         }
 
         fn request(&self, id: i64) {
-            *self.handle.lock().unwrap() = Some(EstopRequestHandle { id, awaiting_dispatch: true });
+            *self.handle.lock().unwrap() =
+                Some(EmergencyShutdownRequestHandle { id, awaiting_dispatch: true });
         }
     }
 
-    impl EstopRequestSource for TestEstopSource {
-        fn unresolved(&self) -> Option<EstopRequestHandle> {
+    impl EmergencyShutdownRequestSource for TestEmergencyShutdownSource {
+        fn unresolved(&self) -> Option<EmergencyShutdownRequestHandle> {
             *self.handle.lock().unwrap()
         }
 
@@ -782,14 +791,17 @@ mod tests {
         provider
     }
 
-    /// Attach an E-stop source and return the receiving end of the channel the
-    /// worker would be listening on.
-    fn with_test_estop<S: ScheduleProvider>(
+    /// Attach an emergency shutdown source and return the receiving end of the
+    /// channel the worker would be listening on.
+    fn with_test_emergency_shutdown<S: ScheduleProvider>(
         task: ControlLogicTask<S>,
-        source: Arc<TestEstopSource>,
+        source: Arc<TestEmergencyShutdownSource>,
     ) -> (ControlLogicTask<S>, mpsc::UnboundedReceiver<i64>) {
-        let (estop_tx, estop_rx) = mpsc::unbounded_channel();
-        (task.with_estop_source(source, estop_tx), estop_rx)
+        let (emergency_shutdown_tx, emergency_shutdown_rx) = mpsc::unbounded_channel();
+        (
+            task.with_emergency_shutdown_source(source, emergency_shutdown_tx),
+            emergency_shutdown_rx,
+        )
     }
 
     fn signalled(rx: &mut mpsc::UnboundedReceiver<i64>) -> Vec<i64> {
@@ -801,51 +813,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_estop_request_is_handed_to_the_worker() {
+    async fn test_emergency_shutdown_request_is_handed_to_the_worker() {
         let (task, _command_rx, _state) =
             create_test_task(ControlConfig::default(), scheduled_charge_provider());
-        let source = Arc::new(TestEstopSource::with_pending(42));
-        let (mut task, mut estop_rx) = with_test_estop(task, source.clone());
+        let source = Arc::new(TestEmergencyShutdownSource::with_pending(42));
+        let (mut task, mut emergency_shutdown_rx) =
+            with_test_emergency_shutdown(task, source.clone());
 
         task.evaluate().await.unwrap();
 
-        assert_eq!(signalled(&mut estop_rx), vec![42], "the worker should be asked to signal it");
+        assert_eq!(
+            signalled(&mut emergency_shutdown_rx),
+            vec![42],
+            "the worker should be asked to signal it"
+        );
         assert!(
             source.dispatched_ids().is_empty(),
             "dispatch is reported by the worker once the write lands, not by the control loop"
         );
     }
 
-    /// Requesting an E-stop asks the RTAC to trip. It does not ask this system
-    /// to stand down: schedules keep running, and what the RTAC makes of the
-    /// signal is its own business.
+    /// Requesting an emergency shutdown asks the RTAC to shut the site down. It
+    /// does not ask this system to stand down: schedules keep running, and
+    /// what the RTAC makes of the signal is its own business.
     #[tokio::test]
-    async fn test_estop_request_does_not_suspend_the_schedule() {
+    async fn test_emergency_shutdown_request_does_not_suspend_the_schedule() {
         let (task, command_rx, _state) =
             create_test_task(ControlConfig::default(), scheduled_charge_provider());
-        let source = Arc::new(TestEstopSource::with_pending(42));
-        let (mut task, mut estop_rx) = with_test_estop(task, source.clone());
+        let source = Arc::new(TestEmergencyShutdownSource::with_pending(42));
+        let (mut task, mut emergency_shutdown_rx) =
+            with_test_emergency_shutdown(task, source.clone());
 
         task.evaluate().await.unwrap();
 
-        assert_eq!(signalled(&mut estop_rx), vec![42]);
+        assert_eq!(signalled(&mut emergency_shutdown_rx), vec![42]);
         assert_eq!(task.last_command_id, Some(1), "the schedule keeps running");
         assert_eq!(
             command_rx.borrow().clone().unwrap().command_type,
             CommandType::Charge,
-            "the E-stop travels its own path and must not displace the schedule command"
+            "the emergency shutdown travels its own path and must not displace the schedule command"
         );
     }
 
     #[tokio::test]
-    async fn test_estop_signalled_even_when_unavailable_for_commands() {
+    async fn test_emergency_shutdown_signalled_even_when_unavailable_for_commands() {
         // The availability guard goes false as soon as a critical alarm or a
-        // prior E-stop lands. A request evaluated behind that guard would never
-        // be signalled, so this is the case that matters most.
+        // prior emergency shutdown lands. A request evaluated behind that guard would
+        // never be signalled, so this is the case that matters most.
         let (task, _command_rx, state) =
             create_test_task(ControlConfig::default(), scheduled_charge_provider());
-        let source = Arc::new(TestEstopSource::with_pending(7));
-        let (mut task, mut estop_rx) = with_test_estop(task, source.clone());
+        let source = Arc::new(TestEmergencyShutdownSource::with_pending(7));
+        let (mut task, mut emergency_shutdown_rx) =
+            with_test_emergency_shutdown(task, source.clone());
 
         {
             let mut s = state.write().await;
@@ -855,22 +874,27 @@ mod tests {
 
         task.evaluate().await.unwrap();
 
-        assert_eq!(signalled(&mut estop_rx), vec![7], "E-stop must be signalled anyway");
+        assert_eq!(
+            signalled(&mut emergency_shutdown_rx),
+            vec![7],
+            "Emergency shutdown must be signalled anyway"
+        );
     }
 
     #[tokio::test]
-    async fn test_estop_not_handed_over_twice() {
+    async fn test_emergency_shutdown_not_handed_over_twice() {
         let (task, _command_rx, _state) =
             create_test_task(ControlConfig::default(), scheduled_charge_provider());
-        let source = Arc::new(TestEstopSource::with_pending(5));
-        let (mut task, mut estop_rx) = with_test_estop(task, source.clone());
+        let source = Arc::new(TestEmergencyShutdownSource::with_pending(5));
+        let (mut task, mut emergency_shutdown_rx) =
+            with_test_emergency_shutdown(task, source.clone());
 
         task.evaluate().await.unwrap();
         task.evaluate().await.unwrap();
         task.evaluate().await.unwrap();
 
         assert_eq!(
-            signalled(&mut estop_rx),
+            signalled(&mut emergency_shutdown_rx),
             vec![5],
             "the worker retries on its own; re-queueing would stack duplicate writes"
         );
@@ -883,8 +907,9 @@ mod tests {
     async fn test_a_new_request_is_signalled_after_the_previous_one_resolves() {
         let (task, _command_rx, _state) =
             create_test_task(ControlConfig::default(), scheduled_charge_provider());
-        let source = Arc::new(TestEstopSource::with_pending(9));
-        let (mut task, mut estop_rx) = with_test_estop(task, source.clone());
+        let source = Arc::new(TestEmergencyShutdownSource::with_pending(9));
+        let (mut task, mut emergency_shutdown_rx) =
+            with_test_emergency_shutdown(task, source.clone());
 
         task.evaluate().await.unwrap();
         source.resolve();
@@ -892,18 +917,19 @@ mod tests {
         source.request(10);
         task.evaluate().await.unwrap();
 
-        assert_eq!(signalled(&mut estop_rx), vec![9, 10]);
+        assert_eq!(signalled(&mut emergency_shutdown_rx), vec![9, 10]);
     }
 
     #[tokio::test]
-    async fn test_no_estop_request_leaves_schedule_alone() {
+    async fn test_no_emergency_shutdown_request_leaves_schedule_alone() {
         let (task, command_rx, _state) =
             create_test_task(ControlConfig::default(), scheduled_charge_provider());
-        let (mut task, mut estop_rx) = with_test_estop(task, Arc::new(TestEstopSource::empty()));
+        let (mut task, mut emergency_shutdown_rx) =
+            with_test_emergency_shutdown(task, Arc::new(TestEmergencyShutdownSource::empty()));
 
         task.evaluate().await.unwrap();
 
-        assert!(signalled(&mut estop_rx).is_empty());
+        assert!(signalled(&mut emergency_shutdown_rx).is_empty());
         assert_eq!(task.last_command_id, Some(1));
         assert_eq!(command_rx.borrow().clone().unwrap().command_type, CommandType::Charge);
     }

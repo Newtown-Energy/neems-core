@@ -217,9 +217,9 @@ impl ModbusClient {
     /// Read one Megapack's analog block.
     ///
     /// Deliberately a single pack rather than a sweep of all six. The caller
-    /// runs on a 10Hz tick that also carries E-stop signalling, and six
-    /// serialized round trips there would put seconds of avoidable latency in
-    /// front of an operator asking for a trip.
+    /// runs on a 10Hz tick that also carries emergency shutdown signalling, and
+    /// six serialized round trips there would put seconds of avoidable
+    /// latency in front of an operator asking for a trip.
     ///
     /// `Err` means the link is gone and the caller must reconnect. The other
     /// outcomes are per-pack and leave the connection usable.

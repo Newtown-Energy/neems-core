@@ -13,7 +13,7 @@ pub mod alarms;
 pub mod analog_points;
 pub mod analog_sim;
 pub mod control;
-pub mod estop_http;
+pub mod emergency_shutdown_http;
 pub mod modbus_client;
 pub mod protocol;
 pub mod runner;
@@ -26,7 +26,9 @@ pub mod worker;
 pub use alarm_definitions::{ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone};
 pub use alarm_sld_meta::{AlarmSldMeta, sld_meta_for};
 pub use alarms::{Alarm, AlarmHandlerTask, AlarmSeverity};
-pub use control::{ControlLogicTask, EstopRequestHandle, EstopRequestSource};
+pub use control::{
+    ControlLogicTask, EmergencyShutdownRequestHandle, EmergencyShutdownRequestSource,
+};
 pub use modbus_client::ModbusClient;
 pub use protocol::{CommandType, OperatingMode, RegisterMap};
 pub use runner::run_rtac_collector;

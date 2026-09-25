@@ -12,7 +12,7 @@ This is the master documentation index for all API endpoints in the neems-api sy
 - **[Site Management](api-sites.md)** - Physical location management
 - **[Device Management](api-devices.md)** - Device registration and management
 - **[Data Access](api-data.md)** - Sensor readings and data sources
-- **[Site Inputs](site-inputs.md)** - Operator control requests (E-stop, switches, breakers) and their lifecycle
+- **[Site Inputs](site-inputs.md)** - Operator control requests (emergency shutdown, switches, breakers) and their lifecycle
 - **[Utilities](api-utilities.md)** - Health checks and location services
 - **[Testing Endpoints](api-testing.md)** - Test-staging feature endpoints
 

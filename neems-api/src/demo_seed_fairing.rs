@@ -3,8 +3,9 @@
 //! A demo deployment starts with an empty database: `admin_init_fairing`
 //! creates the company and admin user, and nothing else exists. Alarms work
 //! regardless — definitions are compiled in and `alarm_state` is keyed on
-//! `alarm_num` alone — but everything addressed *per site* (the SLD, E-stop,
-//! SoC history, schedules) has nothing to point at until a site row exists.
+//! `alarm_num` alone — but everything addressed *per site* (the SLD, emergency
+//! shutdown, SoC history, schedules) has nothing to point at until a site row
+//! exists.
 //!
 //! So when demo mode is on, ensure there is one. Deliberately minimal: one
 //! site, created only when the deployment has none, so this can never

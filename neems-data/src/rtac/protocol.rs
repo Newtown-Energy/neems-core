@@ -97,8 +97,8 @@ pub enum CommandType {
     Discharge,
     /// Start trickle charging
     TrickleCharge,
-    /// Emergency stop
-    EmergencyStop,
+    /// Ask the site to shut down in an emergency
+    EmergencyShutdown,
     /// Clear faults and reset
     ClearFaults,
 }
@@ -111,7 +111,7 @@ impl CommandType {
             Self::Charge => 1,
             Self::Discharge => 2,
             Self::TrickleCharge => 3,
-            Self::EmergencyStop => 4,
+            Self::EmergencyShutdown => 4,
             Self::ClearFaults => 5,
         }
     }
@@ -126,7 +126,7 @@ impl CommandType {
             1 => Some(Self::Charge),
             2 => Some(Self::Discharge),
             3 => Some(Self::TrickleCharge),
-            4 => Some(Self::EmergencyStop),
+            4 => Some(Self::EmergencyShutdown),
             5 => Some(Self::ClearFaults),
             _ => None,
         }
@@ -140,7 +140,7 @@ impl fmt::Display for CommandType {
             Self::Charge => write!(f, "charge"),
             Self::Discharge => write!(f, "discharge"),
             Self::TrickleCharge => write!(f, "trickle_charge"),
-            Self::EmergencyStop => write!(f, "emergency_stop"),
+            Self::EmergencyShutdown => write!(f, "emergency_shutdown"),
             Self::ClearFaults => write!(f, "clear_faults"),
         }
     }
@@ -951,7 +951,7 @@ mod tests {
             CommandType::Charge,
             CommandType::Discharge,
             CommandType::TrickleCharge,
-            CommandType::EmergencyStop,
+            CommandType::EmergencyShutdown,
             CommandType::ClearFaults,
         ] {
             assert_eq!(CommandType::from_register(cmd.to_register()), Some(cmd));

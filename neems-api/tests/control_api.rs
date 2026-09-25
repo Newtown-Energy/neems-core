@@ -109,17 +109,23 @@ async fn the_control_list_describes_every_interactable_element() {
     assert_eq!(feeder["latest_request"], json!(null), "nothing has been asked for yet");
 }
 
-/// The E-stop is not in this list. It is site-level, engage-only, and keeps its
-/// own endpoints; a UI that found it here would offer it twice.
+/// The emergency shutdown is not in this list. It is site-level, engage-only,
+/// and keeps its own endpoints; a UI that found it here would offer it twice.
 #[tokio::test]
-async fn the_estop_is_not_a_control() {
+async fn emergency_shutdown_is_not_a_control() {
     let client = Client::tracked(fast_test_rocket()).await.unwrap();
     let session = login_as(&client, "newtown_superadmin@example.com", "newtownpass").await;
 
     let controls = list_controls(&client, &session).await;
     assert!(
-        !controls.as_array().unwrap().iter().any(|c| c["id"] == json!("estop")),
-        "the E-stop belongs to /EmergencyStop, not /Controls"
+        !controls.as_array().unwrap().iter().any(|c| [
+            "estop",
+            "emergency-shutdown",
+            "emergency_shutdown"
+        ]
+        .iter()
+        .any(|id| c["id"] == json!(id))),
+        "the emergency shutdown belongs to /EmergencyShutdown, not /Controls"
     );
 }
 

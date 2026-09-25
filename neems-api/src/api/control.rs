@@ -44,7 +44,7 @@ use super::{
     alarm::parse_alarm_registers,
     application_rule::ErrorResponse,
     demo::{DemoMode, apply_control_readback},
-    estop::can_access_site,
+    emergency_shutdown::can_access_site,
 };
 use crate::{
     models::{ControlRequest, ControlRequestDto, ControlRequestStatus},
@@ -62,11 +62,11 @@ use crate::{
 /// How long a pending request waits to reach the RTAC before it is declared
 /// failed.
 ///
-/// Matches the E-stop's timeout for the same reason: the collector polls at
-/// 1 Hz and retries on every 10 Hz tick, so a minute without progress means the
-/// signal is not going to arrive at all. This is the backstop for a collector
-/// that is not running; a collector that *is* running reports its own failures
-/// immediately, with a better reason.
+/// Matches the emergency shutdown timeout for the same reason: the collector
+/// polls at 1 Hz and retries on every 10 Hz tick, so a minute without progress
+/// means the signal is not going to arrive at all. This is the backstop for a
+/// collector that is not running; a collector that *is* running reports its own
+/// failures immediately, with a better reason.
 const DISPATCH_TIMEOUT_SECONDS: i64 = 60;
 
 /// Why a request cannot be sent while the client's `Outputs` sheet is empty.
@@ -232,11 +232,12 @@ fn observe_readbacks(
 /// have long since landed.
 ///
 /// Not scoped to a site, because the site database is not: it holds one site's
-/// alarms, and `/Alarms/Active`, the E-stop status and the demo's readback
-/// writes all read and write it the same way. A second site would share these
-/// readbacks with the first. Site-scoping alarms is #98, and this endpoint is
-/// part of it: both queries here — the newest reading and `alarm_state` — would
-/// need filtering by site, with `site_id` passed in to do it.
+/// alarms, and `/Alarms/Active`, the emergency shutdown status and the demo's
+/// readback writes all read and write it the same way. A second site would
+/// share these readbacks with the first. Site-scoping alarms is #98, and this
+/// endpoint is part of it: both queries here — the newest reading and
+/// `alarm_state` — would need filtering by site, with `site_id` passed in to do
+/// it.
 async fn read_readbacks(
     site_db: &SiteDbConn,
 ) -> Result<ObservedReadbacks, status::Custom<Json<ErrorResponse>>> {
@@ -280,8 +281,7 @@ fn registered(request: &ControlRequest, observed: &ObservedReadbacks) -> bool {
 ///
 /// True if it is in the target now, or entered it at or after the request, or
 /// left it at or after the request *having entered it before leaving* — it was
-/// already there when asked, and has moved since. The E-stop's `tripped_since`
-/// is the same rule for a point whose target is always "set".
+/// already there when asked, and has moved since.
 ///
 /// Leaving needs an entry behind it because `upsert_alarm_transition` stamps
 /// the first state it sees for a point with no row, so a lone edge can be where

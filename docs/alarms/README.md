@@ -285,9 +285,9 @@ eye during implementation):
   latter is just the reference diagram image). `Outputs` is where the writable
   points are expected to land — the nine controls waiting on it are enumerated
   in [`../site-inputs.md`](../site-inputs.md), so a populated sheet can be
-  checked against what the SLD already offers. (The E-stop is not among them:
-  it goes out through our own command registers and needs nothing from this
-  sheet.)
+  checked against what the SLD already offers. (The emergency shutdown
+  request is not among them: it goes out through our own command registers
+  and needs nothing from this sheet.)
 
 ## How to regenerate
 

@@ -153,10 +153,13 @@ mod tests {
         AcknowledgeAlarmResponse::export().expect("Failed to export AcknowledgeAlarmResponse type");
         AlarmAcknowledgement::export().expect("Failed to export AlarmAcknowledgement type");
 
-        // E-stop API types
-        EstopRequestStatus::export().expect("Failed to export EstopRequestStatus type");
-        EstopRequestDto::export().expect("Failed to export EstopRequestDto type");
-        EstopStatusResponse::export().expect("Failed to export EstopStatusResponse type");
+        // Emergency shutdown API types
+        EmergencyShutdownRequestStatus::export()
+            .expect("Failed to export EmergencyShutdownRequestStatus type");
+        EmergencyShutdownRequestDto::export()
+            .expect("Failed to export EmergencyShutdownRequestDto type");
+        EmergencyShutdownStatusResponse::export()
+            .expect("Failed to export EmergencyShutdownStatusResponse type");
 
         // Site input (control request) API types
         use crate::api::control::{ControlFailureBody, ControlRequestBody, SiteControlDto};

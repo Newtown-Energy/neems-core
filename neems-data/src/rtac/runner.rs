@@ -21,8 +21,8 @@ use tracing::{error, info};
 
 use super::{
     alarms::{AlarmConfig, AlarmHandlerTask, DatabaseAlarmStateHandler, create_alarm_channel},
-    control::{ControlConfig, ControlLogicTask, EstopRequestSource},
-    estop_http::{HttpEstopSource, run_estop_poller},
+    control::{ControlConfig, ControlLogicTask, EmergencyShutdownRequestSource},
+    emergency_shutdown_http::{HttpEmergencyShutdownSource, run_emergency_shutdown_poller},
     schedule_http::{ApiClientConfig, HttpScheduleProvider, run_active_command_poller},
     state::PendingCommand,
     storage::{DatabaseStorageBackend, StorageConfig, StorageWriterTask, create_storage_channel},
@@ -102,8 +102,8 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
     let (channels, handles) = create_worker_channels(command_rx, storage_tx, alarm_tx);
     // The control logic reads the same shared state the worker updates.
     let shared_state = channels.state.clone();
-    let estop_tx = handles.estop_tx;
-    let mut estop_sent_rx = handles.estop_sent_rx;
+    let emergency_shutdown_tx = handles.emergency_shutdown_tx;
+    let mut emergency_shutdown_sent_rx = handles.emergency_shutdown_sent_rx;
     let _shutdown_tx = handles.shutdown_tx;
 
     // Storage task: persist readings to the site database.
@@ -140,32 +140,34 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
     let api_config = ApiClientConfig::from_env(site_id);
     tokio::spawn(run_active_command_poller(api_config, command_cache.clone()));
 
-    // E-stop poller: watch neems-api for operator-requested trips and report
-    // back once the signal has been written to the RTAC.
-    let estop_cache = Arc::new(Mutex::new(None));
+    // Emergency shutdown poller: watch neems-api for operator shutdown requests and
+    // report back once the signal has been written to the RTAC.
+    let emergency_shutdown_cache = Arc::new(Mutex::new(None));
     let (dispatched_tx, dispatched_rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(run_estop_poller(
+    tokio::spawn(run_emergency_shutdown_poller(
         ApiClientConfig::from_env(site_id),
-        estop_cache.clone(),
+        emergency_shutdown_cache.clone(),
         dispatched_rx,
     ));
-    let estop_source = Arc::new(HttpEstopSource::new(estop_cache, dispatched_tx));
+    let emergency_shutdown_source =
+        Arc::new(HttpEmergencyShutdownSource::new(emergency_shutdown_cache, dispatched_tx));
 
-    // Report an E-stop as sent only once the worker's write actually landed.
-    // The control logic hands requests to the worker; the worker retries until
-    // one succeeds, so this is what closes the loop back to neems-api.
+    // Report an emergency shutdown as sent only once the worker's write actually
+    // landed. The control logic hands requests to the worker; the worker
+    // retries until one succeeds, so this is what closes the loop back to
+    // neems-api.
     {
-        let estop_source = estop_source.clone();
+        let emergency_shutdown_source = emergency_shutdown_source.clone();
         tokio::spawn(async move {
-            while let Some(request_id) = estop_sent_rx.recv().await {
-                estop_source.mark_dispatched(request_id);
+            while let Some(request_id) = emergency_shutdown_sent_rx.recv().await {
+                emergency_shutdown_source.mark_dispatched(request_id);
             }
         });
     }
 
     // Control logic: turn the active command into RTAC commands (with reactive
     // SoC/alarm safety overrides) and write them via the command channel.
-    // Operator E-stops travel their own path to the worker.
+    // Operator emergency shutdowns travel their own path to the worker.
     let schedule_provider = HttpScheduleProvider::new(command_cache);
     let mut control_task = ControlLogicTask::new(
         ControlConfig::default(),
@@ -173,7 +175,7 @@ pub async fn run_rtac_collector(database_url: String) -> Result<(), DynError> {
         shared_state,
         command_tx,
     )
-    .with_estop_source(estop_source, estop_tx);
+    .with_emergency_shutdown_source(emergency_shutdown_source, emergency_shutdown_tx);
     tokio::spawn(async move {
         if let Err(e) = control_task.run().await {
             error!(error = %e, "RTAC control logic task stopped");
