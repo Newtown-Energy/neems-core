@@ -246,8 +246,9 @@ impl<S: ScheduleProvider> ControlLogicTask<S> {
         //
         // This does not short-circuit the rest of evaluation. Requesting an
         // emergency shutdown asks the RTAC to shut the site down; it does not ask this
-        // system to stop running. Schedules and reactive control carry on, and
-        // what the RTAC makes of the signal is its own business.
+        // system to stop running. Schedules and reactive control carry on:
+        // the RTAC holds a shutdown until it is reset on site, and ignores
+        // what the schedule writes in the meantime.
         self.dispatch_emergency_shutdown_request();
 
         // Check if system is available for commands
@@ -835,7 +836,7 @@ mod tests {
 
     /// Requesting an emergency shutdown asks the RTAC to shut the site down. It
     /// does not ask this system to stand down: schedules keep running, and
-    /// what the RTAC makes of the signal is its own business.
+    /// the RTAC holds the shutdown against them until it is reset on site.
     #[tokio::test]
     async fn test_emergency_shutdown_request_does_not_suspend_the_schedule() {
         let (task, command_rx, _state) =
