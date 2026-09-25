@@ -492,9 +492,10 @@ impl ModbusWorker {
     /// been asked for.
     ///
     /// This is the whole of the system's responsibility for an operator
-    /// emergency shutdown: get the signal to the RTAC. What the RTAC does
-    /// with it — whether it latches, shuts down, or ignores it — is the RTAC's
-    /// business, and nothing here infers it.
+    /// emergency shutdown: get the signal to the RTAC. The RTAC holds a
+    /// shutdown until the site is reset there, ignoring the scheduled commands
+    /// this worker keeps writing after it; whether the site actually stopped
+    /// is not reported back through the request.
     ///
     /// The signal is therefore retried until a write actually succeeds, and is
     /// only reported as sent once one has. A disconnected RTAC delays the

@@ -50,6 +50,20 @@ pub struct SimState {
     pub grid_frequency_hz: f32,
     /// Active alarm list.
     pub alarms: AlarmFlags,
+    /// An emergency shutdown has been received and not yet reset.
+    ///
+    /// The RTAC holds a shutdown: once commanded, it ignores later
+    /// charge/discharge commands until someone resets it on site
+    /// ([`Self::reset_on_site`]) — nothing written over Modbus releases it. The
+    /// collector keeps writing the schedule to the same register straight
+    /// afterwards, so without this hold the next scheduled write would undo the
+    /// shutdown. Deliberately not alarm 104: a shutdown request is not an
+    /// E-stop.
+    ///
+    /// Taken when the command is *written*, not when a tick reads it: the
+    /// collector's scheduled write lands within the same 100 ms, well inside a
+    /// 1 Hz tick, and a shutdown only visible at tick time would never be seen.
+    pub shutdown_held: bool,
 
     // --- Inputs (command registers, as written over Modbus) ---
     /// Raw command registers (addresses 100-104).
@@ -68,6 +82,7 @@ impl SimState {
             temperature_c: config.idle_temperature_c,
             grid_frequency_hz: config.nominal_frequency_hz,
             alarms: AlarmFlags::default(),
+            shutdown_held: false,
             cmd_regs: [0u16; CMD_COUNT],
             config,
         };
@@ -81,13 +96,15 @@ impl SimState {
     /// nudges the state of charge. On reaching the target SoC (charge/trickle)
     /// or the floor (discharge) the SoC clamps and holds while the commanded
     /// mode is retained. An active emergency-stop alarm halts all movement
-    /// until faults are cleared.
+    /// until faults are cleared; a held emergency shutdown halts it until the
+    /// site is reset on site.
     pub fn tick(&mut self) {
         let command = CommandType::from_register(self.cmd_regs[0]).unwrap_or(CommandType::Standby);
 
         // ClearFaults always takes effect, even during an active estop: clear
         // the alarm list and return to standby. Reset the command register so
-        // we don't re-clear every tick.
+        // we don't re-clear every tick. It does not release a held shutdown;
+        // only a reset on site does.
         if command == CommandType::ClearFaults {
             self.alarms = AlarmFlags::default();
             self.mode = OperatingMode::Standby;
@@ -100,6 +117,15 @@ impl SimState {
         // cleared.
         if self.alarms.is_estop_active() {
             self.mode = OperatingMode::EmergencyStop;
+            self.set_idle_electrical();
+            return;
+        }
+
+        // A shutdown holds until the site is reset, whatever is written after
+        // it.
+        if self.shutdown_held || command == CommandType::EmergencyShutdown {
+            self.shutdown_held = true;
+            self.mode = OperatingMode::Standby;
             self.set_idle_electrical();
             return;
         }
@@ -143,13 +169,9 @@ impl SimState {
                     self.set_idle_electrical();
                 }
             }
-            // Stop moving power, and nothing more. What a real RTAC does with a
-            // remote shutdown request is not known here, and in particular it
-            // is not assumed to raise the E-stop alarm (104): the E-stop is a
-            // physical button, and only the demo stands a request in for it.
+            // Handled above, with the hold.
             CommandType::EmergencyShutdown => {
-                self.mode = OperatingMode::Standby;
-                self.set_idle_electrical();
+                unreachable!("EmergencyShutdown handled before match")
             }
             // Handled above before the estop guard.
             CommandType::ClearFaults => unreachable!("ClearFaults handled before match"),
@@ -279,7 +301,11 @@ impl SimState {
             if (RegisterMap::CMD_START_ADDRESS..RegisterMap::CMD_START_ADDRESS + CMD_COUNT as u16)
                 .contains(&addr)
             {
-                self.cmd_regs[(addr - RegisterMap::CMD_START_ADDRESS) as usize] = value;
+                let index = (addr - RegisterMap::CMD_START_ADDRESS) as usize;
+                self.cmd_regs[index] = value;
+                if index == 0 {
+                    self.latch_command(value);
+                }
             }
         }
     }
@@ -294,6 +320,29 @@ impl SimState {
     /// Set the command register, as if a command had been written over Modbus.
     pub fn set_command(&mut self, command: CommandType) {
         self.cmd_regs[0] = command.to_register();
+        self.latch_command(self.cmd_regs[0]);
+    }
+
+    /// Take the shutdown hold as soon as a shutdown is written, so the next
+    /// scheduled write cannot overwrite it before a tick sees it.
+    fn latch_command(&mut self, value: u16) {
+        if CommandType::from_register(value) == Some(CommandType::EmergencyShutdown) {
+            self.shutdown_held = true;
+        }
+    }
+
+    /// Someone at the site resets it: clear faults and alarms, release a held
+    /// shutdown, and return to standby.
+    ///
+    /// A simulator control only. Neither the collector nor the API can do this
+    /// to a real site — alarm state and a held shutdown are cleared on site —
+    /// so it is not reachable over Modbus.
+    pub fn reset_on_site(&mut self) {
+        self.alarms = AlarmFlags::default();
+        self.shutdown_held = false;
+        self.mode = OperatingMode::Standby;
+        self.cmd_regs = [0u16; CMD_COUNT];
+        self.set_idle_electrical();
     }
 
     /// Set or clear an alarm by its alarm number.
@@ -489,6 +538,49 @@ mod tests {
             !state.alarms.is_estop_active(),
             "a shutdown request is not an E-stop; only the demo raises 104 for it"
         );
+    }
+
+    /// The collector writes the schedule to the same register right after the
+    /// shutdown, inside a single sim tick. The RTAC holds the shutdown anyway.
+    #[test]
+    fn a_shutdown_holds_against_the_next_scheduled_write() {
+        let mut state = SimState::new(fast_config());
+        state.set_soc(50.0);
+        let cmd = RegisterMap::CMD_START_ADDRESS;
+        state.write_registers(cmd, &[CommandType::EmergencyShutdown.to_register()]);
+        state.write_registers(cmd, &[CommandType::Charge.to_register()]);
+        for _ in 0..3 {
+            state.tick();
+        }
+        assert!(state.shutdown_held);
+        assert_eq!(state.power_kw, 0.0, "the charge command is ignored");
+        assert_eq!(state.soc_percent, 50.0);
+        assert_eq!(state.mode, OperatingMode::Standby);
+    }
+
+    /// Nothing written over Modbus releases a held shutdown — not even
+    /// `ClearFaults`. Only a reset on site does.
+    #[test]
+    fn only_a_reset_on_site_releases_the_shutdown() {
+        let mut state = SimState::new(fast_config());
+        state.set_soc(50.0);
+        let cmd = RegisterMap::CMD_START_ADDRESS;
+        state.write_registers(cmd, &[CommandType::EmergencyShutdown.to_register()]);
+        state.tick();
+
+        state.write_registers(cmd, &[CommandType::ClearFaults.to_register()]);
+        state.tick();
+        state.write_registers(cmd, &[CommandType::Charge.to_register()]);
+        state.tick();
+        assert!(state.shutdown_held, "a Modbus write cannot release it");
+        assert_eq!(state.soc_percent, 50.0);
+
+        state.reset_on_site();
+        assert!(!state.shutdown_held);
+        state.write_registers(cmd, &[CommandType::Charge.to_register()]);
+        state.tick();
+        assert_eq!(state.mode, OperatingMode::Charging, "and the schedule resumes");
+        assert!(state.soc_percent > 50.0);
     }
 
     #[test]

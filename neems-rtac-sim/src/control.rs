@@ -6,8 +6,8 @@
 //!
 //! Supported commands:
 //! - `soc <percent>`            — set the state of charge directly
-//! - `charge | discharge | trickle | standby | shutdown | clear` — issue a
-//!   command
+//! - `charge | discharge | trickle | standby | shutdown` — issue a command
+//! - `clear` — reset on site: clear faults and release a held shutdown
 //! - `alarm set <num>` / `alarm clear <num>` — toggle an alarm by number
 //! - `status`                   — print the current state
 //! - `help`                     — print the command list
@@ -53,7 +53,10 @@ pub fn handle_line(state: &SharedState, line: &str) -> Option<ControlOutcome> {
         "trickle" => apply_command(state, CommandType::TrickleCharge),
         "standby" => apply_command(state, CommandType::Standby),
         "shutdown" => apply_command(state, CommandType::EmergencyShutdown),
-        "clear" => apply_command(state, CommandType::ClearFaults),
+        "clear" => {
+            state.lock().unwrap().reset_on_site();
+            "reset on site: faults cleared, shutdown released".to_string()
+        }
         "alarm" => handle_alarm(state, &rest),
         other => format!("unknown command '{}' (try 'help')", other),
     };
@@ -88,7 +91,8 @@ fn help_text() -> String {
         "  soc <percent>          set state of charge",
         "  charge | discharge     issue charge / discharge command",
         "  trickle | standby      issue trickle-charge / standby command",
-        "  shutdown | clear       emergency shutdown / clear faults",
+        "  shutdown               emergency shutdown (held until reset on site)",
+        "  clear                  reset on site: clear faults, release shutdown",
         "  alarm set <num>        set an alarm by number",
         "  alarm clear <num>      clear an alarm by number",
         "  status                 print current state",
