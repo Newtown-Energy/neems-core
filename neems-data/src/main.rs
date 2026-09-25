@@ -186,6 +186,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         )
         .try_init();
 
+    // Fix the site design before anything reads a table: a mistyped
+    // NEEMS_SITE_DESIGN should stop the process here, with a message that says
+    // so, not partway through collecting.
+    let site_design = neems_data::rtac::design::select_from_env()?;
+    tracing::info!(design = site_design.id, "Site design selected");
+
     let database_path =
         env::var("SITE_DATABASE_URL").unwrap_or_else(|_| "site-data.sqlite".to_string());
     // DataAggregator::new prepends `sqlite://`, so strip any leading

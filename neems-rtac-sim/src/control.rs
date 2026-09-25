@@ -105,7 +105,9 @@ fn help_text() -> String {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use neems_data::rtac::{alarm_definitions::ESTOP_ALARM_NUM, protocol::OperatingMode};
+    use neems_data::rtac::{
+        design::newtown::alarm_definitions::ESTOP_ALARM_NUM, protocol::OperatingMode,
+    };
 
     use super::*;
     use crate::{config::SimConfig, state::SimState};
