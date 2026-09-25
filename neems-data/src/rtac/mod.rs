@@ -13,6 +13,7 @@ pub mod alarms;
 pub mod analog_points;
 pub mod analog_sim;
 pub mod control;
+pub mod design;
 pub mod emergency_shutdown_http;
 pub mod modbus_client;
 pub mod protocol;
@@ -32,7 +33,7 @@ pub use control::{
 pub use modbus_client::ModbusClient;
 pub use protocol::{CommandType, OperatingMode, RegisterMap};
 pub use runner::run_rtac_collector;
-pub use site_controls::{SITE_CONTROLS, SiteControl, SiteControlAction, site_control_by_id};
+pub use site_controls::{SiteControl, SiteControlAction, site_control_by_id, site_controls};
 pub use state::{AlarmFlags, ConnectionStatus, PendingCommand, RtacReading, RtacState};
 pub use storage::{DataSampler, StorageWriterTask};
 pub use worker::{ModbusWorker, RtacConfig, ShutdownReason};

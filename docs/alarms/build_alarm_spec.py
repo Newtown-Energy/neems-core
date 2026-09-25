@@ -104,7 +104,7 @@ ZONE_MAP = {
 }
 
 # Digital alarm-register layout. This is a MANUAL MIRROR of the layout the
-# backend already encodes in neems-data/src/rtac/alarm_definitions.rs (and
+# backend already encodes in neems-data/src/rtac/design/newtown/alarm_definitions.rs (and
 # protocol.rs: ALARM_REGISTER_COUNT = 22, alarm block starts at address 8). It
 # is duplicated here only so this one-shot generator can run without a Rust
 # toolchain — it is NOT a separate source of truth. If the Rust layout changes,

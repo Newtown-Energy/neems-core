@@ -1,7 +1,8 @@
 //! Models for operator emergency shutdown requests.
 //!
 //! The E-stop is a physical button at the site, and its *state* is not modeled
-//! here — it is read from the RTAC (alarm 104) and surfaced through
+//! here — it is read from the RTAC (the site design's E-stop alarm; 104 for
+//! Newtown) and surfaced through
 //! [`EmergencyShutdownStatusResponse::observed_active`]. These types model the
 //! operator's *request* for an emergency shutdown and its lifecycle, so a
 //! request can be audited and so the collector has something durable to act
@@ -9,7 +10,7 @@
 //!
 //! The lifecycle tracks what this system owes an operator, which is to get the
 //! signal to the RTAC — nothing more. What the RTAC then does with it is the
-//! RTAC's business, reported separately and continuously as alarm 104.
+//! RTAC's business, and nothing here infers it.
 
 use std::{fmt, str::FromStr};
 
@@ -152,13 +153,13 @@ impl From<EmergencyShutdownRequest> for EmergencyShutdownRequestDto {
 /// The two halves answer different questions and neither is evidence about the
 /// other. `observed_active` is the only field a UI should use to decide whether
 /// the site's E-stop is tripped. `request` says only whether the operator's
-/// signal got out; a delivered request need never raise alarm 104.
+/// signal got out; a delivered request need never raise the E-stop alarm.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct EmergencyShutdownStatusResponse {
     pub site_id: i32,
-    /// Alarm 104 as of the most recent RTAC reading. The authority on whether
-    /// the site is tripped.
+    /// The design's E-stop alarm as of the most recent RTAC reading. The
+    /// authority on whether the site's E-stop is tripped.
     pub observed_active: bool,
     /// Timestamp of the reading `observed_active` was taken from, if any.
     pub observed_at: Option<chrono::NaiveDateTime>,

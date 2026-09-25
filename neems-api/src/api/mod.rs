@@ -22,6 +22,7 @@ pub mod role;
 pub mod schedule_library;
 pub mod secure_test;
 pub mod site;
+pub mod site_design;
 pub mod status;
 pub mod user;
 
@@ -55,6 +56,7 @@ pub fn routes() -> Vec<Route> {
     routes.extend(schedule_library::routes());
     routes.extend(secure_test::routes());
     routes.extend(site::routes());
+    routes.extend(site_design::routes());
     routes.extend(status::routes());
     routes.extend(user::routes());
     routes

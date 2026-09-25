@@ -192,7 +192,7 @@ impl RegisterMap {
     /// MP-1A `real_power_target`, digital 601 is MP-1A
     /// `megapack_loss_of_comms` — because Modbus gives bits and registers
     /// separate address spaces (see
-    /// [`super::analog_points::ANALOG_POINTS`] and
+    /// [`super::analog_points::analog_points`] and
     /// [`super::alarm_definitions::AlarmDefinition::discrete_address`]).
     ///
     /// This constant exists because vendor point lists are as often 1-based as
@@ -741,60 +741,70 @@ mod tests {
         }
     }
 
+    /// A pack's point must be reachable at its own number through the address
+    /// map. This is the join between a design's generated table and the
+    /// arithmetic the client actually uses; without it the two could disagree
+    /// and each would look right alone. Checked for every design.
     #[test]
-    fn the_generated_registry_agrees_with_the_address_map() {
-        use super::super::analog_points::ANALOG_POINTS;
-
-        assert_eq!(ANALOG_POINTS.len(), 182, "spec defines 182 analog points");
-
-        for point in ANALOG_POINTS {
-            match point.offset {
-                // A pack's point must be reachable at its own number through
-                // the address map. This is the join between the generated
-                // table and the arithmetic the client actually uses; without
-                // it the two could disagree and each would look right alone.
-                Some(offset) => {
-                    let pack_index = MEGAPACK_ZONES
-                        .iter()
-                        .position(|z| *z == point.zone)
-                        .unwrap_or_else(|| panic!("{} is not a Megapack zone", point.zone));
-                    assert_eq!(
-                        RegisterMap::mp_analog_address(pack_index, offset),
-                        RegisterMap::point_address(point.point_number),
-                        "{} {} does not sit where the address map puts it",
-                        point.zone,
-                        point.name
-                    );
-                    assert!((offset as usize) < MP_ANALOG_POINT_COUNT);
-                }
-                // The only points outside a pack block are the two transformer
-                // winding temperatures.
-                None => assert!(
-                    point.point_number == site_analog_point::T1_WINDING_TEMPERATURE
-                        || point.point_number == site_analog_point::T2_WINDING_TEMPERATURE,
-                    "unexpected block-less analog point {}",
-                    point.point_number
-                ),
+    fn every_design_s_pack_points_sit_where_the_address_map_puts_them() {
+        for design in crate::rtac::design::DESIGNS {
+            for point in design.analog_points {
+                let Some(offset) = point.offset else {
+                    continue;
+                };
+                let pack_index =
+                    MEGAPACK_ZONES.iter().position(|z| *z == point.zone).unwrap_or_else(|| {
+                        panic!("{}: {} is not a Megapack zone", design.id, point.zone)
+                    });
+                assert_eq!(
+                    RegisterMap::mp_analog_address(pack_index, offset),
+                    RegisterMap::point_address(point.point_number),
+                    "{}: {} {} does not sit where the address map puts it",
+                    design.id,
+                    point.zone,
+                    point.name
+                );
+                assert!((offset as usize) < MP_ANALOG_POINT_COUNT);
             }
         }
     }
 
     #[test]
-    fn the_named_offsets_point_at_the_measurements_they_claim() {
-        use super::super::analog_points::analog_point;
+    fn newtown_s_registry_is_the_spec_s() {
+        use crate::rtac::design::newtown::analog_points::ANALOG_POINTS;
 
-        // mp_analog_offset is hand-written while the registry is generated, so
-        // a spreadsheet reordering would silently repoint these three at
-        // whatever moved into the slot. Checking the names catches that.
-        for (offset, expected) in [
-            (mp_analog_offset::STATE_OF_ENERGY, "state_of_energy"),
-            (mp_analog_offset::AC_VOLTAGE, "ac_voltage"),
-            (mp_analog_offset::MAX_BATTERY_TEMPERATURE, "max_battery_temperature"),
-        ] {
-            let number = RegisterMap::mp_analog_address(0, offset);
-            let point = analog_point(number).expect("MP-1A point exists");
-            assert_eq!(point.name, expected, "offset {} is no longer {}", offset, expected);
-            assert_eq!(point.zone, AlarmZone::Mp1a);
+        assert_eq!(ANALOG_POINTS.len(), 182, "spec defines 182 analog points");
+
+        // The only points outside a pack block are the two transformer winding
+        // temperatures.
+        for point in ANALOG_POINTS.iter().filter(|p| p.offset.is_none()) {
+            assert!(
+                point.point_number == site_analog_point::T1_WINDING_TEMPERATURE
+                    || point.point_number == site_analog_point::T2_WINDING_TEMPERATURE,
+                "unexpected block-less analog point {}",
+                point.point_number
+            );
+        }
+    }
+
+    #[test]
+    fn the_named_offsets_point_at_the_measurements_they_claim() {
+        // mp_analog_offset is hand-written while each design's names are
+        // generated, so a spreadsheet reordering would silently repoint these
+        // three at whatever moved into the slot. Checking the names catches
+        // that, for every design sharing the Megapack block.
+        for design in crate::rtac::design::DESIGNS {
+            for (offset, expected) in [
+                (mp_analog_offset::STATE_OF_ENERGY, "state_of_energy"),
+                (mp_analog_offset::AC_VOLTAGE, "ac_voltage"),
+                (mp_analog_offset::MAX_BATTERY_TEMPERATURE, "max_battery_temperature"),
+            ] {
+                assert_eq!(
+                    design.megapack_analog_names[offset as usize], expected,
+                    "{}: offset {} is no longer {}",
+                    design.id, offset, expected
+                );
+            }
         }
     }
 
@@ -831,12 +841,14 @@ mod tests {
 
     #[test]
     fn the_encoding_table_lines_up_with_the_point_names() {
-        use super::super::analog_points::MEGAPACK_ANALOG_NAMES;
-
         // The table is hand-written and indexed by offset while the names are
         // generated, so a spreadsheet reordering would silently repoint every
-        // unit. Spot-check the ones whose unit is unambiguous from the name.
-        for (offset, name) in MEGAPACK_ANALOG_NAMES.iter().enumerate() {
+        // unit. Spot-check the ones whose unit is unambiguous from the name,
+        // for every design sharing the Megapack block.
+        let names = crate::rtac::design::DESIGNS
+            .iter()
+            .flat_map(|d| d.megapack_analog_names.iter().enumerate());
+        for (offset, name) in names {
             let unit = MP_ANALOG_ENCODING[offset].unit;
             let expected = if name.contains("spare") {
                 None

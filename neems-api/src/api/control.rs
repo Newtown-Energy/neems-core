@@ -14,7 +14,7 @@
 //! and deliberately not about where the equipment is now. See [`registered`].
 //!
 //! Nothing can be written to the RTAC yet. Every control in
-//! [`SITE_CONTROLS`](neems_data::rtac::site_controls::SITE_CONTROLS) has no
+//! [`site_controls`](neems_data::rtac::site_controls::site_controls) has no
 //! write register, because the client's `Outputs` sheet is empty, so a request
 //! is recorded and immediately failed with a reason an operator can read. That
 //! is the honest answer, and it exercises the same path a real dispatch failure
@@ -32,7 +32,7 @@ use neems_data::{
     get_all_alarm_state,
     models::AlarmStateRow,
     rtac::{
-        site_controls::{SITE_CONTROLS, SiteControl, SiteControlAction, site_control_by_id},
+        site_controls::{SiteControl, SiteControlAction, site_control_by_id, site_controls},
         state::AlarmFlags,
     },
 };
@@ -355,7 +355,7 @@ pub async fn list_site_controls(
         }
 
         Ok(Json(
-            SITE_CONTROLS
+            site_controls()
                 .iter()
                 .map(|input| SiteControlDto {
                     id: input.id.to_string(),
