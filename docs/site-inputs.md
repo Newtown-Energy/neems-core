@@ -1,8 +1,8 @@
 # Site Inputs
 
-Every operator interaction that changes something at the site — tripping the
-E-stop, opening a line switch, closing a feeder breaker — is a **request to
-send a signal**, not a state change. The click records an intent; something
+Every operator interaction that changes something at the site — requesting
+an emergency shutdown, opening a line switch, closing a feeder breaker — is a
+**request to send a signal**, not a state change. The click records an intent; something
 else carries it to the RTAC; the site decides what to do with it and reports
 the result on its own schedule, through the read-only points documented in
 [`alarms/README.md`](alarms/README.md).
@@ -72,9 +72,9 @@ the operator:
   refused write) and reports it through the `Failed` endpoint.
 - **On a timeout**, after 60s, as the backstop for a collector that is not
   running at all. Applied on read, so a request nothing ever picked up resolves
-  without needing a browser open. Matches the E-stop's
-  `DISPATCH_TIMEOUT_SECONDS` (`neems-api/src/api/estop.rs:45`) for the same
-  reason.
+  without needing a browser open. Matches the emergency shutdown request's
+  `DISPATCH_TIMEOUT_SECONDS` (`neems-api/src/api/emergency_shutdown.rs:58`)
+  for the same reason.
 
 **`sent` is terminal, deliberately.** The client's clarification also described
 an `acknowledged` state — the RTAC signaling receipt — which is **out of scope
@@ -145,31 +145,39 @@ in without disturbing anything the SLD draws.
 
 ## What exists today
 
-### The E-stop
+### The emergency shutdown request
 
-The E-stop came first and is the working model for everything else, with two
-deliberate differences: it is engage-only (there is no endpoint to clear one; a
-latched E-stop is cleared on site), and it is site-level rather than
-per-element.
+The E-stop is a physical button at the site and cannot be pressed remotely.
+What the SLD offers instead is an **emergency shutdown request**: a request
+for the site to shut down. The site's E-stop state (alarm 104) is drawn
+separately, as a read-only element, and is not the request's outcome — a
+delivered request need never raise 104. Only the demo raises 104 for a
+request (below).
+
+The emergency shutdown request came first (as the "E-stop request") and is the
+working model for everything else, with two deliberate differences: it is
+engage-only (there is no endpoint to clear one; a latched E-stop is cleared on
+site), and it is site-level rather than per-element.
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/1/Sites/<site_id>/EmergencyStop` | POST | Record a request. Coalesces onto one already in flight. |
-| `/api/1/Sites/<site_id>/EmergencyStop` | GET | Observed state + latest request, read together. |
-| `/api/1/Sites/<site_id>/EmergencyStop/Pending` | GET | What the collector should act on. |
-| `/api/1/Sites/<site_id>/EmergencyStop/<request_id>/Dispatch` | POST | The collector reporting its write succeeded. |
+| `/api/1/Sites/<site_id>/EmergencyShutdown` | POST | Record a request. Coalesces onto one already in flight. |
+| `/api/1/Sites/<site_id>/EmergencyShutdown` | GET | Observed state + latest request, read together. |
+| `/api/1/Sites/<site_id>/EmergencyShutdown/Pending` | GET | What the collector should act on. |
+| `/api/1/Sites/<site_id>/EmergencyShutdown/<request_id>/Dispatch` | POST | The collector reporting its write succeeded. |
 
-`EstopRequestStatus` (`neems-api/src/models/estop.rs`) is
+`EmergencyShutdownRequestStatus`
+(`neems-api/src/models/emergency_shutdown.rs`) is
 `Pending -> Dispatched | Failed` — exactly the lifecycle above, with `sent`
-spelled `dispatched`. The E-stop keeps its own name and its own table: it is
+spelled `dispatched`. It keeps its own name and its own table: it is
 engage-only and site-level, and rewriting a working safety path to share a
 vocabulary is not worth the risk. The collector side is
-`neems-data/src/rtac/estop_http.rs`, which polls the pending endpoint and
-reports dispatch back over HTTP because `neems-data` has no connection to the
+`neems-data/src/rtac/emergency_shutdown_http.rs`, which polls the pending
+endpoint and reports dispatch back over HTTP because `neems-data` has no connection to the
 API database.
 
-The command registers the E-stop is written through (`CMD_COMMAND` at 1000,
-`neems-data/src/rtac/protocol.rs:230`) are **our own framing**, not the
+The command registers the emergency shutdown request is written through
+(`CMD_COMMAND` at 1000, `neems-data/src/rtac/protocol.rs:230`) are **our own framing**, not the
 client's. They were moved to 1000–1004 to clear the client's 101–102 / 601–780
 range once point numbers became addresses. Per-element controls should expect to
 use whatever the `Outputs` sheet specifies instead, not to extend this block.
@@ -227,10 +235,12 @@ closed, so the same action drives the two halves of the diagram in opposite
 directions. `SiteControl::readback` carries the point and its `active_means`
 together for that reason.
 
-**The E-stop takes the same route, through its own path.** A demo E-STOP press
-raises alarm 104 and reports the request `dispatched`, so `observed_active` and
-the diagram's lockout follow from the alarm feed as they would against hardware.
-It stays engage-only: there is still no request that clears a trip. On a demo
+**The emergency shutdown request takes the same route, through its own path.**
+A demo Emergency Shutdown press raises alarm 104 and reports the request
+`dispatched`, so the diagram's E-stop indicator and lockout have something to
+show. That is a demo-only stand-in: nothing outside the demo path assumes a
+real site raises 104 for a request. It stays engage-only: there is still no
+request that clears a trip. On a demo
 the "panel on site" is the Demo Controls drawer, which lowers 104 through
 `POST /1/Demo/AlarmState`.
 
@@ -265,7 +275,7 @@ thing entitled to drive the drawn position. "SLD token" is the spreadsheet's
 
 | Control id | SLD component | Label | SLD token | Actions | Position readback | Today |
 |------------|---------------|-------|-----------|---------|-------------------|-------|
-| `estop` | *(site-level)* | E-STOP | `Estop` | trip *(engage only)* | digital 104 `Estop` | Own endpoints |
+| `emergency-shutdown` | *(site-level)* | EMERGENCY SHUTDOWN | — | request *(engage only)* | digital 104 `Estop`, drawn as the E-stop state | Own endpoints |
 | `switch-89l-1` | `switch-89l-1` | 89L-1 | `52-MAIN-1` | open, close | digital 101 `BPS 89L1 Open` | Requestable |
 | `switch-89l-2` | `switch-89l-2` | 89L-2 | `52-MAIN-2` | open, close | digital 102 `BPS 89L2 Open` | Requestable |
 | `feeder-1a` | `feeder-1a` | 52-MP-1A | `MP-1A` | open, close | digital 607 `AC_breaker_closed` | Requestable |
@@ -316,5 +326,6 @@ rendered from read-only points only.
 3. **What happens to a request the site ignores?** A `sent` request whose
    breaker never moves stays that way indefinitely. Whether the UI should
    escalate that to the operator after some interval, and after how long, is a
-   client decision — the E-stop's answer today is to stop watching after 60s and
-   say "sent, not tripped".
+   client decision. The emergency shutdown request does not try: it ends at
+   `dispatched`, because the site's response to it is not something this
+   system can observe.

@@ -115,7 +115,7 @@ impl AnalogPollState {
     /// the link down, and resetting the budget on the way meant the poll could
     /// never accumulate enough failures to give up. Every tick then spent the
     /// full operation timeout on a read that could not succeed, in front of
-    /// the E-stop write.
+    /// the emergency shutdown write.
     fn discard_all(&mut self) {
         self.packs = [const { None }; MEGAPACK_ZONES.len()];
     }
@@ -263,16 +263,18 @@ pub struct WorkerChannels {
     pub alarm_tx: mpsc::UnboundedSender<Alarm>,
     /// Receiver for shutdown signal (any value triggers shutdown)
     pub shutdown_rx: watch::Receiver<bool>,
-    /// Receiver for operator E-stop requests to signal, carrying the request id
+    /// Receiver for operator emergency shutdown requests to signal, carrying
+    /// the request id
     ///
     /// Deliberately separate from `command_rx`: that is a `watch`, which keeps
-    /// only the latest value, so an E-stop placed there could be overwritten by
-    /// the next schedule command before the worker ever wrote it. Sending the
-    /// signal is the one thing this system owes an operator who asks for a
-    /// trip.
-    pub estop_rx: mpsc::UnboundedReceiver<i64>,
-    /// Sender reporting the request ids whose E-stop reached the RTAC
-    pub estop_sent_tx: mpsc::UnboundedSender<i64>,
+    /// only the latest value, so an emergency shutdown placed there could be
+    /// overwritten by the next schedule command before the worker ever
+    /// wrote it. Sending the signal is the one thing this system owes an
+    /// operator who asks for a shutdown.
+    pub emergency_shutdown_rx: mpsc::UnboundedReceiver<i64>,
+    /// Sender reporting the request ids whose emergency shutdown reached the
+    /// RTAC
+    pub emergency_shutdown_sent_tx: mpsc::UnboundedSender<i64>,
 }
 
 /// Statistics for the worker
@@ -303,11 +305,12 @@ pub struct ModbusWorker {
     tick_count: u64,
     sequence: u64,
     last_alarm_flags: AlarmFlags,
-    /// Request id of an E-stop that has been asked for but not yet written.
+    /// Request id of an emergency shutdown that has been asked for but not yet
+    /// written.
     ///
     /// Held until the write succeeds so a failed or disconnected write is
     /// retried on the next tick rather than lost.
-    pending_estop: Option<i64>,
+    pending_emergency_shutdown: Option<i64>,
     /// Per-Megapack analog polling, held here rather than in the shared
     /// [`RtacState`] because nothing outside storage consumes it, and parking
     /// it in state would put values refreshed once per cycle under a timestamp
@@ -335,7 +338,7 @@ impl ModbusWorker {
             tick_count: 0,
             sequence: 0,
             last_alarm_flags: AlarmFlags::default(),
-            pending_estop: None,
+            pending_emergency_shutdown: None,
             analogs: AnalogPollState::new(),
         }
     }
@@ -386,13 +389,13 @@ impl ModbusWorker {
                     // Perform read operation (every tick = 10Hz)
                     let read_success = self.perform_read().await;
 
-                    // Signal any operator E-stop (every tick = 10Hz, and ahead
-                    // of the scheduled write). An operator asking for a trip
+                    // Signal any operator emergency shutdown (every tick = 10Hz, and ahead
+                    // of the scheduled write). An operator asking for a shutdown
                     // should not wait out a write slot.
-                    self.perform_estop_write().await;
+                    self.perform_emergency_shutdown_write().await;
 
                     // One Megapack analog block per tick, deliberately behind
-                    // the E-stop signal and never as a batch: six serialized
+                    // the emergency shutdown signal and never as a batch: six serialized
                     // round trips ahead of it would be seconds of latency on
                     // exactly the request that must not wait.
                     let analog_link_ok = self.poll_next_megapack_analogs().await;
@@ -485,44 +488,47 @@ impl ModbusWorker {
         }
     }
 
-    /// Write an operator's E-stop signal to the RTAC, if one has been asked
-    /// for.
+    /// Write an operator's emergency shutdown signal to the RTAC, if one has
+    /// been asked for.
     ///
-    /// This is the whole of the system's responsibility for an operator E-stop:
-    /// get the signal to the RTAC. What the RTAC does with it — whether it
-    /// latches, trips, or ignores it — is the RTAC's business, and is reported
-    /// separately through alarm 104 in the readings feed.
+    /// This is the whole of the system's responsibility for an operator
+    /// emergency shutdown: get the signal to the RTAC. What the RTAC does
+    /// with it — whether it latches, shuts down, or ignores it — is the RTAC's
+    /// business, and nothing here infers it.
     ///
     /// The signal is therefore retried until a write actually succeeds, and is
     /// only reported as sent once one has. A disconnected RTAC delays the
     /// signal; it must not silently swallow it.
-    async fn perform_estop_write(&mut self) {
+    async fn perform_emergency_shutdown_write(&mut self) {
         // Take the most recent request; an older un-sent one is superseded
         // rather than queued behind, since both ask for the same thing.
-        while let Ok(request_id) = self.channels.estop_rx.try_recv() {
-            if let Some(superseded) = self.pending_estop.replace(request_id) {
+        while let Ok(request_id) = self.channels.emergency_shutdown_rx.try_recv() {
+            if let Some(superseded) = self.pending_emergency_shutdown.replace(request_id) {
                 if superseded != request_id {
-                    debug!(superseded, request_id, "Newer E-stop request supersedes an unsent one");
+                    debug!(
+                        superseded,
+                        request_id, "Newer emergency shutdown request supersedes an unsent one"
+                    );
                 }
             }
         }
 
-        let Some(request_id) = self.pending_estop else {
+        let Some(request_id) = self.pending_emergency_shutdown else {
             return;
         };
 
-        let command = PendingCommand::emergency_stop(request_id);
+        let command = PendingCommand::emergency_shutdown(request_id);
         self.stats.total_writes += 1;
 
         match self.client.write_command(&command).await {
             Ok(()) => {
                 self.stats.successful_writes += 1;
-                warn!(request_id, "Operator E-stop signal written to RTAC");
-                self.pending_estop = None;
-                if self.channels.estop_sent_tx.send(request_id).is_err() {
+                warn!(request_id, "Operator emergency shutdown signal written to RTAC");
+                self.pending_emergency_shutdown = None;
+                if self.channels.emergency_shutdown_sent_tx.send(request_id).is_err() {
                     error!(
                         request_id,
-                        "E-stop was written but nothing is listening to report it as sent"
+                        "Emergency shutdown was written but nothing is listening to report it as sent"
                     );
                 }
             }
@@ -531,7 +537,7 @@ impl ModbusWorker {
                 error!(
                     error = %e,
                     request_id,
-                    "Operator E-stop write failed, retrying on the next tick"
+                    "Operator emergency shutdown write failed, retrying on the next tick"
                 );
             }
         }
@@ -767,10 +773,11 @@ impl ModbusWorker {
 pub struct WorkerHandles {
     /// Send `true` to request graceful shutdown.
     pub shutdown_tx: watch::Sender<bool>,
-    /// Ask the worker to signal an operator E-stop, by request id.
-    pub estop_tx: mpsc::UnboundedSender<i64>,
-    /// Receives request ids once their E-stop has been written to the RTAC.
-    pub estop_sent_rx: mpsc::UnboundedReceiver<i64>,
+    /// Ask the worker to signal an operator emergency shutdown, by request id.
+    pub emergency_shutdown_tx: mpsc::UnboundedSender<i64>,
+    /// Receives request ids once their emergency shutdown has been written to
+    /// the RTAC.
+    pub emergency_shutdown_sent_rx: mpsc::UnboundedReceiver<i64>,
 }
 
 /// Create the channels needed for the worker
@@ -782,18 +789,25 @@ pub fn create_worker_channels(
     alarm_tx: mpsc::UnboundedSender<Alarm>,
 ) -> (WorkerChannels, WorkerHandles) {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (estop_tx, estop_rx) = mpsc::unbounded_channel();
-    let (estop_sent_tx, estop_sent_rx) = mpsc::unbounded_channel();
+    let (emergency_shutdown_tx, emergency_shutdown_rx) = mpsc::unbounded_channel();
+    let (emergency_shutdown_sent_tx, emergency_shutdown_sent_rx) = mpsc::unbounded_channel();
     let channels = WorkerChannels {
         state: Arc::new(RwLock::new(RtacState::default())),
         command_rx,
         storage_tx,
         alarm_tx,
         shutdown_rx,
-        estop_rx,
-        estop_sent_tx,
+        emergency_shutdown_rx,
+        emergency_shutdown_sent_tx,
     };
-    (channels, WorkerHandles { shutdown_tx, estop_tx, estop_sent_rx })
+    (
+        channels,
+        WorkerHandles {
+            shutdown_tx,
+            emergency_shutdown_tx,
+            emergency_shutdown_sent_rx,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -877,7 +891,7 @@ mod tests {
         // A device that black-holes unknown registers never refuses; the read
         // times out and takes the link with it. Each such failure must still
         // spend from the budget, or every reconnected link buys another doomed
-        // read — at the full operation timeout, ahead of the E-stop write.
+        // read — at the full operation timeout, ahead of the emergency shutdown write.
         let mut poll = AnalogPollState::new();
         let now = Instant::now();
 

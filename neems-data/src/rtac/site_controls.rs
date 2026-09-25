@@ -31,8 +31,9 @@ pub enum SiteControlAction {
     Open,
     /// Close the switch or breaker.
     Close,
-    /// Trip — engage-only, used by the E-stop and the lockout relay. There is
-    /// no matching reset: a latched trip is cleared on site.
+    /// Trip — engage-only, used by the emergency shutdown and the lockout
+    /// relay. There is no matching reset: a latched trip is cleared on
+    /// site.
     Trip,
 }
 
@@ -163,11 +164,11 @@ const TRIP_ONLY: &[SiteControlAction] = &[SiteControlAction::Trip];
 
 /// Every interactable element on the Newtown diagram.
 ///
-/// The E-stop is deliberately absent: it is site-level rather than per-element,
-/// engage-only, and already has its own table, endpoints and collector path
-/// (`estop_requests`). Folding a working safety path into this one buys a
-/// shared vocabulary at the cost of rewriting the one control that matters
-/// most.
+/// The emergency shutdown is deliberately absent: it is site-level rather than
+/// per-element, engage-only, and already has its own table, endpoints and
+/// collector path (`emergency_shutdown_requests`). Folding a working safety
+/// path into this one buys a shared vocabulary at the cost of rewriting the one
+/// control that matters most.
 pub const SITE_CONTROLS: &[SiteControl] = &[
     SiteControl {
         id: "switch-89l-1",

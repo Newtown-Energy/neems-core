@@ -319,14 +319,14 @@ impl PendingCommand {
         }
     }
 
-    /// Create an emergency stop command.
+    /// Create an emergency shutdown command.
     ///
-    /// Ramp duration is zero: an emergency stop is not a power transition to be
-    /// eased into. `source_id` carries the id of the operator request that
-    /// asked for it, so a trip can be traced back to who requested it.
-    pub fn emergency_stop(request_id: i64) -> Self {
+    /// Ramp duration is zero: an emergency shutdown is not a power transition
+    /// to be eased into. `source_id` carries the id of the operator request
+    /// that asked for it, so a shutdown can be traced back to who requested it.
+    pub fn emergency_shutdown(request_id: i64) -> Self {
         Self {
-            command_type: CommandType::EmergencyStop,
+            command_type: CommandType::EmergencyShutdown,
             duration_seconds: None,
             target_soc_percent: None,
             ramp_duration_seconds: 0,

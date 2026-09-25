@@ -85,10 +85,11 @@ pub fn forbid_unless_demo_mode(demo: &DemoMode) -> Result<(), Status> {
 
 /// Site the demo alarm endpoints write readings for.
 ///
-/// The alarm read path (`/Alarms/Active`, E-stop, history) already treats the
-/// site database as single-site and never filters by site, so the writes match
-/// that assumption rather than inventing a per-site parameter the readers would
-/// ignore. Revisit when the deployment becomes multi-site.
+/// The alarm read path (`/Alarms/Active`, emergency shutdown status, history)
+/// already treats the site database as single-site and never filters by site,
+/// so the writes match that assumption rather than inventing a per-site
+/// parameter the readers would ignore. Revisit when the deployment becomes
+/// multi-site.
 pub(crate) const DEMO_SITE_ID: i32 = 1;
 
 /// Default days of history to backfill when the request omits it.
@@ -363,14 +364,17 @@ pub(crate) fn apply_control_readback(
     write_site_alarm(conn, readback.alarm_num, readback.bit_for(action.resulting_position()))
 }
 
-/// Carry out an E-stop request the way the site would: raise alarm 104.
+/// Carry out an emergency shutdown request for the demo: raise alarm 104.
 ///
-/// The E-stop's counterpart to [`apply_control_readback`], for the same reason
-/// — a demo has no collector, so a trip request otherwise waits for one and
-/// fails after a minute, telling the audience the site was never asked. Raising
-/// 104 is what a real RTAC does when it trips, so `/EmergencyStop`'s
-/// `observed_active` and the diagram's lockout follow from the alarm feed
-/// exactly as they would against hardware.
+/// Demo-only. A real site may act on the request without raising 104, and
+/// nothing outside the demo path assumes it does.
+///
+/// The emergency shutdown's counterpart to [`apply_control_readback`], for the
+/// same reason — a demo has no collector, so a trip request otherwise waits for
+/// one and fails after a minute, telling the audience the site was never asked.
+/// Raising 104 is what a real RTAC does when it trips, so
+/// `/EmergencyShutdown`'s `observed_active` and the diagram's lockout follow
+/// from the alarm feed exactly as they would against hardware.
 ///
 /// Engage-only, like the real thing. There is still no way to clear a trip
 /// through a request; on a demo, the "panel on site" is `POST
@@ -559,9 +563,9 @@ mod tests {
         assert!(after.contains(&607), "the readback still moved");
     }
 
-    /// A demo E-stop goes through the same site-write path as a control, so it
-    /// inherits the same guarantee: raising 104 must not erase alarms that live
-    /// only in a seeded reading.
+    /// A demo emergency shutdown goes through the same site-write path as a
+    /// control, so it inherits the same guarantee: raising 104 must not
+    /// erase alarms that live only in a seeded reading.
     #[test]
     fn a_demo_trip_raises_104_and_keeps_the_seeded_alarms() {
         let mut conn = site_conn();
@@ -577,7 +581,7 @@ mod tests {
         let state = get_all_alarm_state(&mut conn).expect("state");
         assert!(
             state.iter().any(|r| r.alarm_num == ESTOP_ALARM_NUM as i32 && r.data_active),
-            "and in alarm_state, which `/EmergencyStop` reads"
+            "and in alarm_state, which `/EmergencyShutdown` reads"
         );
     }
 

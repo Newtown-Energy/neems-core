@@ -222,7 +222,7 @@ const response = await fetch('/api/1/data/readings?source_ids=1,2,3&latest=10', 
 - **Method:** `GET`
 - **Purpose:** Returns the most recent per-Megapack analog measurements for a site
 - **Authentication:** Required. Newtown staff may read any site; everyone else
-  only their own company's, matching the E-stop and schedule endpoints.
+  only their own company's, matching the emergency shutdown and schedule endpoints.
 
 Returns the analog values from the most recent `charging_state` reading that
 carries any. This is deliberately not a time series: callers poll it for "what

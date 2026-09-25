@@ -11,8 +11,8 @@ pub mod control;
 pub mod data;
 pub mod demo;
 pub mod device;
+pub mod emergency_shutdown;
 pub mod entity_activity;
-pub mod estop;
 #[cfg(feature = "fixphrase")]
 pub mod fixphrase;
 pub mod login;
@@ -47,7 +47,7 @@ pub fn routes() -> Vec<Route> {
     routes.extend(demo::routes());
     routes.extend(device::routes());
     routes.extend(entity_activity::routes());
-    routes.extend(estop::routes());
+    routes.extend(emergency_shutdown::routes());
     routes.extend(login::routes());
     routes.extend(logout::routes());
     routes.extend(odata::routes());

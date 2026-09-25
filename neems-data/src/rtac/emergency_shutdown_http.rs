@@ -1,17 +1,18 @@
-//! HTTP-backed source of operator-requested emergency stops.
+//! HTTP-backed source of operator emergency shutdown requests.
 //!
-//! Operator E-stop requests are recorded in the neems-api database, which
-//! `neems-data` does not connect to. This module mirrors
+//! Operator emergency shutdown requests are recorded in the neems-api database,
+//! which `neems-data` does not connect to. This module mirrors
 //! [`schedule_http`](super::schedule_http): it polls neems-api's
-//! `GET /api/1/Sites/<id>/EmergencyStop/Pending` endpoint into a shared cache
-//! that the synchronous
-//! [`EstopRequestSource`](super::control::EstopRequestSource) used by
+//! `GET /api/1/Sites/<id>/EmergencyShutdown/Pending` endpoint into a shared
+//! cache that the synchronous
+//! [`EmergencyShutdownRequestSource`](super::control::EmergencyShutdownRequestSource) used by
 //! [`ControlLogicTask`](super::control::ControlLogicTask) can read, and reports
 //! dispatch back with
-//! `POST /api/1/Sites/<id>/EmergencyStop/<request_id>/Dispatch`.
+//! `POST /api/1/Sites/<id>/EmergencyShutdown/<request_id>/Dispatch`.
 //!
 //! Reporting dispatch is what lets neems-api tell "the command never went out"
-//! apart from "the command went out and the RTAC did not trip".
+//! apart from "the command went out", which is all it can say: what the site
+//! then does is not reported through the request.
 
 use std::{
     sync::{Arc, Mutex},
@@ -23,42 +24,46 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use super::{
-    control::{EstopRequestHandle, EstopRequestSource},
+    control::{EmergencyShutdownRequestHandle, EmergencyShutdownRequestSource},
     schedule_http::ApiClientConfig,
 };
 
-/// Shared cache of the site's unresolved E-stop request (or `None`).
-pub type EstopCache = Arc<Mutex<Option<EstopRequestHandle>>>;
+/// Shared cache of the site's unresolved emergency shutdown request (or
+/// `None`).
+pub type EmergencyShutdownCache = Arc<Mutex<Option<EmergencyShutdownRequestHandle>>>;
 
 /// Lock the cache, recovering from poisoning rather than propagating a panic.
 ///
 /// The cached value is a `Copy` `Option` written in a single assignment, so a
 /// panic elsewhere cannot leave it half-built. Refusing the lock would instead
-/// mean a panic in the poller silently swallows every operator E-stop from then
-/// on, and unwrapping would take the control loop down with it.
-fn lock_cache(cache: &EstopCache) -> std::sync::MutexGuard<'_, Option<EstopRequestHandle>> {
+/// mean a panic in the poller silently swallows every operator emergency
+/// shutdown from then on, and unwrapping would take the control loop down with
+/// it.
+fn lock_cache(
+    cache: &EmergencyShutdownCache,
+) -> std::sync::MutexGuard<'_, Option<EmergencyShutdownRequestHandle>> {
     cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// An [`EstopRequestSource`] backed by the polled cache.
+/// An [`EmergencyShutdownRequestSource`] backed by the polled cache.
 ///
 /// `mark_dispatched` hands the id to the async reporter over a channel rather
 /// than blocking the control loop on an HTTP round trip. If the report is lost,
 /// neems-api's pending-dispatch timeout still resolves the request, so a lost
 /// report degrades to a reported failure rather than a request stuck forever.
-pub struct HttpEstopSource {
-    cache: EstopCache,
+pub struct HttpEmergencyShutdownSource {
+    cache: EmergencyShutdownCache,
     dispatched_tx: mpsc::UnboundedSender<i64>,
 }
 
-impl HttpEstopSource {
-    pub fn new(cache: EstopCache, dispatched_tx: mpsc::UnboundedSender<i64>) -> Self {
+impl HttpEmergencyShutdownSource {
+    pub fn new(cache: EmergencyShutdownCache, dispatched_tx: mpsc::UnboundedSender<i64>) -> Self {
         Self { cache, dispatched_tx }
     }
 }
 
-impl EstopRequestSource for HttpEstopSource {
-    fn unresolved(&self) -> Option<EstopRequestHandle> {
+impl EmergencyShutdownRequestSource for HttpEmergencyShutdownSource {
+    fn unresolved(&self) -> Option<EmergencyShutdownRequestHandle> {
         *lock_cache(&self.cache)
     }
 
@@ -74,24 +79,27 @@ impl EstopRequestSource for HttpEstopSource {
             }
         }
         if self.dispatched_tx.send(request_id).is_err() {
-            error!(request_id, "E-stop dispatch reporter is gone; cannot report to neems-api");
+            error!(
+                request_id,
+                "Emergency shutdown dispatch reporter is gone; cannot report to neems-api"
+            );
         }
     }
 }
 
-// --- Wire format mirroring neems-api's EstopRequestDto ---
+// --- Wire format mirroring neems-api's EmergencyShutdownRequestDto ---
 
 #[derive(Debug, Deserialize)]
-struct WireEstopRequest {
+struct WireEmergencyShutdownRequest {
     id: i32,
     /// snake_case: "pending" | "dispatched" | "confirmed" | "failed".
     status: String,
 }
 
-impl WireEstopRequest {
-    fn into_handle(self) -> Option<EstopRequestHandle> {
+impl WireEmergencyShutdownRequest {
+    fn into_handle(self) -> Option<EmergencyShutdownRequestHandle> {
         match self.status.as_str() {
-            "pending" => Some(EstopRequestHandle {
+            "pending" => Some(EmergencyShutdownRequestHandle {
                 id: self.id as i64,
                 awaiting_dispatch: true,
             }),
@@ -102,7 +110,10 @@ impl WireEstopRequest {
             // it cannot interpret.
             other => {
                 if other != "dispatched" && other != "failed" {
-                    warn!(status = other, "Unknown E-stop request status from API, ignoring");
+                    warn!(
+                        status = other,
+                        "Unknown emergency shutdown request status from API, ignoring"
+                    );
                 }
                 None
             }
@@ -110,21 +121,22 @@ impl WireEstopRequest {
     }
 }
 
-/// Fetch the unresolved E-stop request. `Err(true)` signals an authentication
-/// failure (re-login needed).
-async fn fetch_pending_estop(
+/// Fetch the unresolved emergency shutdown request. `Err(true)` signals an
+/// authentication failure (re-login needed).
+async fn fetch_pending_emergency_shutdown(
     client: &reqwest::Client,
     config: &ApiClientConfig,
     session_token: &str,
-) -> Result<Option<EstopRequestHandle>, bool> {
-    let url = format!("{}/api/1/Sites/{}/EmergencyStop/Pending", config.base_url, config.site_id);
+) -> Result<Option<EmergencyShutdownRequestHandle>, bool> {
+    let url =
+        format!("{}/api/1/Sites/{}/EmergencyShutdown/Pending", config.base_url, config.site_id);
     let resp = client
         .get(&url)
         .header(reqwest::header::COOKIE, format!("session={session_token}"))
         .send()
         .await
         .map_err(|e| {
-            warn!(error = %e, "Pending E-stop request failed");
+            warn!(error = %e, "Pending emergency shutdown request failed");
             false
         })?;
 
@@ -134,21 +146,21 @@ async fn fetch_pending_estop(
         return Err(true);
     }
     if !resp.status().is_success() {
-        warn!(status = %resp.status(), "Pending E-stop returned non-success");
+        warn!(status = %resp.status(), "Pending emergency shutdown returned non-success");
         return Err(false);
     }
 
-    let parsed: Option<WireEstopRequest> = match resp.json().await {
+    let parsed: Option<WireEmergencyShutdownRequest> = match resp.json().await {
         Ok(p) => p,
         Err(e) => {
-            warn!(error = %e, "Failed to parse pending E-stop response");
+            warn!(error = %e, "Failed to parse pending emergency shutdown response");
             return Err(false);
         }
     };
-    Ok(parsed.and_then(WireEstopRequest::into_handle))
+    Ok(parsed.and_then(WireEmergencyShutdownRequest::into_handle))
 }
 
-/// Report that the E-stop command has been written to the RTAC.
+/// Report that the emergency shutdown command has been written to the RTAC.
 async fn report_dispatch(
     client: &reqwest::Client,
     config: &ApiClientConfig,
@@ -156,7 +168,7 @@ async fn report_dispatch(
     request_id: i64,
 ) -> Result<(), bool> {
     let url = format!(
-        "{}/api/1/Sites/{}/EmergencyStop/{}/Dispatch",
+        "{}/api/1/Sites/{}/EmergencyShutdown/{}/Dispatch",
         config.base_url, config.site_id, request_id
     );
     let resp = client
@@ -165,7 +177,7 @@ async fn report_dispatch(
         .send()
         .await
         .map_err(|e| {
-            warn!(error = %e, request_id, "E-stop dispatch report failed");
+            warn!(error = %e, request_id, "Emergency shutdown dispatch report failed");
             false
         })?;
 
@@ -175,25 +187,27 @@ async fn report_dispatch(
         return Err(true);
     }
     if !resp.status().is_success() {
-        warn!(status = %resp.status(), request_id, "E-stop dispatch report returned non-success");
+        warn!(status = %resp.status(), request_id, "Emergency shutdown dispatch report returned non-success");
         return Err(false);
     }
-    info!(request_id, "Reported E-stop dispatch to neems-api");
+    info!(request_id, "Reported emergency shutdown dispatch to neems-api");
     Ok(())
 }
 
-/// Poll neems-api for outstanding E-stop requests and report dispatches.
+/// Poll neems-api for outstanding emergency shutdown requests and report
+/// dispatches.
 ///
 /// Runs until the process stops. Polls faster than the schedule poller: an
-/// operator pressing E-stop should not wait on a schedule-length interval.
-pub async fn run_estop_poller(
+/// operator pressing Emergency Shutdown should not wait on a schedule-length
+/// interval.
+pub async fn run_emergency_shutdown_poller(
     config: ApiClientConfig,
-    cache: EstopCache,
+    cache: EmergencyShutdownCache,
     mut dispatched_rx: mpsc::UnboundedReceiver<i64>,
 ) {
     if !config.has_credentials() {
         warn!(
-            "No API credentials (NEEMS_API_EMAIL/PASSWORD); operator E-stop requests will not reach the RTAC"
+            "No API credentials (NEEMS_API_EMAIL/PASSWORD); operator emergency shutdown requests will not reach the RTAC"
         );
         return;
     }
@@ -205,7 +219,7 @@ pub async fn run_estop_poller(
     {
         Ok(c) => c,
         Err(e) => {
-            error!(error = %e, "Failed to build HTTP client for E-stop polling");
+            error!(error = %e, "Failed to build HTTP client for emergency shutdown polling");
             return;
         }
     };
@@ -213,10 +227,10 @@ pub async fn run_estop_poller(
     info!(
         base_url = %config.base_url,
         site_id = config.site_id,
-        "Starting E-stop request poller"
+        "Starting emergency shutdown request poller"
     );
 
-    let mut interval = tokio::time::interval(ESTOP_POLL_INTERVAL);
+    let mut interval = tokio::time::interval(EMERGENCY_SHUTDOWN_POLL_INTERVAL);
     let mut session: Option<String> = None;
 
     loop {
@@ -232,12 +246,12 @@ pub async fn run_estop_poller(
             Some(t) => t.clone(),
             None => match super::schedule_http::login(&client, &config).await {
                 Ok(t) => {
-                    debug!("Authenticated to neems-api for E-stop polling");
+                    debug!("Authenticated to neems-api for emergency shutdown polling");
                     session = Some(t.clone());
                     t
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to authenticate to neems-api for E-stop polling");
+                    warn!(error = %e, "Failed to authenticate to neems-api for emergency shutdown polling");
                     continue;
                 }
             },
@@ -252,15 +266,15 @@ pub async fn run_estop_poller(
             continue;
         }
 
-        match fetch_pending_estop(&client, &config, &token).await {
+        match fetch_pending_emergency_shutdown(&client, &config, &token).await {
             Ok(handle) => {
                 match &handle {
                     Some(h) => debug!(
                         request_id = h.id,
                         awaiting_dispatch = h.awaiting_dispatch,
-                        "Outstanding E-stop request"
+                        "Outstanding emergency shutdown request"
                     ),
-                    None => debug!("No outstanding E-stop request"),
+                    None => debug!("No outstanding emergency shutdown request"),
                 }
                 // Preserve a locally-recorded dispatch: neems-api may not have
                 // processed our report yet, and re-arming `awaiting_dispatch`
@@ -268,7 +282,7 @@ pub async fn run_estop_poller(
                 let mut cached = lock_cache(&cache);
                 *cached = match (handle, *cached) {
                     (Some(fresh), Some(old)) if fresh.id == old.id && !old.awaiting_dispatch => {
-                        Some(EstopRequestHandle { awaiting_dispatch: false, ..fresh })
+                        Some(EmergencyShutdownRequestHandle { awaiting_dispatch: false, ..fresh })
                     }
                     (fresh, _) => fresh,
                 };
@@ -284,8 +298,8 @@ pub async fn run_estop_poller(
     }
 }
 
-/// How often to check for outstanding E-stop requests.
-const ESTOP_POLL_INTERVAL: Duration = Duration::from_secs(1);
+/// How often to check for outstanding emergency shutdown requests.
+const EMERGENCY_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
 mod tests {
@@ -293,7 +307,7 @@ mod tests {
 
     #[test]
     fn pending_status_awaits_dispatch() {
-        let handle = WireEstopRequest { id: 7, status: "pending".to_string() }
+        let handle = WireEmergencyShutdownRequest { id: 7, status: "pending".to_string() }
             .into_handle()
             .expect("pending is outstanding");
         assert_eq!(handle.id, 7);
@@ -301,13 +315,15 @@ mod tests {
     }
 
     /// Once the signal has reached the RTAC there is nothing further owed: what
-    /// the RTAC does with it is reported through alarm 104, not through the
-    /// request.
+    /// the RTAC does with it is its own business, and is not reported through
+    /// the request.
     #[test]
     fn resolved_and_unknown_statuses_are_not_outstanding() {
         for status in ["dispatched", "failed", "something-new"] {
             assert!(
-                WireEstopRequest { id: 7, status: status.to_string() }.into_handle().is_none(),
+                WireEmergencyShutdownRequest { id: 7, status: status.to_string() }
+                    .into_handle()
+                    .is_none(),
                 "{status} should not be outstanding"
             );
         }
@@ -315,16 +331,19 @@ mod tests {
 
     #[test]
     fn mark_dispatched_clears_awaiting_locally() {
-        let cache: EstopCache =
-            Arc::new(Mutex::new(Some(EstopRequestHandle { id: 3, awaiting_dispatch: true })));
+        let cache: EmergencyShutdownCache =
+            Arc::new(Mutex::new(Some(EmergencyShutdownRequestHandle {
+                id: 3,
+                awaiting_dispatch: true,
+            })));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let source = HttpEstopSource::new(cache.clone(), tx);
+        let source = HttpEmergencyShutdownSource::new(cache.clone(), tx);
 
         source.mark_dispatched(3);
 
         assert_eq!(
             source.unresolved(),
-            Some(EstopRequestHandle { id: 3, awaiting_dispatch: false }),
+            Some(EmergencyShutdownRequestHandle { id: 3, awaiting_dispatch: false }),
             "the control loop must not see the request as needing dispatch again"
         );
         assert_eq!(rx.try_recv().ok(), Some(3), "dispatch should be queued for reporting");
@@ -332,10 +351,13 @@ mod tests {
 
     #[test]
     fn mark_dispatched_ignores_a_different_request() {
-        let cache: EstopCache =
-            Arc::new(Mutex::new(Some(EstopRequestHandle { id: 3, awaiting_dispatch: true })));
+        let cache: EmergencyShutdownCache =
+            Arc::new(Mutex::new(Some(EmergencyShutdownRequestHandle {
+                id: 3,
+                awaiting_dispatch: true,
+            })));
         let (tx, _rx) = mpsc::unbounded_channel();
-        let source = HttpEstopSource::new(cache.clone(), tx);
+        let source = HttpEmergencyShutdownSource::new(cache.clone(), tx);
 
         source.mark_dispatched(99);
 

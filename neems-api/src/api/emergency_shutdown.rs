@@ -1,23 +1,24 @@
-//! API endpoints for operator-requested emergency stops.
+//! API endpoints for operator emergency shutdown requests.
 //!
-//! E-stop state is **read from the site**, never written by a client. What a
-//! client can do is *request* a trip, and what this system then owes is to get
-//! that signal to the RTAC — no more. A request is therefore done once the
-//! collector has written it; how the RTAC acts on an E-stop is the RTAC's
-//! business, reported independently and continuously as alarm 104.
+//! The E-stop is a physical button at the site, and nothing here can press
+//! it. What a client can do is *request* an emergency shutdown, and what this
+//! system then owes is to get that signal to the RTAC — no more. A request is
+//! therefore done once the collector has written it; how the site acts on it
+//! is the site's business, and nothing here assumes an answer.
 //!
-//! Those two things are kept apart on purpose. `observed_active` says whether
-//! the site is tripped; the request says whether the operator's ask got out.
-//! Either can be true without the other.
+//! In particular a request is not an E-stop, and alarm 104 is not its outcome.
+//! The status response carries the site's E-stop state (`observed_active`)
+//! alongside the request because operators want both in view, but neither says
+//! anything about the other: a delivered request need never raise 104, and 104
+//! can rise with no request at all.
 //!
-//! Engage-only: there is no endpoint to clear an E-stop. A latched E-stop is
-//! cleared on site, after which alarm 104 drops and the observed state follows
-//! on its own.
+//! Engage-only: there is no endpoint to clear a shutdown.
 //!
 //! A demo deployment has no collector and no RTAC, so there the API stands in
-//! for both: a request raises alarm 104 and is reported dispatched, and the
-//! observed state follows from the alarm exactly as above. Still engage-only —
-//! the demo's "panel on site" is `POST /1/Demo/AlarmState` lowering 104.
+//! for both: a request raises alarm 104 and is reported dispatched. That is the
+//! demo's own stand-in for a site acting on the signal, and lives only in the
+//! demo path. The demo's "panel on site" is `POST /1/Demo/AlarmState` lowering
+//! 104.
 
 use chrono::Utc;
 use neems_data::rtac::{alarm_definitions::ESTOP_ALARM_NUM, state::AlarmFlags};
@@ -29,12 +30,16 @@ use super::{
 };
 use crate::{
     api::alarm::parse_alarm_registers,
-    models::{EstopRequest, EstopRequestDto, EstopRequestStatus, EstopStatusResponse},
+    models::{
+        EmergencyShutdownRequest, EmergencyShutdownRequestDto, EmergencyShutdownRequestStatus,
+        EmergencyShutdownStatusResponse,
+    },
     orm::{
         DbConn,
-        estop::{
-            get_estop_request, get_latest_estop_request, get_unresolved_estop_request,
-            mark_estop_dispatched, request_estop, resolve_estop_request,
+        emergency_shutdown::{
+            get_emergency_shutdown_request, get_latest_emergency_shutdown_request,
+            get_unresolved_emergency_shutdown_request, mark_emergency_shutdown_dispatched,
+            request_emergency_shutdown, resolve_emergency_shutdown_request,
         },
         neems_data::db::SiteDbConn,
         site::get_site_by_id,
@@ -52,8 +57,8 @@ use crate::{
 /// An operator has to be told that, rather than watching a spinner.
 const DISPATCH_TIMEOUT_SECONDS: i64 = 60;
 
-/// Why a demo E-stop request failed, where the only thing that can go wrong is
-/// this system writing to its own database.
+/// Why a demo emergency shutdown request failed, where the only thing that can
+/// go wrong is this system writing to its own database.
 ///
 /// Its own wording rather than a real failure reason, and still unambiguous
 /// that the site is not stopped: this text is rendered beside "escalate", and a
@@ -103,31 +108,6 @@ struct ObservedEstop {
     active: bool,
     observed_at: Option<chrono::NaiveDateTime>,
     age_seconds: Option<i64>,
-    /// Alarm 104's most recent rising edge (a trip), from `alarm_state`.
-    last_trip_at: Option<chrono::NaiveDateTime>,
-    /// Alarm 104's most recent falling edge (a reset), from `alarm_state`.
-    last_reset_at: Option<chrono::NaiveDateTime>,
-}
-
-/// Whether the site has been tripped at any moment since `requested_at`.
-///
-/// True if it is tripped now, or alarm 104 rose at or after the request, or
-/// fell at or after it *having risen before that fall* — the site was already
-/// tripped when the signal arrived, and was reset afterwards.
-///
-/// The rise is required because a falling edge alone proves nothing:
-/// `upsert_alarm_transition` stamps `last_falling_at` on the first `false` it
-/// sees for an alarm with no row yet — a demo clear with no trip behind it, or
-/// a collector's first reading after startup. Counting that as a trip would
-/// hide the one warning this exists to keep: a signal the site never acted on.
-fn tripped_since(requested_at: chrono::NaiveDateTime, observed: &ObservedEstop) -> bool {
-    let reset_after_a_trip = match (observed.last_trip_at, observed.last_reset_at) {
-        (Some(rise), Some(fall)) => rise <= fall && fall >= requested_at,
-        _ => false,
-    };
-    observed.active
-        || observed.last_trip_at.is_some_and(|t| t >= requested_at)
-        || reset_after_a_trip
 }
 
 /// Read alarm 104 from the most recent reading that carries alarm registers.
@@ -151,19 +131,13 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
 
             // The demo path drives alarm 104 through `alarm_state`, the same
             // table the collector writes, so both readers agree about whether
-            // the site is tripped. Its edges say whether it tripped since a
-            // request, which the current state alone cannot.
-            // Propagated, not swallowed: treating a failed read as "no row"
-            // would report `tripped_since_request: false` on no evidence —
-            // the exact false negative the field exists to prevent — where
-            // `/Alarms/Active` answers the same failure with a 500.
-            let estop_row = neems_data::get_all_alarm_state(conn)
+            // the site is tripped. Propagated, not swallowed: treating a failed
+            // read as "no row" would report the E-stop clear on no evidence,
+            // where `/Alarms/Active` answers the same failure with a 500.
+            let state_estop = neems_data::get_all_alarm_state(conn)
                 .map_err(diesel::result::Error::QueryBuilderError)?
                 .into_iter()
-                .find(|r| r.alarm_num == ESTOP_ALARM_NUM as i32);
-            let state_estop = estop_row.as_ref().is_some_and(|r| r.data_active);
-            let (last_trip_at, last_reset_at) =
-                estop_row.map(|r| (r.last_rising_at, r.last_falling_at)).unwrap_or((None, None));
+                .any(|r| r.alarm_num == ESTOP_ALARM_NUM as i32 && r.data_active);
 
             let recent: Vec<neems_data::models::Reading> =
                 readings.order(timestamp.desc()).limit(10).load(conn)?;
@@ -177,8 +151,6 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
                             active: flags.is_estop_active(),
                             observed_at: Some(reading.timestamp),
                             age_seconds: Some((now - reading.timestamp).num_seconds()),
-                            last_trip_at,
-                            last_reset_at,
                         },
                         state_estop,
                     ));
@@ -190,8 +162,6 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
                     active: false,
                     observed_at: None,
                     age_seconds: None,
-                    last_trip_at,
-                    last_reset_at,
                 },
                 state_estop,
             ))
@@ -220,9 +190,9 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
 /// client needing to be watching.
 fn fail_if_undelivered(
     conn: &mut diesel::SqliteConnection,
-    request: crate::models::EstopRequest,
-) -> Result<crate::models::EstopRequest, diesel::result::Error> {
-    if request.status() != EstopRequestStatus::Pending {
+    request: crate::models::EmergencyShutdownRequest,
+) -> Result<crate::models::EmergencyShutdownRequest, diesel::result::Error> {
+    if request.status() != EmergencyShutdownRequestStatus::Pending {
         return Ok(request);
     }
 
@@ -231,65 +201,65 @@ fn fail_if_undelivered(
         return Ok(request);
     }
 
-    Ok(resolve_estop_request(
+    Ok(resolve_emergency_shutdown_request(
         conn,
         request.id,
-        EstopRequestStatus::Failed,
+        EmergencyShutdownRequestStatus::Failed,
         Some(format!(
-            "the E-stop signal did not reach the RTAC within {DISPATCH_TIMEOUT_SECONDS}s"
+            "the emergency shutdown signal did not reach the RTAC within {DISPATCH_TIMEOUT_SECONDS}s"
         )),
     )?
     .unwrap_or(request))
 }
 
-/// Request an emergency stop for a site.
+/// Request an emergency shutdown of a site.
 ///
-/// - **URL:** `/api/1/Sites/<site_id>/EmergencyStop`
+/// - **URL:** `/api/1/Sites/<site_id>/EmergencyShutdown`
 /// - **Method:** `POST`
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
-/// Records the request and returns the site's E-stop status. The response's
-/// `observed_active` reflects alarm 104, not the request.
+/// Records the request and returns the site's emergency shutdown status. The
+/// response's `observed_active` is the site's E-stop state (alarm 104), not the
+/// request's outcome.
 ///
 /// - **Collector path (demo mode off):** the request comes back `pending`, and
-///   `observed_active` stays false until the RTAC reports a trip — which it may
-///   never do. The collector reports the write through `/Dispatch`.
+///   the collector reports the write through `/Dispatch`.
 /// - **Demo mode:** there is no collector or RTAC, so the API carries the
-///   request out itself — raising alarm 104, then marking the request
-///   `dispatched` — and the response already reports `observed_active: true`.
-///   It is still the alarm that says so, read after the trip was written, not
-///   the request standing in for it.
+///   request out itself — raising alarm 104 as the demo's stand-in for the
+///   site, then marking the request `dispatched` — and the response already
+///   reports `observed_active: true`. It is still the alarm that says so, read
+///   after it was written, not the request standing in for it.
 ///
 /// Requesting while a signal is still waiting to go out returns that request
 /// rather than creating a second one.
-#[post("/1/Sites/<site_id>/EmergencyStop")]
-pub async fn request_site_estop(
+#[post("/1/Sites/<site_id>/EmergencyShutdown")]
+pub async fn request_site_emergency_shutdown(
     db: DbConn,
     site_db: SiteDbConn,
     demo: &State<DemoMode>,
     site_id: i32,
     auth_user: AuthenticatedUser,
-) -> Result<Json<EstopStatusResponse>, status::Custom<Json<ErrorResponse>>> {
+) -> Result<Json<EmergencyShutdownStatusResponse>, status::Custom<Json<ErrorResponse>>> {
     let requested = db
         .run(move |conn| {
             if !can_access_site(&auth_user, site_id, conn) {
                 return Err(forbidden());
             }
-            request_estop(conn, site_id, Some(auth_user.user.id))
-                .map_err(|e| internal_error("Error recording E-stop request", e))
+            request_emergency_shutdown(conn, site_id, Some(auth_user.user.id))
+                .map_err(|e| internal_error("Error recording emergency shutdown request", e))
         })
         .await?;
 
     // A demo deployment has no collector and no RTAC, so nothing else is coming
     // for this request. Carry it out here instead of letting it time out.
     let resolved = if demo.enabled() && requested.status().is_unresolved() {
-        demo_dispatch_estop(&db, &site_db, requested).await?
+        demo_dispatch_emergency_shutdown(&db, &site_db, requested).await?
     } else {
         // A coalesced-onto request may already have been waiting too long, in
         // which case say so rather than handing back a stale "pending".
         db.run(move |conn| {
             fail_if_undelivered(conn, requested)
-                .map_err(|e| internal_error("Error resolving E-stop request", e))
+                .map_err(|e| internal_error("Error resolving emergency shutdown request", e))
         })
         .await?
     };
@@ -300,54 +270,55 @@ pub async fn request_site_estop(
         .await
         .map_err(|e| internal_error("Error reading observed E-stop state", e))?;
 
-    Ok(Json(EstopStatusResponse {
+    Ok(Json(EmergencyShutdownStatusResponse {
         site_id,
         observed_active: observed.active,
         observed_at: observed.observed_at,
         observed_age_seconds: observed.age_seconds,
-        tripped_since_request: tripped_since(resolved.requested_at, &observed),
-        request: Some(EstopRequestDto::from(resolved)),
+        request: Some(EmergencyShutdownRequestDto::from(resolved)),
     }))
 }
 
-/// Demo mode's stand-in for the collector's E-stop path.
+/// Demo mode's stand-in for the collector's emergency shutdown path.
 ///
-/// The same two steps, in the same order, as the collector against a real RTAC
-/// and as the control path's `demo_dispatch`: trip the site, then report the
-/// request dispatched. Tripping first keeps the failure path honest — if alarm
-/// 104 cannot be raised, the request fails rather than claiming a trip that
-/// never happened.
+/// Raising alarm 104 is a demo-only choice: it gives the diagram something to
+/// show for the press. Nothing outside this path assumes a real site does the
+/// same. The two steps run in the same order as the control path's
+/// `demo_dispatch`: trip the site, then report the request dispatched. Tripping
+/// first keeps the failure path honest — if alarm 104 cannot be raised, the
+/// request fails rather than claiming a trip that never happened.
 ///
 /// Dispatches the request it is given, which after coalescing is the one
 /// already recorded rather than necessarily the press that prompted this call.
 /// For an engage-only control those are the same ask, but it keeps the contract
 /// identical to the controls'.
-async fn demo_dispatch_estop(
+async fn demo_dispatch_emergency_shutdown(
     db: &DbConn,
     site_db: &SiteDbConn,
-    requested: EstopRequest,
-) -> Result<EstopRequest, status::Custom<Json<ErrorResponse>>> {
+    requested: EmergencyShutdownRequest,
+) -> Result<EmergencyShutdownRequest, status::Custom<Json<ErrorResponse>>> {
     let tripped = site_db.run(apply_estop_trip).await;
 
     let request_id = requested.id;
     let updated = match tripped {
         Ok(()) => {
             db.run(move |conn| {
-                mark_estop_dispatched(conn, request_id)
-                    .map_err(|e| internal_error("Error marking E-stop request dispatched", e))
+                mark_emergency_shutdown_dispatched(conn, request_id).map_err(|e| {
+                    internal_error("Error marking emergency shutdown request dispatched", e)
+                })
             })
             .await?
         }
         Err(e) => {
             eprintln!("Demo E-stop: could not raise alarm {ESTOP_ALARM_NUM}: {e:?}");
             db.run(move |conn| {
-                resolve_estop_request(
+                resolve_emergency_shutdown_request(
                     conn,
                     request_id,
-                    EstopRequestStatus::Failed,
+                    EmergencyShutdownRequestStatus::Failed,
                     Some(DEMO_TRIP_FAILED.to_string()),
                 )
-                .map_err(|e| internal_error("Error failing E-stop request", e))
+                .map_err(|e| internal_error("Error failing emergency shutdown request", e))
             })
             .await?
         }
@@ -356,27 +327,23 @@ async fn demo_dispatch_estop(
     Ok(updated.unwrap_or(requested))
 }
 
-/// Get a site's E-stop status.
+/// Get a site's emergency shutdown status: its E-stop state and latest request.
 ///
-/// - **URL:** `/api/1/Sites/<site_id>/EmergencyStop`
+/// - **URL:** `/api/1/Sites/<site_id>/EmergencyShutdown`
 /// - **Method:** `GET`
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
 /// `observed_active` comes from alarm 104 and is the authority on whether the
-/// site is tripped. `request` describes the latest operator request and says
-/// only whether their signal reached the RTAC. Read them together: a
-/// `dispatched` request with `observed_active: false` means the RTAC was asked
-/// and is not tripped now — and `tripped_since_request` says which way that
-/// came about. False: the site never acted on the signal, worth an operator's
-/// attention though not a failure of this system. True: it tripped and has been
-/// reset since, and there is nothing to escalate.
-#[get("/1/Sites/<site_id>/EmergencyStop")]
-pub async fn get_site_estop(
+/// site's E-stop is tripped. `request` describes the latest operator request
+/// and says only whether their signal reached the RTAC. The two are independent
+/// and neither is evidence about the other.
+#[get("/1/Sites/<site_id>/EmergencyShutdown")]
+pub async fn get_site_emergency_shutdown(
     db: DbConn,
     site_db: SiteDbConn,
     site_id: i32,
     auth_user: AuthenticatedUser,
-) -> Result<Json<EstopStatusResponse>, status::Custom<Json<ErrorResponse>>> {
+) -> Result<Json<EmergencyShutdownStatusResponse>, status::Custom<Json<ErrorResponse>>> {
     let observed = read_observed_estop(&site_db)
         .await
         .map_err(|e| internal_error("Error reading observed E-stop state", e))?;
@@ -386,51 +353,48 @@ pub async fn get_site_estop(
             return Err(forbidden());
         }
 
-        let latest = get_latest_estop_request(conn, site_id)
-            .map_err(|e| internal_error("Error loading E-stop request", e))?;
+        let latest = get_latest_emergency_shutdown_request(conn, site_id)
+            .map_err(|e| internal_error("Error loading emergency shutdown request", e))?;
 
         let request = match latest {
-            Some(row) => Some(EstopRequestDto::from(
+            Some(row) => Some(EmergencyShutdownRequestDto::from(
                 fail_if_undelivered(conn, row)
-                    .map_err(|e| internal_error("Error resolving E-stop request", e))?,
+                    .map_err(|e| internal_error("Error resolving emergency shutdown request", e))?,
             )),
             None => None,
         };
 
-        Ok(Json(EstopStatusResponse {
+        Ok(Json(EmergencyShutdownStatusResponse {
             site_id,
             observed_active: observed.active,
             observed_at: observed.observed_at,
             observed_age_seconds: observed.age_seconds,
-            tripped_since_request: request
-                .as_ref()
-                .is_some_and(|r| tripped_since(r.requested_at, &observed)),
             request,
         }))
     })
     .await
 }
 
-/// Report that the E-stop command has been written to the RTAC.
+/// Report that the emergency shutdown command has been written to the RTAC.
 ///
-/// - **URL:** `/api/1/Sites/<site_id>/EmergencyStop/<request_id>/Dispatch`
+/// - **URL:** `/api/1/Sites/<site_id>/EmergencyShutdown/<request_id>/Dispatch`
 /// - **Method:** `POST`
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
 /// Called by the neems-data collector once its Modbus write of
-/// `CommandType::EmergencyStop` has actually succeeded — not when the command
-/// was queued. This resolves the request: the signal is out, which is what was
-/// asked for.
+/// `CommandType::EmergencyShutdown` has actually succeeded — not when the
+/// command was queued. This resolves the request: the signal is out, which is
+/// what was asked for.
 ///
 /// Idempotent: reporting dispatch for an already-resolved request leaves it
-/// unchanged, so a duplicate report cannot restate when the trip went out.
-#[post("/1/Sites/<site_id>/EmergencyStop/<request_id>/Dispatch")]
-pub async fn dispatch_site_estop(
+/// unchanged, so a duplicate report cannot restate when the signal went out.
+#[post("/1/Sites/<site_id>/EmergencyShutdown/<request_id>/Dispatch")]
+pub async fn dispatch_site_emergency_shutdown(
     db: DbConn,
     site_id: i32,
     request_id: i32,
     auth_user: AuthenticatedUser,
-) -> Result<Json<EstopRequestDto>, status::Custom<Json<ErrorResponse>>> {
+) -> Result<Json<EmergencyShutdownRequestDto>, status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         if !can_access_site(&auth_user, site_id, conn) {
             return Err(forbidden());
@@ -438,37 +402,37 @@ pub async fn dispatch_site_estop(
 
         // Scope the lookup to the site so a request id from elsewhere cannot be
         // advanced through this site's endpoint.
-        if get_estop_request(conn, site_id, request_id)
-            .map_err(|e| internal_error("Error loading E-stop request", e))?
+        if get_emergency_shutdown_request(conn, site_id, request_id)
+            .map_err(|e| internal_error("Error loading emergency shutdown request", e))?
             .is_none()
         {
             return Err(status::Custom(
                 Status::NotFound,
                 Json(ErrorResponse {
-                    error: "E-stop request not found".to_string(),
+                    error: "Emergency shutdown request not found".to_string(),
                 }),
             ));
         }
 
-        let updated = mark_estop_dispatched(conn, request_id)
-            .map_err(|e| internal_error("Error marking E-stop request dispatched", e))?
+        let updated = mark_emergency_shutdown_dispatched(conn, request_id)
+            .map_err(|e| internal_error("Error marking emergency shutdown request dispatched", e))?
             .ok_or_else(|| {
                 status::Custom(
                     Status::NotFound,
                     Json(ErrorResponse {
-                        error: "E-stop request not found".to_string(),
+                        error: "Emergency shutdown request not found".to_string(),
                     }),
                 )
             })?;
 
-        Ok(Json(EstopRequestDto::from(updated)))
+        Ok(Json(EmergencyShutdownRequestDto::from(updated)))
     })
     .await
 }
 
 /// Get the request the collector should act on, if any.
 ///
-/// - **URL:** `/api/1/Sites/<site_id>/EmergencyStop/Pending`
+/// - **URL:** `/api/1/Sites/<site_id>/EmergencyShutdown/Pending`
 /// - **Method:** `GET`
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
@@ -479,36 +443,45 @@ pub async fn dispatch_site_estop(
 /// on the collector's own polling rather than depending on an operator's UI
 /// being open. Nothing in that decision needs the RTAC feed, so this stays a
 /// single read of the API database, off the site database entirely.
-#[get("/1/Sites/<site_id>/EmergencyStop/Pending")]
-pub async fn get_pending_site_estop(
+#[get("/1/Sites/<site_id>/EmergencyShutdown/Pending")]
+pub async fn get_pending_site_emergency_shutdown(
     db: DbConn,
     site_id: i32,
     auth_user: AuthenticatedUser,
-) -> Result<Json<Option<EstopRequestDto>>, status::Custom<Json<ErrorResponse>>> {
+) -> Result<Json<Option<EmergencyShutdownRequestDto>>, status::Custom<Json<ErrorResponse>>> {
     db.run(move |conn| {
         if !can_access_site(&auth_user, site_id, conn) {
             return Err(forbidden());
         }
 
-        let pending = get_unresolved_estop_request(conn, site_id)
-            .map_err(|e| internal_error("Error loading pending E-stop request", e))?;
+        let pending = get_unresolved_emergency_shutdown_request(conn, site_id)
+            .map_err(|e| internal_error("Error loading pending emergency shutdown request", e))?;
 
         let resolved = match pending {
             Some(row) => Some(
                 fail_if_undelivered(conn, row)
-                    .map_err(|e| internal_error("Error resolving E-stop request", e))?,
+                    .map_err(|e| internal_error("Error resolving emergency shutdown request", e))?,
             ),
             None => None,
         };
 
         // A request that just timed out is no longer outstanding work.
-        Ok(Json(resolved.filter(|r| r.status().is_unresolved()).map(EstopRequestDto::from)))
+        Ok(Json(
+            resolved
+                .filter(|r| r.status().is_unresolved())
+                .map(EmergencyShutdownRequestDto::from),
+        ))
     })
     .await
 }
 
 pub fn routes() -> Vec<Route> {
-    routes![request_site_estop, get_site_estop, get_pending_site_estop, dispatch_site_estop]
+    routes![
+        request_site_emergency_shutdown,
+        get_site_emergency_shutdown,
+        get_pending_site_emergency_shutdown,
+        dispatch_site_emergency_shutdown
+    ]
 }
 
 #[cfg(test)]
@@ -517,87 +490,6 @@ mod tests {
 
     use super::*;
     use crate::orm::{company::insert_company, site::insert_site, testing::setup_test_db};
-
-    /// The rule behind `tripped_since_request`, edge by edge. Times are minutes
-    /// relative to the request, so each case reads as a timeline.
-    mod tripped_since_request {
-        use chrono::{Duration, NaiveDateTime, Utc};
-
-        use super::super::{ObservedEstop, tripped_since};
-
-        fn at(requested: NaiveDateTime, minutes: i64) -> Option<NaiveDateTime> {
-            Some(requested + Duration::minutes(minutes))
-        }
-
-        fn observed(
-            active: bool,
-            last_trip_at: Option<NaiveDateTime>,
-            last_reset_at: Option<NaiveDateTime>,
-        ) -> ObservedEstop {
-            ObservedEstop {
-                active,
-                observed_at: None,
-                age_seconds: None,
-                last_trip_at,
-                last_reset_at,
-            }
-        }
-
-        #[test]
-        fn never_tripped_is_false() {
-            let req = Utc::now().naive_utc();
-            assert!(!tripped_since(req, &observed(false, None, None)));
-        }
-
-        #[test]
-        fn tripped_now_is_true() {
-            let req = Utc::now().naive_utc();
-            assert!(tripped_since(req, &observed(true, at(req, 1), None)));
-        }
-
-        /// The case this field exists for: the request tripped the site, and it
-        /// has since been reset. The current state says "not tripped".
-        #[test]
-        fn tripped_after_the_request_and_since_reset_is_true() {
-            let req = Utc::now().naive_utc();
-            assert!(tripped_since(req, &observed(false, at(req, 1), at(req, 5))));
-        }
-
-        /// Already tripped when the signal arrived, reset afterwards: the site
-        /// was stopped during the window, so there is nothing to escalate.
-        #[test]
-        fn tripped_before_and_reset_after_the_request_is_true() {
-            let req = Utc::now().naive_utc();
-            assert!(tripped_since(req, &observed(false, at(req, -10), at(req, 5))));
-        }
-
-        /// A trip that came and went before this request says nothing about it.
-        #[test]
-        fn a_trip_entirely_before_the_request_is_false() {
-            let req = Utc::now().naive_utc();
-            assert!(!tripped_since(req, &observed(false, at(req, -10), at(req, -5))));
-        }
-
-        /// A falling edge with no rise behind it is not a trip. It is what
-        /// `upsert_alarm_transition` records for the first `false` it sees —
-        /// a demo clear with nothing tripped, or a collector's first reading —
-        /// and counting it would hide the warning for a signal the site
-        /// ignored.
-        #[test]
-        fn a_fall_with_no_rise_is_not_a_trip() {
-            let req = Utc::now().naive_utc();
-            assert!(!tripped_since(req, &observed(false, None, at(req, 5))));
-        }
-
-        /// The latest rise came after the latest fall — the alarm is back up —
-        /// so an old fall after the request is not what this rests on; the
-        /// rise is, and it too postdates the request.
-        #[test]
-        fn a_rise_after_the_last_fall_still_counts_on_the_rise() {
-            let req = Utc::now().naive_utc();
-            assert!(tripped_since(req, &observed(false, at(req, 8), at(req, 3))));
-        }
-    }
 
     fn site_fixture(conn: &mut diesel::SqliteConnection) -> i32 {
         let company = insert_company(conn, "Timeout Co".to_string(), None).unwrap();
@@ -615,21 +507,24 @@ mod tests {
         .id
     }
 
-    fn reload(conn: &mut diesel::SqliteConnection, request_id: i32) -> crate::models::EstopRequest {
-        use crate::schema::estop_requests::dsl::*;
-        estop_requests
+    fn reload(
+        conn: &mut diesel::SqliteConnection,
+        request_id: i32,
+    ) -> crate::models::EmergencyShutdownRequest {
+        use crate::schema::emergency_shutdown_requests::dsl::*;
+        emergency_shutdown_requests
             .find(request_id)
-            .select(crate::models::EstopRequest::as_select())
+            .select(crate::models::EmergencyShutdownRequest::as_select())
             .first(conn)
             .unwrap()
     }
 
     /// Backdate a request so the timeout can be exercised without waiting.
     fn age_request(conn: &mut diesel::SqliteConnection, request_id: i32, seconds: i64) {
-        use crate::schema::estop_requests::dsl::*;
+        use crate::schema::emergency_shutdown_requests::dsl::*;
 
         let then = Utc::now().naive_utc() - chrono::Duration::seconds(seconds);
-        diesel::update(estop_requests.find(request_id))
+        diesel::update(emergency_shutdown_requests.find(request_id))
             .set(requested_at.eq(then))
             .execute(conn)
             .unwrap();
@@ -642,13 +537,13 @@ mod tests {
     fn a_request_that_never_reached_the_rtac_fails() {
         let mut conn = setup_test_db();
         let site = site_fixture(&mut conn);
-        let request = request_estop(&mut conn, site, None).unwrap();
+        let request = request_emergency_shutdown(&mut conn, site, None).unwrap();
         age_request(&mut conn, request.id, DISPATCH_TIMEOUT_SECONDS + 1);
 
         let row = reload(&mut conn, request.id);
         let resolved = fail_if_undelivered(&mut conn, row).unwrap();
 
-        assert_eq!(resolved.status(), EstopRequestStatus::Failed);
+        assert_eq!(resolved.status(), EmergencyShutdownRequestStatus::Failed);
         assert!(resolved.failure_reason.is_some());
     }
 
@@ -656,13 +551,13 @@ mod tests {
     fn a_request_still_within_the_timeout_is_left_alone() {
         let mut conn = setup_test_db();
         let site = site_fixture(&mut conn);
-        let request = request_estop(&mut conn, site, None).unwrap();
+        let request = request_emergency_shutdown(&mut conn, site, None).unwrap();
         age_request(&mut conn, request.id, DISPATCH_TIMEOUT_SECONDS - 1);
 
         let row = reload(&mut conn, request.id);
         let resolved = fail_if_undelivered(&mut conn, row).unwrap();
 
-        assert_eq!(resolved.status(), EstopRequestStatus::Pending);
+        assert_eq!(resolved.status(), EmergencyShutdownRequestStatus::Pending);
     }
 
     /// A signal that went out stays sent. The RTAC declining to trip is not the
@@ -671,14 +566,16 @@ mod tests {
     fn a_dispatched_request_is_never_failed_by_the_timeout() {
         let mut conn = setup_test_db();
         let site = site_fixture(&mut conn);
-        let request = request_estop(&mut conn, site, None).unwrap();
-        mark_estop_dispatched(&mut conn, request.id).unwrap().expect("dispatched");
+        let request = request_emergency_shutdown(&mut conn, site, None).unwrap();
+        mark_emergency_shutdown_dispatched(&mut conn, request.id)
+            .unwrap()
+            .expect("dispatched");
         age_request(&mut conn, request.id, DISPATCH_TIMEOUT_SECONDS * 100);
 
         let row = reload(&mut conn, request.id);
         let resolved = fail_if_undelivered(&mut conn, row).unwrap();
 
-        assert_eq!(resolved.status(), EstopRequestStatus::Dispatched);
+        assert_eq!(resolved.status(), EmergencyShutdownRequestStatus::Dispatched);
         assert!(resolved.failure_reason.is_none());
     }
 }

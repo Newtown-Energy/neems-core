@@ -12,7 +12,7 @@
 //! the simulator and the real client can never drift apart.
 
 use neems_data::rtac::{
-    alarm_definitions::{ALARM_REGISTER_COUNT, ESTOP_ALARM_NUM},
+    alarm_definitions::ALARM_REGISTER_COUNT,
     analog_sim::{pack_spread, synthesize_megapack_block},
     protocol::{
         CommandType, MEGAPACK_ANALOG_BASE_POINT, MP_ANALOG_POINT_COUNT, OperatingMode, RegisterMap,
@@ -143,9 +143,12 @@ impl SimState {
                     self.set_idle_electrical();
                 }
             }
-            CommandType::EmergencyStop => {
-                self.mode = OperatingMode::EmergencyStop;
-                self.alarms.set_alarm_num(ESTOP_ALARM_NUM, true);
+            // Stop moving power, and nothing more. What a real RTAC does with a
+            // remote shutdown request is not known here, and in particular it
+            // is not assumed to raise the E-stop alarm (104): the E-stop is a
+            // physical button, and only the demo stands a request in for it.
+            CommandType::EmergencyShutdown => {
+                self.mode = OperatingMode::Standby;
                 self.set_idle_electrical();
             }
             // Handled above before the estop guard.
@@ -316,7 +319,10 @@ impl SimState {
 
 #[cfg(test)]
 mod tests {
-    use neems_data::rtac::protocol::{MEGAPACK_ZONES, mp_analog_offset};
+    use neems_data::rtac::{
+        alarm_definitions::ESTOP_ALARM_NUM,
+        protocol::{MEGAPACK_ZONES, mp_analog_offset},
+    };
 
     use super::*;
 
@@ -465,19 +471,24 @@ mod tests {
     }
 
     #[test]
-    fn estop_command_sets_alarm_and_halts() {
+    fn emergency_shutdown_command_stops_power_without_raising_estop() {
         let mut state = SimState::new(fast_config());
         state.set_soc(50.0);
-        state.set_command(CommandType::EmergencyStop);
-        state.tick();
-        assert!(state.alarms.is_estop_active());
-        assert_eq!(state.mode, OperatingMode::EmergencyStop);
-
-        // Even if a charge command is issued, the estop alarm halts movement.
         state.set_command(CommandType::Charge);
         state.tick();
-        assert_eq!(state.soc_percent, 50.0, "estop halts SoC movement");
-        assert_eq!(state.mode, OperatingMode::EmergencyStop);
+        assert!(state.power_kw != 0.0, "charging moves power");
+
+        state.set_command(CommandType::EmergencyShutdown);
+        state.tick();
+        let soc = state.soc_percent;
+        state.tick();
+        assert_eq!(state.power_kw, 0.0, "shutdown stops moving power");
+        assert_eq!(state.soc_percent, soc, "and holds the state of charge");
+        assert_eq!(state.mode, OperatingMode::Standby);
+        assert!(
+            !state.alarms.is_estop_active(),
+            "a shutdown request is not an E-stop; only the demo raises 104 for it"
+        );
     }
 
     #[test]

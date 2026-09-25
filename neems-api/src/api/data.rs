@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    api::estop::can_access_site,
+    api::emergency_shutdown::can_access_site,
     orm::{DbConn, neems_data::db::SiteDbConn},
     session_guards::AuthenticatedUser,
 };
@@ -895,7 +895,8 @@ pub async fn get_site_latest_analogs(
     // by guessing an id. The sibling endpoints in this file check only that
     // someone is logged in, which is tracked separately; a new endpoint should
     // not add to that. `sites` lives in the main database, so this needs its
-    // own connection alongside the site data one, the way estop.rs does it.
+    // own connection alongside the site data one, the way emergency_shutdown.rs
+    // does it.
     let allowed = db.run(move |conn| can_access_site(&user, site_id, conn)).await;
     if !allowed {
         return Err(Status::Forbidden);
