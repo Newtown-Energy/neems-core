@@ -553,7 +553,7 @@ mod tests {
     }
 
     use super::super::{
-        alarm_definitions::{ESTOP_ALARM_NUM, T1_TEMP_TRIP_ALARM_NUM},
+        design::newtown::alarm_definitions::{ESTOP_ALARM_NUM, T1_TEMP_TRIP_ALARM_NUM},
         state::ConnectionStatus,
     };
 

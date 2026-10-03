@@ -95,6 +95,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .init();
 
     let cli = Cli::parse();
+    // The simulator serves the design's alarm block, so it must run the same
+    // design as the collector reading it: it reads the same variable, before
+    // anything else.
+    let site_design = neems_data::rtac::design::select_from_env()?;
+    info!(design = site_design.id, "Site design selected");
     let no_stdin = cli.no_stdin;
     let config = cli.into_config();
 

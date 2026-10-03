@@ -10,7 +10,7 @@ use neems_data::{
     get_all_alarm_state,
     models::AlarmStateRow,
     rtac::{
-        alarm_definitions::{ALARM_DEFINITIONS, ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone},
+        alarm_definitions::{ALARM_REGISTER_COUNT, AlarmDefinition, AlarmZone, alarm_definitions},
         alarm_sld_meta::sld_meta_for,
         state::AlarmFlags,
     },
@@ -378,7 +378,7 @@ pub async fn get_active_alarms(
 
     // Consider every alarm that is active now or has any recorded data state,
     // and keep the ones [`effective_state`] deems still visible. Iterating
-    // ALARM_DEFINITIONS gives a stable (definition) order.
+    // The design's alarm definitions give a stable (definition) order.
     let mut consider: HashSet<u16> = reading_active.clone();
     for s in &alarm_state {
         if let Ok(num) = u16::try_from(s.alarm_num) {
@@ -387,7 +387,7 @@ pub async fn get_active_alarms(
     }
 
     let mut alarms: Vec<ActiveAlarmDto> = Vec::new();
-    for def in ALARM_DEFINITIONS.iter() {
+    for def in alarm_definitions().iter() {
         if !consider.contains(&def.alarm_num) {
             continue;
         }
@@ -473,7 +473,7 @@ pub async fn acknowledge_alarm(
     body: Json<AcknowledgeAlarmRequest>,
 ) -> Result<Json<AcknowledgeAlarmResponse>, Status> {
     let alarm_num = body.alarm_num;
-    if !ALARM_DEFINITIONS.iter().any(|d| d.alarm_num == alarm_num) {
+    if !alarm_definitions().iter().any(|d| d.alarm_num == alarm_num) {
         return Err(Status::BadRequest);
     }
     let user_id = user.user.id;
@@ -505,7 +505,7 @@ pub async fn acknowledge_alarm(
 #[get("/1/Alarms/Definitions")]
 pub async fn get_alarm_definitions(_user: AuthenticatedUser) -> Json<AlarmDefinitionsResponse> {
     let definitions: Vec<AlarmDefinitionDto> =
-        ALARM_DEFINITIONS.iter().map(AlarmDefinitionDto::from).collect();
+        alarm_definitions().iter().map(AlarmDefinitionDto::from).collect();
     let total_count = definitions.len();
 
     Json(AlarmDefinitionsResponse { definitions, total_count })
@@ -682,7 +682,7 @@ pub async fn get_alarm_history(
         let flags = AlarmFlags::from_registers(&regs);
 
         if let Some(prev) = &prev_flags {
-            for def in ALARM_DEFINITIONS.iter() {
+            for def in alarm_definitions().iter() {
                 if let Some(filter) = &alarm_filter {
                     if !filter.contains(&def.alarm_num) {
                         continue;
@@ -740,7 +740,7 @@ pub async fn get_alarm_history(
         .await?;
 
     let defs_by_num: HashMap<u16, &AlarmDefinition> =
-        ALARM_DEFINITIONS.iter().map(|d| (d.alarm_num, d)).collect();
+        alarm_definitions().iter().map(|d| (d.alarm_num, d)).collect();
 
     for ack in &acks {
         let Ok(num) = u16::try_from(ack.alarm_num) else {

@@ -21,6 +21,7 @@ use crate::{
     create_source, insert_readings_batch,
     rtac::{
         analog_sim::{PACK_POWER_KW, ambient_at, synthesize_all_packs},
+        design,
         protocol::{MP_ANALOG_ENCODING, mp_analog_offset},
         state::AlarmFlags,
     },
@@ -42,26 +43,15 @@ pub struct SeedOutcome {
 
 /// Deterministic demo alarm state for a given instant.
 ///
-/// Each tuple is `(alarm_num, period_minutes, active_minutes, phase_minutes)`:
-/// the alarm is active when the time-of-window position is within the first
-/// `active_minutes` of each `period_minutes` cycle. The chosen alarms span
-/// several zones and severities so the FDNY timeline has variety, and the
-/// long periods keep transitions sparse (a handful per alarm per week) rather
-/// than flapping every sample.
+/// Which alarms come and go, and how often, is the active design's
+/// [`seeded_alarm_cycles`](crate::rtac::design::SiteDesign::seeded_alarm_cycles):
+/// alarm numbers only mean something under the design that defines them.
 pub fn seeded_alarm_flags(utc: DateTime<Utc>) -> AlarmFlags {
-    const PATTERN: &[(u16, i64, i64, i64)] = &[
-        (1, 1440, 90, 0),       // loss_fiber (L3) — ~daily, 90 min
-        (203, 2880, 180, 600),  // meter_loss_of_comms (L5) — every 2 days, 3 h
-        (301, 720, 60, 200),    // t1_temp_alarm (L4) — twice daily, 1 h
-        (104, 4320, 240, 1000), // estop (L2, critical) — every 3 days, 4 h
-        (7, 5760, 30, 2500),    // intruder_detected (L5) — every 4 days, 30 min
-    ];
     let t_min = utc.timestamp() / 60;
     let mut flags = AlarmFlags::default();
-    for &(num, period, active, phase) in PATTERN {
-        let pos = ((t_min - phase) % period + period) % period;
-        if pos < active {
-            flags.set_alarm_num(num, true);
+    for cycle in design::active().seeded_alarm_cycles {
+        if cycle.is_active_at(t_min) {
+            flags.set_alarm_num(cycle.alarm_num, true);
         }
     }
     flags
@@ -288,6 +278,28 @@ mod tests {
 
     fn at(utc: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(utc).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn seeded_alarms_follow_the_active_design_s_cycles() {
+        let cycles = design::active().seeded_alarm_cycles;
+        assert!(!cycles.is_empty());
+
+        // Five weeks of hourly samples covers every cycle several times over.
+        let start = at("2026-08-01T00:00:00Z");
+        let mut ever_active = std::collections::HashSet::new();
+        for hour in 0..(35 * 24) {
+            let utc = start + Duration::hours(hour);
+            let flags = seeded_alarm_flags(utc);
+            for cycle in cycles {
+                let expected = cycle.is_active_at(utc.timestamp() / 60);
+                assert_eq!(flags.is_alarm_num_active(cycle.alarm_num), expected);
+                if expected {
+                    ever_active.insert(cycle.alarm_num);
+                }
+            }
+        }
+        assert_eq!(ever_active.len(), cycles.len(), "a seeded alarm never tripped");
     }
 
     #[test]

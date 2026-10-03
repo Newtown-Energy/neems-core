@@ -6,22 +6,23 @@
 //! therefore done once the collector has written it; how the site acts on it
 //! is the site's business, and nothing here assumes an answer.
 //!
-//! In particular a request is not an E-stop, and alarm 104 is not its outcome.
-//! The status response carries the site's E-stop state (`observed_active`)
-//! alongside the request because operators want both in view, but neither says
-//! anything about the other: a delivered request need never raise 104, and 104
-//! can rise with no request at all.
+//! In particular a request is not an E-stop, and the site's E-stop alarm (the
+//! active design's; 104 for Newtown) is not its outcome. The status response
+//! carries the site's E-stop state (`observed_active`) alongside the request
+//! because operators want both in view, but neither says anything about the
+//! other: a delivered request need never raise the E-stop alarm, and it can
+//! rise with no request at all.
 //!
 //! Engage-only: there is no endpoint to clear a shutdown.
 //!
 //! A demo deployment has no collector and no RTAC, so there the API stands in
-//! for both: a request raises alarm 104 and is reported dispatched. That is the
-//! demo's own stand-in for a site acting on the signal, and lives only in the
-//! demo path. The demo's "panel on site" is `POST /1/Demo/AlarmState` lowering
-//! 104.
+//! for both: a request raises the E-stop alarm and is reported dispatched.
+//! That is the demo's own stand-in for a site acting on the signal, and lives
+//! only in the demo path. The demo's "panel on site" is `POST
+//! /1/Demo/AlarmState` lowering it again.
 
 use chrono::Utc;
-use neems_data::rtac::{alarm_definitions::ESTOP_ALARM_NUM, state::AlarmFlags};
+use neems_data::rtac::{design, state::AlarmFlags};
 use rocket::{Route, State, http::Status, response::status, serde::json::Json};
 
 use super::{
@@ -110,13 +111,14 @@ struct ObservedEstop {
     age_seconds: Option<i64>,
 }
 
-/// Read alarm 104 from the most recent reading that carries alarm registers.
+/// Read the active design's E-stop alarm from the most recent reading that
+/// carries alarm registers.
 ///
 /// Like `/1/Alarms/Active`, this reads the single site database rather than
 /// selecting per site — the deployment is single-site today — and unions in the
-/// materialised `alarm_state` row for alarm 104, which is what a demo-driven
-/// trip writes. Both endpoints must agree about alarm 104; two answers to "is
-/// the site tripped" is exactly the sort of split-brain this whole feature
+/// materialised `alarm_state` row for the E-stop alarm, which is what a
+/// demo-driven trip writes. Both endpoints must agree about it; two answers to
+/// "is the site tripped" is exactly the sort of split-brain this whole feature
 /// exists to remove.
 ///
 /// When no reading carries alarm data, `active` is false because nothing is
@@ -129,7 +131,7 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
             use diesel::prelude::*;
             use neems_data::schema::readings::dsl::*;
 
-            // The demo path drives alarm 104 through `alarm_state`, the same
+            // The demo path drives the E-stop alarm through `alarm_state`, the same
             // table the collector writes, so both readers agree about whether
             // the site is tripped. Propagated, not swallowed: treating a failed
             // read as "no row" would report the E-stop clear on no evidence,
@@ -137,7 +139,7 @@ async fn read_observed_estop(site_db: &SiteDbConn) -> Result<ObservedEstop, dies
             let state_estop = neems_data::get_all_alarm_state(conn)
                 .map_err(diesel::result::Error::QueryBuilderError)?
                 .into_iter()
-                .any(|r| r.alarm_num == ESTOP_ALARM_NUM as i32 && r.data_active);
+                .any(|r| r.alarm_num == design::active().estop_alarm_num as i32 && r.data_active);
 
             let recent: Vec<neems_data::models::Reading> =
                 readings.order(timestamp.desc()).limit(10).load(conn)?;
@@ -219,14 +221,14 @@ fn fail_if_undelivered(
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
 /// Records the request and returns the site's emergency shutdown status. The
-/// response's `observed_active` is the site's E-stop state (alarm 104), not the
-/// request's outcome.
+/// response's `observed_active` is the site's E-stop state (the design's E-stop
+/// alarm), not the request's outcome.
 ///
 /// - **Collector path (demo mode off):** the request comes back `pending`, and
 ///   the collector reports the write through `/Dispatch`.
 /// - **Demo mode:** there is no collector or RTAC, so the API carries the
-///   request out itself — raising alarm 104 as the demo's stand-in for the
-///   site, then marking the request `dispatched` — and the response already
+///   request out itself — raising the E-stop alarm as the demo's stand-in for
+///   the site, then marking the request `dispatched` — and the response already
 ///   reports `observed_active: true`. It is still the alarm that says so, read
 ///   after it was written, not the request standing in for it.
 ///
@@ -281,12 +283,12 @@ pub async fn request_site_emergency_shutdown(
 
 /// Demo mode's stand-in for the collector's emergency shutdown path.
 ///
-/// Raising alarm 104 is a demo-only choice: it gives the diagram something to
-/// show for the press. Nothing outside this path assumes a real site does the
-/// same. The two steps run in the same order as the control path's
-/// `demo_dispatch`: trip the site, then report the request dispatched. Tripping
-/// first keeps the failure path honest — if alarm 104 cannot be raised, the
-/// request fails rather than claiming a trip that never happened.
+/// Raising the E-stop alarm is a demo-only choice: it gives the diagram
+/// something to show for the press. Nothing outside this path assumes a real
+/// site does the same. The two steps run in the same order as the control
+/// path's `demo_dispatch`: trip the site, then report the request dispatched.
+/// Tripping first keeps the failure path honest — if the alarm cannot be
+/// raised, the request fails rather than claiming a trip that never happened.
 ///
 /// Dispatches the request it is given, which after coalescing is the one
 /// already recorded rather than necessarily the press that prompted this call.
@@ -310,7 +312,10 @@ async fn demo_dispatch_emergency_shutdown(
             .await?
         }
         Err(e) => {
-            eprintln!("Demo E-stop: could not raise alarm {ESTOP_ALARM_NUM}: {e:?}");
+            eprintln!(
+                "Demo E-stop: could not raise alarm {}: {e:?}",
+                design::active().estop_alarm_num
+            );
             db.run(move |conn| {
                 resolve_emergency_shutdown_request(
                     conn,
@@ -333,10 +338,10 @@ async fn demo_dispatch_emergency_shutdown(
 /// - **Method:** `GET`
 /// - **Authentication:** Required; the user must be able to access the site.
 ///
-/// `observed_active` comes from alarm 104 and is the authority on whether the
-/// site's E-stop is tripped. `request` describes the latest operator request
-/// and says only whether their signal reached the RTAC. The two are independent
-/// and neither is evidence about the other.
+/// `observed_active` comes from the design's E-stop alarm and is the authority
+/// on whether the site's E-stop is tripped. `request` describes the latest
+/// operator request and says only whether their signal reached the RTAC. The
+/// two are independent and neither is evidence about the other.
 #[get("/1/Sites/<site_id>/EmergencyShutdown")]
 pub async fn get_site_emergency_shutdown(
     db: DbConn,

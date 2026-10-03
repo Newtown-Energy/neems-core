@@ -122,6 +122,10 @@ mod tests {
         use crate::api::status::HealthStatus;
         HealthStatus::export().expect("Failed to export HealthStatus type");
 
+        // Site design API types
+        use crate::api::site_design::SiteDesignDto;
+        SiteDesignDto::export().expect("Failed to export SiteDesignDto type");
+
         // FixPhrase API types
         #[cfg(feature = "fixphrase")]
         use crate::api::fixphrase::FixPhraseResponse;

@@ -20,6 +20,12 @@ own spellings.
   `Rocket.toml`; env wins.
 - Values marked **required** have no default — the process fails fast if unset.
 
+## All processes
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `NEEMS_SITE_DESIGN` | no | `newtown` | The site design this deployment runs: its alarm matrix, SLD metadata, analog points and controls (`neems-data/src/rtac/design/`). Read by neems-api, neems-data and neems-rtac-sim, which **must all agree** — they share alarm history, and it only means anything under the design that wrote it. An unknown id fails startup. The frontend learns it from `GET /api/1/SiteDesign` rather than being configured separately. |
+
 ## neems-api
 
 | Variable | Required | Default | Purpose |

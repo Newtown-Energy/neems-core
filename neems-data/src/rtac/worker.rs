@@ -138,7 +138,7 @@ pub enum ShutdownReason {
 }
 
 use super::{
-    alarm_definitions::ALARM_DEFINITIONS,
+    alarm_definitions::alarm_definitions,
     alarms::Alarm,
     modbus_client::{MegapackAnalogRead, ModbusClient, ModbusClientConfig},
     protocol::{MEGAPACK_ZONES, MegapackAnalogs, ParsedStatus},
@@ -604,7 +604,7 @@ impl ModbusWorker {
     async fn check_alarms(&mut self, status: &ParsedStatus) {
         let new_flags = AlarmFlags::from_registers(&status.alarm_registers);
 
-        for def in ALARM_DEFINITIONS {
+        for def in alarm_definitions() {
             let was_active = self.last_alarm_flags.is_alarm_active(def);
             let is_active = new_flags.is_alarm_active(def);
 

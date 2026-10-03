@@ -14,7 +14,8 @@ use diesel::prelude::*;
 use neems_data::{
     SeedOutcome, get_all_alarm_state, record_alarm_snapshot,
     rtac::{
-        alarm_definitions::{ALARM_DEFINITIONS, ESTOP_ALARM_NUM},
+        alarm_definitions::alarm_definitions,
+        design,
         site_controls::{SiteControl, SiteControlAction},
         state::AlarmFlags,
     },
@@ -301,7 +302,7 @@ pub async fn set_alarm_state(
     forbid_unless_demo_role(&user)?;
 
     let alarm_num = body.alarm_num;
-    if !ALARM_DEFINITIONS.iter().any(|d| d.alarm_num == alarm_num) {
+    if !alarm_definitions().iter().any(|d| d.alarm_num == alarm_num) {
         return Err(Status::BadRequest);
     }
     let active = body.active;
@@ -364,23 +365,24 @@ pub(crate) fn apply_control_readback(
     write_site_alarm(conn, readback.alarm_num, readback.bit_for(action.resulting_position()))
 }
 
-/// Carry out an emergency shutdown request for the demo: raise alarm 104.
+/// Carry out an emergency shutdown request for the demo: raise the active
+/// design's E-stop alarm (104 for Newtown).
 ///
-/// Demo-only. A real site may act on the request without raising 104, and
-/// nothing outside the demo path assumes it does.
+/// Demo-only. A real site may act on the request without raising its E-stop
+/// alarm, and nothing outside the demo path assumes it does.
 ///
 /// The emergency shutdown's counterpart to [`apply_control_readback`], for the
 /// same reason — a demo has no collector, so a trip request otherwise waits for
 /// one and fails after a minute, telling the audience the site was never asked.
-/// Raising 104 is what a real RTAC does when it trips, so
-/// `/EmergencyShutdown`'s `observed_active` and the diagram's lockout follow
-/// from the alarm feed exactly as they would against hardware.
+/// With the E-stop alarm raised, `/EmergencyShutdown`'s `observed_active` and
+/// the diagram's lockout follow from the alarm feed exactly as they would
+/// against a site whose E-stop had tripped.
 ///
 /// Engage-only, like the real thing. There is still no way to clear a trip
 /// through a request; on a demo, the "panel on site" is `POST
-/// /1/Demo/AlarmState` lowering 104.
+/// /1/Demo/AlarmState` lowering the same alarm.
 pub(crate) fn apply_estop_trip(conn: &mut diesel::SqliteConnection) -> SiteWriteResult {
-    write_site_alarm(conn, ESTOP_ALARM_NUM, true)
+    write_site_alarm(conn, design::active().estop_alarm_num, true)
 }
 
 /// Set one alarm's data state as the site would report it: the transition, and
@@ -496,7 +498,9 @@ pub fn routes() -> Vec<Route> {
 mod tests {
     use chrono::Duration;
     use diesel_migrations::MigrationHarness;
-    use neems_data::rtac::site_controls::site_control_by_id;
+    use neems_data::rtac::{
+        design::newtown::alarm_definitions::ESTOP_ALARM_NUM, site_controls::site_control_by_id,
+    };
 
     use super::*;
 

@@ -122,6 +122,13 @@ fn log_rocket_info(rocket: &Rocket<Build>) {
 /// set up the test_rocket in-memory db.  That is defined in db.rs.
 #[launch]
 pub fn rocket() -> Rocket<Build> {
+    // Fix the design before the Rocket exists, so a mistyped NEEMS_SITE_DESIGN
+    // fails the launch rather than the first request. Not an ignite fairing:
+    // Rocket runs every fairing even after one fails, so the databases would
+    // be migrated and seeded for a launch it then refuses.
+    let site_design = neems_data::rtac::design::select_from_env().unwrap_or_else(|e| panic!("{e}"));
+    info!("Site design: {}", site_design.id);
+
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let site_database_url =
         std::env::var("SITE_DATABASE_URL").expect("SITE_DATABASE_URL must be set");

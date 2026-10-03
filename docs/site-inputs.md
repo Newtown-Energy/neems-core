@@ -33,7 +33,7 @@ derived fields" in [`alarms/README.md`](alarms/README.md).
 > was already taken — `models::site::SiteInput` is the set of fields for
 > creating a site, and both would sit side by side in the published types
 > package meaning entirely different things. So the endpoints are `/Controls`,
-> the registry is `SITE_CONTROLS`, and the requests are `control_requests`. This
+> the registry is each site design's `SITE_CONTROLS`, and the requests are `control_requests`. This
 > document keeps the client's word because it is the word they will use when
 > they send the `Outputs` sheet.
 
@@ -194,8 +194,8 @@ The controls in the table below share one path, added for neems-core#110:
 | `/api/1/Sites/<site_id>/Controls/Requests/<request_id>/Sent` | POST | The collector reporting its write succeeded. |
 | `/api/1/Sites/<site_id>/Controls/Requests/<request_id>/Failed` | POST | The collector reporting why it could not. |
 
-The table of instances is compiled in, at
-`neems-data/src/rtac/site_controls.rs` — it describes the site's equipment and the
+The table of instances is compiled in, per site design (Newtown's is
+`neems-data/src/rtac/design/newtown/site_controls.rs`) — it describes the site's equipment and the
 code that knows how to write it, not data an operator can edit, and serving it
 keeps the diagram from carrying its own copy of which elements are interactable.
 Requests live in `control_requests` (`neems-api/src/models/control_request.rs`).

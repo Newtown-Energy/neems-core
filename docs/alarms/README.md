@@ -13,7 +13,7 @@ alarms and data points across all three components:
 > **The derived JSON is only redacted to the extent you tell it to be.** Alarm
 > and equipment names (Tesla Megapack, SEL relays, etc.) are copied verbatim
 > from the spreadsheet — the same names already used in
-> `neems-data/src/rtac/alarm_definitions.rs`. Anything that must stay private
+> `neems-data/src/rtac/design/newtown/alarm_definitions.rs`. Anything that must stay private
 > goes in **`alarm-redactions.tsv`**, a tab-separated `find<TAB>replace` file
 > kept beside the workbook, **outside the repo** (override the path with
 > `ALARM_REDACTIONS`). The generator applies it as cells are read, so slugs,
@@ -29,8 +29,8 @@ alarms and data points across all three components:
 > diff, which is not a control. Sweep with
 > `grep -rinE '<vendor>|<site>' .` before committing regardless.
 
-- **neems-core** (Rust backend) — `neems-data/src/rtac/alarm_definitions.rs`,
-  `neems-data/src/rtac/protocol.rs`
+- **neems-core** (Rust backend) — the Newtown site design in
+  `neems-data/src/rtac/design/newtown/`, and `neems-data/src/rtac/protocol.rs`
 - **neems-react** (frontend) — SLD components, `siteConfig.ts`, generated types
 - **neems-rtac-sim** (Modbus simulation) — reuses the `rtac::protocol` register map
 
@@ -40,8 +40,8 @@ alarms and data points across all three components:
 |------|---------|
 | `newtown-alarms.json` | The generated spec (do not hand-edit; regenerate instead). |
 | `build_alarm_spec.py` | Spreadsheet → JSON generator (needs `openpyxl`). See "How to regenerate" below. |
-| `build_alarm_meta_rs.py` | JSON → Rust generator for `neems-data/src/rtac/alarm_sld_meta.rs`. |
-| `build_analog_points_rs.py` | JSON → Rust generator for `neems-data/src/rtac/analog_points.rs` (the analog register map). |
+| `build_alarm_meta_rs.py` | JSON → Rust generator for a design's alarm SLD metadata (Newtown: `neems-data/src/rtac/design/newtown/alarm_sld_meta.rs`). |
+| `build_analog_points_rs.py` | JSON → Rust generator for a design's analog points (Newtown: `neems-data/src/rtac/design/newtown/analog_points.rs`, the analog register map). |
 | _(source `.xlsx`)_ | The client spreadsheet — kept **outside** the repo, never committed. |
 | _(`alarm-redactions.tsv`)_ | Private strings to scrub, `find<TAB>replace` per line — kept **outside** the repo beside the workbook. |
 
@@ -293,7 +293,9 @@ eye during implementation):
 
 The data flows in two steps — **run all three** after the client sends a new
 workbook: spreadsheet → `newtown-alarms.json` → the generated Rust tables
-(`neems-data/src/rtac/alarm_sld_meta.rs` and `analog_points.rs`). Updating only
+(`neems-data/src/rtac/design/newtown/alarm_sld_meta.rs` and `analog_points.rs`).
+Both Rust generators default to Newtown's spec and design module; `--spec` and
+`--out` point them at another design. Updating only
 the JSON leaves the API serving stale messages/targets and the analog register
 map pointing at the old addresses.
 
@@ -338,10 +340,11 @@ python3 neems-core/docs/alarms/build_alarm_meta_rs.py
 python3 neems-core/docs/alarms/build_analog_points_rs.py
 ```
 
-The `test_every_definition_has_sld_meta` unit test fails if any
-`ALARM_DEFINITIONS` entry loses its metadata after a regeneration, so CI catches
+The `every_definition_has_sld_meta` unit test (in `rtac::design`, run for
+every registered design) fails if any hand-curated alarm definition loses its
+metadata after a regeneration, so CI catches
 drift between the hand-curated Rust definitions and the spec. On the analog
-side, `the_generated_registry_agrees_with_the_address_map` and
+side, `every_design_s_pack_points_sit_where_the_address_map_puts_them` and
 `the_named_offsets_point_at_the_measurements_they_claim` (in `protocol.rs`)
 catch a regeneration that moves a point out from under the hand-written
 `mp_analog_offset` constants.
