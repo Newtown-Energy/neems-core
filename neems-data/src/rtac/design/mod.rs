@@ -3,7 +3,7 @@
 //! A design is a site's alarm matrix, the SLD metadata that goes with it, its
 //! analog points and its operator controls, plus the few alarm numbers the
 //! rest of the system has to single out. Each design lives in its own module
-//! (for now only [`newtown`]) and is registered in [`DESIGNS`].
+//! ([`newtown`], [`site_2`]) and is registered in [`DESIGNS`].
 //!
 //! A deployment runs exactly one design, chosen at startup by
 //! [`NEEMS_SITE_DESIGN`](ENV_VAR) and fixed for the life of the process.
@@ -27,6 +27,7 @@ use super::{
 };
 
 pub mod newtown;
+pub mod site_2;
 
 /// The environment variable that selects the design.
 pub const ENV_VAR: &str = "NEEMS_SITE_DESIGN";
@@ -35,7 +36,7 @@ pub const ENV_VAR: &str = "NEEMS_SITE_DESIGN";
 pub const DEFAULT_ID: &str = "newtown";
 
 /// Every design this build knows about.
-pub const DESIGNS: &[&SiteDesign] = &[&newtown::DESIGN];
+pub const DESIGNS: &[&SiteDesign] = &[&newtown::DESIGN, &site_2::DESIGN];
 
 /// One site's design.
 pub struct SiteDesign {
