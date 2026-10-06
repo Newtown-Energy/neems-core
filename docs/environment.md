@@ -24,7 +24,7 @@ own spellings.
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `NEEMS_SITE_DESIGN` | no | `newtown` | The site design this deployment runs: its alarm matrix, SLD metadata, analog points and controls (`neems-data/src/rtac/design/`). Read by neems-api, neems-data and neems-rtac-sim, which **must all agree** — they share alarm history, and it only means anything under the design that wrote it. An unknown id fails startup. The frontend learns it from `GET /api/1/SiteDesign` rather than being configured separately. |
+| `NEEMS_SITE_DESIGN` | no | `newtown` | The site design this deployment runs: its alarm matrix, SLD metadata, analog points and controls (`neems-data/src/rtac/design/`). Read by neems-api, neems-data and neems-rtac-sim, which **must all agree** — they share alarm history, and it only means anything under the design that wrote it. Known ids: `newtown`, `site-2` (diagram only so far; its alarm tables are borrowed from `newtown`). An unknown id fails startup. The frontend learns it from `GET /api/1/SiteDesign` rather than being configured separately. |
 
 ## neems-api
 
